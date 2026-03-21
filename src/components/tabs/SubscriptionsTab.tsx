@@ -774,12 +774,7 @@ export function SubscriptionsTab() {
                         {sub.customer?.name}
                       </TableCell>
 
-                      {/* 3. 뒷4자리 */}
-                      <TableCell className="py-1 text-xs text-muted-foreground tabular-nums">
-                        {sub.customer?.phone_last4 ? `••••${sub.customer.phone_last4}` : '-'}
-                      </TableCell>
-
-                      {/* 4. 카톡이름 (inline editable) */}
+                      {/* 3. 카톡이름 (inline editable) */}
                       <TableCell className="py-1 text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
                         {editingKakaoId === sub.id ? (
                           <Input
