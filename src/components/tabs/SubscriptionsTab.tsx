@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { EmptyState } from '@/components/ui/empty-state'
-import { SkeletonTable } from '@/components/ui/skeleton'
+import { Skeleton, SkeletonTable } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
@@ -19,7 +19,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { SUBSCRIPTION_STATUSES, STATUS_LABELS, type SubscriptionStatus } from '@/lib/constants'
-import { Users, Send, Pause, Clock, FileText, MessageSquare } from 'lucide-react'
+import { useConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Users, Send, Pause, Clock, FileText, MessageSquare, Check } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -33,8 +34,17 @@ interface SubRow {
   d_day: number
   friend_confirmed: boolean
   friend_confirmed_at: string | null
+  auto_confirmed: boolean
+  last_send_failure: string | null
+  resume_date: string | null
   memo: string | null
   device_id: string | null
+  created_at?: string
+  order_item?: {
+    order?: {
+      ordered_at?: string
+    }
+  } | null
   customer: {
     id: string
     name: string
@@ -54,6 +64,17 @@ interface SubRow {
     phone_number: string
     name: string | null
   } | null
+}
+
+interface LogEntry {
+  id: string
+  action: string
+  field_name: string | null
+  old_value: string | null
+  new_value: string | null
+  memo: string | null
+  created_at: string
+  user: { name: string } | null
 }
 
 interface SummaryData {
@@ -158,6 +179,9 @@ export function SubscriptionsTab() {
 
   // Toast
   const { toast, showSuccess, showError, clearToast } = useToast()
+
+  // Confirm dialog
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   // ─── Data fetching ───────────────────────────────────
 
@@ -346,6 +370,24 @@ export function SubscriptionsTab() {
     setDetailSub((prev) => (prev ? { ...prev, memo: memoValue } : null))
   }
 
+  const handleClearFailure = async (sub: SubRow) => {
+    const ok = await confirm({
+      title: '발송 실패 해소',
+      description: `발송 실패를 해소하시겠습니까?\n(사유: ${sub.last_send_failure})`,
+      variant: 'warning',
+      confirmLabel: '해소',
+    })
+    if (!ok) return
+    const success = await updateSubscription(sub.id, { last_send_failure: null })
+    if (success) {
+      showSuccess('발송 실패가 해소되었습니다')
+      fetchSubs()
+      fetchSummary()
+    } else {
+      showError('해소에 실패했습니다')
+    }
+  }
+
   // ─── Bulk actions ────────────────────────────────────
 
   const handleBulkStatus = async (status: string) => {
@@ -379,12 +421,21 @@ export function SubscriptionsTab() {
     }
   }
 
-  // ─── Detail sheet ────────────────────────────────────
+  // ─── Detail sheet + history ─────────────────────────
 
-  const openDetail = (sub: SubRow) => {
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [logsLoading, setLogsLoading] = useState(false)
+
+  const openDetail = async (sub: SubRow) => {
     setDetailSub(sub)
     setMemoValue(sub.memo || '')
     setSheetOpen(true)
+    setLogsLoading(true)
+    try {
+      const res = await fetch(`/api/subscriptions/logs?subscription_id=${sub.id}`)
+      if (res.ok) setLogs(await res.json())
+      else setLogs([])
+    } catch { setLogs([]) } finally { setLogsLoading(false) }
   }
 
   // ─── Pagination ──────────────────────────────────────
@@ -537,6 +588,8 @@ export function SubscriptionsTab() {
                   <TableHead className="w-[120px]">상태</TableHead>
                   <TableHead className="w-[110px]">PC</TableHead>
                   <TableHead className="w-[60px] text-center">친구확인</TableHead>
+                  <TableHead className="w-[40px] text-center">오토</TableHead>
+                  <TableHead className="w-[60px] text-center">실패</TableHead>
                   <TableHead className="min-w-[100px]">메모</TableHead>
                 </TableRow>
               </TableHeader>
@@ -639,25 +692,32 @@ export function SubscriptionsTab() {
 
                       {/* 11. 상태 */}
                       <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
-                        <Select
-                          value={sub.status}
-                          onValueChange={(v) => handleStatusChange(sub.id, v)}
-                        >
-                          <SelectTrigger className="h-6 w-[100px] border-0 bg-transparent px-0 text-xs focus:ring-0">
-                            <StatusBadge status={sm?.status ?? 'neutral'} size="xs">
-                              {sm?.label ?? sub.status}
-                            </StatusBadge>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {SUBSCRIPTION_STATUSES.map((s) => (
-                              <SelectItem key={s} value={s}>
-                                <StatusBadge status={STATUS_MAP[s].status} size="xs">
-                                  {STATUS_MAP[s].label}
-                                </StatusBadge>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div>
+                          <Select
+                            value={sub.status}
+                            onValueChange={(v) => handleStatusChange(sub.id, v)}
+                          >
+                            <SelectTrigger className="h-6 w-[100px] border-0 bg-transparent px-0 text-xs focus:ring-0">
+                              <StatusBadge status={sm?.status ?? 'neutral'} size="xs">
+                                {sm?.label ?? sub.status}
+                              </StatusBadge>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {SUBSCRIPTION_STATUSES.map((s) => (
+                                <SelectItem key={s} value={s}>
+                                  <StatusBadge status={STATUS_MAP[s].status} size="xs">
+                                    {STATUS_MAP[s].label}
+                                  </StatusBadge>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {sub.status === 'pause' && sub.resume_date && (
+                            <div className="text-[10px] text-muted-foreground pl-0.5">
+                              ~{new Date(sub.resume_date).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }).replace('. ', '/').replace('.', '')} 재개
+                            </div>
+                          )}
+                        </div>
                       </TableCell>
 
                       {/* 12. PC */}
@@ -690,7 +750,30 @@ export function SubscriptionsTab() {
                         />
                       </TableCell>
 
-                      {/* 14. 메모 */}
+                      {/* 14. 오토체크 */}
+                      <TableCell className="py-1 text-center text-xs">
+                        {sub.auto_confirmed ? (
+                          <Check className="inline h-3.5 w-3.5 text-emerald-500/70" />
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+
+                      {/* 15. 최근발송실패 */}
+                      <TableCell className="py-1 text-center text-xs" onClick={(e) => e.stopPropagation()}>
+                        {sub.last_send_failure ? (
+                          <button
+                            className="text-destructive hover:underline cursor-pointer text-xs font-medium"
+                            onClick={() => handleClearFailure(sub)}
+                          >
+                            실패
+                          </button>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+
+                      {/* 16. 메모 */}
                       <TableCell
                         className="py-1 text-xs text-muted-foreground cursor-pointer truncate max-w-[150px]"
                         title={sub.memo || undefined}
@@ -774,7 +857,9 @@ export function SubscriptionsTab() {
                     </StatusBadge>
                   </div>
                   <div className="text-muted-foreground">상품</div>
-                  <div className="font-mono text-xs">{detailSub.product.sku_code}</div>
+                  <div><span className="font-mono text-xs">{detailSub.product.sku_code}</span> <span className="text-xs text-muted-foreground">{detailSub.product.title}</span></div>
+                  <div className="text-muted-foreground">주문일</div>
+                  <div className="tabular-nums">{detailSub.order_item?.order?.ordered_at?.slice(0, 10) || detailSub.created_at?.slice(0, 10) || '-'}</div>
                   <div className="text-muted-foreground">기간</div>
                   <div>{detailSub.duration_days}일</div>
                   <div className="text-muted-foreground">시작일</div>
@@ -801,6 +886,55 @@ export function SubscriptionsTab() {
                       <StatusBadge status="neutral" size="xs">미확인</StatusBadge>
                     )}
                   </div>
+                  <div className="text-muted-foreground">오토체크</div>
+                  <div>
+                    {detailSub.auto_confirmed ? (
+                      <StatusBadge status="success" size="xs">자동확인됨</StatusBadge>
+                    ) : (
+                      <StatusBadge status="neutral" size="xs">미확인</StatusBadge>
+                    )}
+                  </div>
+                  <div className="text-muted-foreground">발송실패</div>
+                  <div className="flex items-center gap-2">
+                    {detailSub.last_send_failure ? (
+                      <>
+                        <span className="text-destructive text-xs">{detailSub.last_send_failure}</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-5 text-[10px] px-1.5"
+                          onClick={() => handleClearFailure(detailSub)}
+                        >
+                          해소
+                        </Button>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </div>
+                  {detailSub.status === 'pause' && (
+                    <>
+                      <div className="text-muted-foreground">재개예정일</div>
+                      <div>
+                        <Input
+                          type="date"
+                          className="h-7 w-[140px] text-xs"
+                          value={detailSub.resume_date || ''}
+                          onChange={async (e) => {
+                            const val = e.target.value || null
+                            const ok = await updateSubscription(detailSub.id, { resume_date: val })
+                            if (ok) {
+                              setDetailSub((prev) => prev ? { ...prev, resume_date: val } : null)
+                              setSubs((prev) => prev.map((s) => s.id === detailSub.id ? { ...s, resume_date: val } : s))
+                              showSuccess('재개예정일이 변경되었습니다')
+                            } else {
+                              showError('재개예정일 변경에 실패했습니다')
+                            }
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               </section>
 
@@ -819,12 +953,53 @@ export function SubscriptionsTab() {
                   </Button>
                 </div>
               </section>
+
+              {/* History Timeline */}
+              <section className="space-y-3">
+                <h3 className="text-sm font-semibold">변경 히스토리</h3>
+                {logsLoading ? (
+                  <div className="space-y-2">
+                    {[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+                  </div>
+                ) : logs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">변경 이력이 없습니다</p>
+                ) : (
+                  <div className="space-y-0 border-l-2 border-muted ml-2">
+                    {logs.map(log => (
+                      <div key={log.id} className="relative pl-5 pb-4">
+                        <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-muted-foreground/40" />
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-[11px] text-muted-foreground tabular-nums">
+                            {log.created_at?.slice(0, 16)?.replace('T', ' ')}
+                          </span>
+                          {log.user?.name && (
+                            <span className="text-[10px] text-muted-foreground">({log.user.name})</span>
+                          )}
+                        </div>
+                        <p className="text-xs mt-0.5">
+                          {log.old_value && log.new_value ? (
+                            <>{log.field_name === 'status' ? '상태' : log.field_name}: <span className="text-muted-foreground line-through">{log.old_value}</span> → <span className="font-medium">{log.new_value}</span></>
+                          ) : log.new_value ? (
+                            <>{log.field_name}: <span className="font-medium">{log.new_value}</span></>
+                          ) : (
+                            <span className="text-muted-foreground">{log.action}</span>
+                          )}
+                        </p>
+                        {log.memo && <p className="text-[11px] text-muted-foreground mt-0.5">{log.memo}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
             </div>
           )}
         </SheetContent>
       </Sheet>
 
-      {/* 6. Toast */}
+      {/* 6. Confirm Dialog */}
+      {ConfirmDialogElement}
+
+      {/* 7. Toast */}
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={clearToast} />
       )}

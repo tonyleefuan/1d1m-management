@@ -98,7 +98,7 @@ function MessageEditModal({
   )
 }
 
-// --- 상품 사이드바 ---
+// --- 상품 사이드바 (검색 포함) ---
 function ProductSidebar({
   products,
   selectedProduct,
@@ -108,6 +108,15 @@ function ProductSidebar({
   selectedProduct: string
   onSelect: (id: string) => void
 }) {
+  const [search, setSearch] = useState('')
+
+  const filtered = search
+    ? products.filter(p =>
+        p.sku_code.toLowerCase().includes(search.toLowerCase()) ||
+        p.title.toLowerCase().includes(search.toLowerCase())
+      )
+    : products
+
   if (products.length === 0) {
     return (
       <Card className="w-56 shrink-0">
@@ -120,8 +129,18 @@ function ProductSidebar({
 
   return (
     <Card className="w-72 shrink-0 overflow-hidden">
-      <div className="max-h-[calc(100vh-280px)] overflow-y-auto">
-        {products.map(p => (
+      <div className="p-2 border-b">
+        <Input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="상품 코드 / 이름 검색"
+          className="h-8 text-xs"
+        />
+      </div>
+      <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
+        {filtered.length === 0 ? (
+          <p className="text-xs text-muted-foreground p-3 text-center">검색 결과 없음</p>
+        ) : filtered.map(p => (
           <button
             key={p.id}
             onClick={() => onSelect(p.id)}
@@ -159,39 +178,52 @@ function MessageListSkeleton() {
 function FixedMessagesPanel({ products }: { products: Product[] }) {
   const fixedProducts = products.filter(p => p.message_type === 'fixed')
   const [selectedProduct, setSelectedProduct] = useState<string>('')
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<Message | null | undefined>(undefined)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const pageSize = 50
   const { toast, showSuccess, showError, clearToast } = useToast()
 
   const fetchMessages = useCallback(async () => {
     if (!selectedProduct) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/messages/list?product_id=${selectedProduct}`)
+      const res = await fetch(`/api/messages/list?product_id=${selectedProduct}&page=${page}&limit=${pageSize}`)
       if (!res.ok) throw new Error('Failed')
-      setMessages(await res.json())
+      const data = await res.json()
+      setMessages(data.data || data || [])
+      setTotal(data.total || 0)
     } catch {
       showError('메시지를 불러오지 못했습니다')
     } finally { setLoading(false) }
-  }, [selectedProduct, showError])
+  }, [selectedProduct, page, showError])
 
   useEffect(() => { fetchMessages() }, [fetchMessages])
+  useEffect(() => { setPage(1) }, [selectedProduct])
 
   const handleSaved = () => {
     fetchMessages()
     showSuccess('메시지가 저장되었습니다')
   }
 
+  const totalPages = Math.ceil(total / pageSize)
+
+  // 같은 day_number가 여러 개인지 확인
+  const dayCounts = new Map<number, number>()
+  messages.forEach(m => {
+    const d = m.day_number
+    dayCounts.set(d, (dayCounts.get(d) || 0) + 1)
+  })
+
   return (
     <div className="flex gap-4">
-      {/* 좌측: 상품 목록 */}
       <ProductSidebar
         products={fixedProducts}
         selectedProduct={selectedProduct}
         onSelect={setSelectedProduct}
       />
-      {/* 우측: 메시지 목록 */}
       <div className="flex-1">
         {!selectedProduct ? (
           <EmptyState
@@ -204,7 +236,7 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
         ) : (
           <>
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-muted-foreground">{messages.length}개 메시지</span>
+              <span className="text-sm text-muted-foreground">총 {total}개 메시지</span>
               <Button size="sm" onClick={() => setEditing(null)}>
                 <Plus className="h-3.5 w-3.5 mr-1" />
                 Day 추가
@@ -218,25 +250,43 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
                 action={{ label: 'Day 추가', onClick: () => setEditing(null) }}
               />
             ) : (
-              <div className="space-y-1.5 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
-                {messages.map(m => (
-                  <div
-                    key={m.id}
-                    className="flex items-start gap-3 px-4 py-3 rounded-lg border bg-card hover:bg-muted/50 cursor-pointer transition-colors"
-                    onClick={() => setEditing(m)}
-                  >
-                    <div className="shrink-0 w-14 text-center">
-                      <span className="inline-block font-mono text-xs font-semibold bg-primary text-primary-foreground px-2 py-0.5 rounded">
-                        D{(m as any).day_number}
-                      </span>
-                      {(m as any).sort_order > 1 && (
-                        <span className="block text-[10px] text-muted-foreground mt-0.5">#{(m as any).sort_order}</span>
-                      )}
-                    </div>
-                    <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+              <>
+                <div className="space-y-1.5 max-h-[calc(100vh-380px)] overflow-y-auto pr-1">
+                  {messages.map((m, idx) => {
+                    const hasMultiple = (dayCounts.get(m.day_number) || 0) > 1
+                    // 같은 day_number 내에서 몇 번째인지
+                    const sameDay = messages.filter(x => x.day_number === m.day_number)
+                    const partIdx = sameDay.indexOf(m) + 1
+
+                    return (
+                      <div
+                        key={m.id}
+                        className="flex items-start gap-3 px-4 py-3 rounded-lg border bg-card hover:bg-muted/50 cursor-pointer transition-colors"
+                        onClick={() => setEditing(m)}
+                      >
+                        <div className="shrink-0 w-16 flex items-center gap-1">
+                          <span className="inline-block font-mono text-xs font-semibold bg-primary text-primary-foreground px-2 py-0.5 rounded">
+                            D{m.day_number}
+                          </span>
+                          {hasMultiple && (
+                            <span className="inline-block text-[10px] font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
+                              {partIdx}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+                {totalPages > 1 && (
+                  <div className="flex justify-center items-center gap-2 pt-3">
+                    <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>이전</Button>
+                    <span className="text-xs text-muted-foreground tabular-nums">{page} / {totalPages}</span>
+                    <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages}>다음</Button>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </>
         )}

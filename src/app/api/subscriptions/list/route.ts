@@ -22,7 +22,8 @@ export async function GET(req: Request) {
       *,
       customer:customers(id, name, phone, phone_last4, kakao_friend_name, email),
       product:products(id, sku_code, title, message_type),
-      device:send_devices(id, phone_number, name)
+      device:send_devices(id, phone_number, name),
+      order_item:order_items(order:orders(ordered_at))
     `, { count: 'exact' })
     .order('start_date', { ascending: false, nullsFirst: true })
     .range((page - 1) * limit, page * limit - 1)

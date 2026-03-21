@@ -58,13 +58,19 @@ export async function PATCH(req: Request) {
 
     if (updates.status !== undefined) {
       updateData.status = updates.status
-      if (updates.status === 'pause') updateData.paused_at = new Date().toISOString()
+      if (updates.status === 'pause') {
+        updateData.paused_at = new Date().toISOString()
+        if (updates.resume_date) {
+          updateData.resume_date = updates.resume_date
+        }
+      }
       if (updates.status === 'cancel') {
         updateData.cancelled_at = new Date().toISOString()
         updateData.cancel_reason = updates.cancel_reason || null
       }
-      if (updates.status === 'live' && updates.start_date === undefined) {
+      if (updates.status === 'live') {
         updateData.paused_at = null
+        updateData.resume_date = null
       }
     }
     if (updates.device_id !== undefined) updateData.device_id = updates.device_id
@@ -93,6 +99,16 @@ export async function PATCH(req: Request) {
       }
     }
     if (updates.memo !== undefined) updateData.memo = updates.memo
+    if (updates.last_send_failure !== undefined) {
+      updateData.last_send_failure = updates.last_send_failure
+      // If clearing failure (setting to null), transition back to live
+      if (updates.last_send_failure === null) {
+        updateData.status = 'live'
+      }
+    }
+    if (updates.resume_date !== undefined) {
+      updateData.resume_date = updates.resume_date
+    }
 
     const { error } = await supabase
       .from('subscriptions')
