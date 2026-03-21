@@ -242,6 +242,34 @@ export function SendingTab() {
         </CardContent>
       </Card>
 
+      {/* PC 탭 */}
+      <div className="flex items-center gap-1 border-b">
+        <button
+          onClick={() => setSelectedDevice('')}
+          className={cn(
+            'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors',
+            !selectedDevice ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          전체 ({totalSummary.total})
+        </button>
+        {devices.filter(d => d.is_active).map((d) => {
+          const s = summary[d.id] || { total: 0, pending: 0, sent: 0, failed: 0 }
+          return (
+            <button
+              key={d.id}
+              onClick={() => setSelectedDevice(d.id)}
+              className={cn(
+                'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors',
+                selectedDevice === d.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {d.name || d.phone_number.slice(-4)} ({s.total})
+            </button>
+          )
+        })}
+      </div>
+
       {/* 요약 + 필터 */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
@@ -252,20 +280,7 @@ export function SendingTab() {
             <Badge variant="destructive" className="text-xs">실패 {displaySummary.failed}</Badge>
           )}
         </div>
-        <div className="ml-auto flex gap-2">
-          <Select value={selectedDevice} onValueChange={setSelectedDevice}>
-            <SelectTrigger className="h-8 w-[200px] text-xs">
-              <SelectValue placeholder="전체 PC" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">전체 PC</SelectItem>
-              {devices.filter(d => d.is_active).map((d) => (
-                <SelectItem key={d.id} value={d.id}>
-                  {d.phone_number}{d.name ? ` (${d.name})` : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="ml-auto">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="h-8 w-[100px] text-xs">
               <SelectValue placeholder="전체 상태" />
