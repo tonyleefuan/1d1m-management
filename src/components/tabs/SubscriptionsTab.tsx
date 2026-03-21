@@ -172,6 +172,13 @@ export function SubscriptionsTab() {
     }
   }, [])
 
+  // 자연 정렬 (PC 1, PC 2, ... PC 10)
+  const naturalSort = (a: DeviceOption, b: DeviceOption) => {
+    const nameA = a.name || ''
+    const nameB = b.name || ''
+    return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' })
+  }
+
   useEffect(() => {
     fetch('/api/products/list')
       .then((r) => r.json())
@@ -179,7 +186,10 @@ export function SubscriptionsTab() {
       .catch(() => {})
     fetch('/api/admin/devices')
       .then((r) => r.json())
-      .then((d) => setDevices(d?.data || d || []))
+      .then((d) => {
+        const list = d?.data || d || []
+        setDevices(list.sort(naturalSort))
+      })
       .catch(() => {})
     fetchSummary()
   }, [fetchSummary])
@@ -518,6 +528,7 @@ export function SubscriptionsTab() {
                   <TableHead className="w-[70px]">뒷4자리</TableHead>
                   <TableHead className="min-w-[80px]">카톡이름</TableHead>
                   <TableHead className="w-[90px]">상품</TableHead>
+                  <TableHead className="min-w-[120px]">상품명</TableHead>
                   <TableHead className="w-[60px] text-center">기간</TableHead>
                   <TableHead className="w-[110px]">시작일</TableHead>
                   <TableHead className="w-[90px]">종료일</TableHead>
@@ -587,22 +598,19 @@ export function SubscriptionsTab() {
                         {sub.product?.sku_code}
                       </TableCell>
 
+                      {/* 5.5 상품명 */}
+                      <TableCell className="py-1 text-xs text-muted-foreground truncate max-w-[160px]">
+                        {sub.product?.title || '-'}
+                      </TableCell>
+
                       {/* 6. 기간 */}
                       <TableCell className="py-1 text-center text-xs tabular-nums">
                         {sub.duration_days}일
                       </TableCell>
 
                       {/* 7. 시작일 */}
-                      <TableCell className="py-1 text-xs" onClick={(e) => e.stopPropagation()}>
-                        {sub.status === 'pending' && !sub.start_date ? (
-                          <Input
-                            type="date"
-                            className="h-6 text-xs w-[120px]"
-                            onChange={(e) => handleStartDateChange(sub.id, e.target.value)}
-                          />
-                        ) : (
-                          <span className="tabular-nums">{sub.start_date || '-'}</span>
-                        )}
+                      <TableCell className="py-1 text-xs tabular-nums">
+                        {sub.start_date || '-'}
                       </TableCell>
 
                       {/* 8. 종료일 */}

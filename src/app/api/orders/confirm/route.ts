@@ -127,13 +127,27 @@ export async function POST(req: Request) {
         const saved = itemNoToSaved.get(item.imweb_item_no)
         return saved && productMap.has(item.product_sku) && phoneToId.has(item.customer_phone)
       })
-      .map((item: any) => ({
-        order_item_id: itemNoToSaved.get(item.imweb_item_no)!.id,
-        customer_id: phoneToId.get(item.customer_phone),
-        product_id: productMap.get(item.product_sku),
-        status: 'pending',
-        duration_days: item.duration_days,
-      }))
+      .map((item: any) => {
+        // 시작일 = 주문일 다음 날
+        const orderedAt = item.ordered_at ? new Date(item.ordered_at) : new Date()
+        const startDate = new Date(orderedAt)
+        startDate.setDate(startDate.getDate() + 1)
+        const startStr = startDate.toISOString().slice(0, 10)
+        // 종료일 = 시작일 + 기간 - 1
+        const endDate = new Date(startDate)
+        endDate.setDate(endDate.getDate() + (item.duration_days || 365) - 1)
+        const endStr = endDate.toISOString().slice(0, 10)
+
+        return {
+          order_item_id: itemNoToSaved.get(item.imweb_item_no)!.id,
+          customer_id: phoneToId.get(item.customer_phone),
+          product_id: productMap.get(item.product_sku),
+          status: 'pending',
+          duration_days: item.duration_days,
+          start_date: startStr,
+          end_date: endStr,
+        }
+      })
 
     if (subRows.length > 0) {
       const { error: subErr } = await supabase

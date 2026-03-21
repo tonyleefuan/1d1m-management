@@ -198,7 +198,12 @@ function DevicesPanel() {
     try {
       const res = await fetch('/api/admin/devices')
       if (!res.ok) throw new Error('장치 목록을 불러오지 못했습니다')
-      setDevices(await res.json())
+      const data = await res.json()
+      // 자연 정렬 (PC 1, PC 2, ... PC 10)
+      data.sort((a: any, b: any) =>
+        (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })
+      )
+      setDevices(data)
     } catch {
       showError('장치 목록을 불러오지 못했습니다')
     } finally { setLoading(false) }
