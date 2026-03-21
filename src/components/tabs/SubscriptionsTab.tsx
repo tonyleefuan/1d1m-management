@@ -634,8 +634,14 @@ export function SubscriptionsTab() {
                   const sm = STATUS_MAP[sub.status]
                   return (
                     <TableRow key={sub.id} className="group">
-                      {/* 1. Checkbox */}
-                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
+                      {/* 1. Checkbox (Shift+Click 범위 선택 지원) */}
+                      <TableCell
+                        className="py-1 cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleSelect(sub.id, e as unknown as React.MouseEvent)
+                        }}
+                      >
                         <Checkbox
                           checked={selectedIds.has(sub.id)}
                           onCheckedChange={() => toggleSelect(sub.id)}
