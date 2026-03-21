@@ -123,8 +123,10 @@ export function SubscriptionsTab() {
   // Data state
   const [subs, setSubs] = useState<SubRow[]>([])
   const [summary, setSummary] = useState<SummaryData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(true) // 초기 로딩 (Skeleton 표시)
+  const [refreshing, setRefreshing] = useState(false) // 리프레시 (Skeleton 미표시)
   const [total, setTotal] = useState(0)
+  const isFirstLoad = useRef(true)
   const [devices, setDevices] = useState<DeviceOption[]>([])
   const [products, setProducts] = useState<ProductOption[]>([])
 
@@ -178,7 +180,12 @@ export function SubscriptionsTab() {
   }, [fetchSummary])
 
   const fetchSubs = useCallback(async () => {
-    setLoading(true)
+    // 첫 로딩만 Skeleton, 이후는 조용히 리프레시
+    if (isFirstLoad.current) {
+      setLoading(true)
+    } else {
+      setRefreshing(true)
+    }
     const params = new URLSearchParams()
     params.set('page', String(filters.page))
     params.set('limit', String(PAGE_SIZE))
@@ -197,6 +204,8 @@ export function SubscriptionsTab() {
       showError('구독 목록을 불러오는데 실패했습니다')
     } finally {
       setLoading(false)
+      setRefreshing(false)
+      isFirstLoad.current = false
     }
   }, [filters, showError])
 
@@ -216,56 +225,85 @@ export function SubscriptionsTab() {
     [],
   )
 
+  // ─── Optimistic update helper ───────────────────────
+
+  /** 로컬 state를 먼저 변경하고, API 실패 시 롤백 */
+  const optimisticUpdate = useCallback(
+    async (id: string, patch: Partial<SubRow>, apiUpdates: Record<string, unknown>, successMsg: string) => {
+      // 1. 즉시 로컬 반영
+      setSubs((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+      // 2. 백그라운드 API 호출
+      const ok = await updateSubscription(id, apiUpdates)
+      if (ok) {
+        showSuccess(successMsg)
+      } else {
+        // 3. 실패 시 롤백 — 전체 리페치
+        showError('변경에 실패했습니다. 다시 시도해주세요.')
+        fetchSubs()
+      }
+      return ok
+    },
+    [showSuccess, showError, fetchSubs],
+  )
+
   // ─── Inline update handlers ──────────────────────────
 
   const handleStatusChange = async (id: string, status: string) => {
-    if (await updateSubscription(id, { status })) {
-      showSuccess(`상태가 ${STATUS_MAP[status]?.label ?? status}(으)로 변경되었습니다`)
-      fetchSubs()
-      fetchSummary()
-    } else {
-      showError('상태 변경에 실패했습니다')
-    }
+    const ok = await optimisticUpdate(
+      id,
+      { status: status as SubscriptionStatus },
+      { status },
+      `상태가 ${STATUS_MAP[status]?.label ?? status}(으)로 변경되었습니다`,
+    )
+    if (ok) fetchSummary() // summary만 갱신 (목록은 이미 반영됨)
   }
 
   const handleDeviceChange = async (id: string, deviceId: string) => {
-    if (await updateSubscription(id, { device_id: deviceId || null })) {
-      showSuccess('PC가 변경되었습니다')
-      fetchSubs()
-    } else {
-      showError('PC 변경에 실패했습니다')
-    }
+    const device = deviceId ? devices.find((d) => d.id === deviceId) || null : null
+    await optimisticUpdate(
+      id,
+      { device_id: deviceId || null, device: device as SubRow['device'] },
+      { device_id: deviceId || null },
+      'PC가 변경되었습니다',
+    )
   }
 
   const handleFriendToggle = async (id: string, confirmed: boolean) => {
-    if (await updateSubscription(id, { friend_confirmed: confirmed })) {
-      showSuccess(confirmed ? '친구 확인 완료' : '친구 확인 해제')
-      fetchSubs()
-    } else {
-      showError('친구 확인 변경에 실패했습니다')
-    }
+    await optimisticUpdate(
+      id,
+      { friend_confirmed: confirmed },
+      { friend_confirmed: confirmed },
+      confirmed ? '친구 확인 완료' : '친구 확인 해제',
+    )
   }
 
   const handleStartDateChange = async (id: string, startDate: string) => {
     if (!startDate || startDate.length !== 10) return
-    if (await updateSubscription(id, { status: 'live', start_date: startDate })) {
-      showSuccess('시작일이 설정되고 발송이 시작되었습니다')
-      fetchSubs()
-      fetchSummary()
-    } else {
-      showError('시작일 설정에 실패했습니다')
-    }
+    const endDate = new Date(startDate)
+    const sub = subs.find((s) => s.id === id)
+    if (sub) endDate.setDate(endDate.getDate() + sub.duration_days)
+    const ok = await optimisticUpdate(
+      id,
+      {
+        status: 'live' as SubscriptionStatus,
+        start_date: startDate,
+        end_date: endDate.toISOString().slice(0, 10),
+      },
+      { status: 'live', start_date: startDate },
+      '시작일이 설정되고 발송이 시작되었습니다',
+    )
+    if (ok) fetchSummary()
   }
 
   const handleMemoSave = async () => {
     if (!detailSub) return
-    if (await updateSubscription(detailSub.id, { memo: memoValue })) {
-      showSuccess('메모가 저장되었습니다')
-      fetchSubs()
-      setDetailSub((prev) => (prev ? { ...prev, memo: memoValue } : null))
-    } else {
-      showError('메모 저장에 실패했습니다')
-    }
+    await optimisticUpdate(
+      detailSub.id,
+      { memo: memoValue },
+      { memo: memoValue },
+      '메모가 저장되었습니다',
+    )
+    setDetailSub((prev) => (prev ? { ...prev, memo: memoValue } : null))
   }
 
   // ─── Bulk actions ────────────────────────────────────
@@ -568,14 +606,14 @@ export function SubscriptionsTab() {
                           value={sub.device_id || '__none__'}
                           onValueChange={(v) => handleDeviceChange(sub.id, v === '__none__' ? '' : v)}
                         >
-                          <SelectTrigger className="h-7 w-[90px] text-xs">
+                          <SelectTrigger className="h-7 w-[140px] text-xs">
                             <SelectValue placeholder="미배정" />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__none__">미배정</SelectItem>
                             {devices.map((d) => (
                               <SelectItem key={d.id} value={d.id}>
-                                {d.phone_number?.slice(-4)}
+                                {d.phone_number}{d.name ? ` (${d.name})` : ''}
                               </SelectItem>
                             ))}
                           </SelectContent>

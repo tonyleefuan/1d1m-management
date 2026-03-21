@@ -24,7 +24,7 @@ export async function GET(req: Request) {
       product:products(id, sku_code, title, message_type),
       device:send_devices(id, phone_number, name)
     `, { count: 'exact' })
-    .order('created_at', { ascending: false })
+    .order('start_date', { ascending: false, nullsFirst: true })
     .range((page - 1) * limit, page * limit - 1)
 
   if (status) query = query.eq('status', status)
