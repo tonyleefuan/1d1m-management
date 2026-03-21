@@ -274,7 +274,7 @@ export function SendingTab() {
               <Card key={d.id} className="cursor-pointer hover:border-foreground/30 transition-colors" onClick={() => setSelectedDevice(d.id)}>
                 <CardContent className="p-3">
                   <div className="text-xs text-muted-foreground mb-1 flex items-center justify-between">
-                    <span>{d.name || d.phone_number}</span>
+                    <span>{d.phone_number}</span>
                   </div>
                   <div className="flex items-baseline gap-2">
                     <span className="text-xs">대기 <span className="font-semibold">{s.pending}</span></span>
@@ -310,7 +310,7 @@ export function SendingTab() {
                 selectedDevice === d.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
-              {d.name || d.phone_number.slice(-4)}
+              {d.phone_number}
               <span className="ml-1 text-muted-foreground">
                 {s.total > 0 ? `${s.sent}/${s.total}` : '0'}
                 {s.failed > 0 && <span className="text-destructive ml-0.5">({s.failed}실패)</span>}
@@ -390,7 +390,7 @@ export function SendingTab() {
                       </TableCell>
                       {!selectedDevice && (
                         <TableCell className="py-1 text-xs whitespace-nowrap">
-                          {devices.find(d => d.id === item.device_id)?.name || '-'}
+                          {devices.find(d => d.id === item.device_id)?.phone_number || '-'}
                         </TableCell>
                       )}
                       <TableCell className="py-1 text-xs font-medium whitespace-nowrap">
