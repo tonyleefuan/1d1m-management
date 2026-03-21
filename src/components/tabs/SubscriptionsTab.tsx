@@ -325,13 +325,31 @@ export function SubscriptionsTab() {
     )
   }
 
-  const handleFriendToggle = async (id: string, confirmed: boolean) => {
-    await optimisticUpdate(
-      id,
-      { friend_confirmed: confirmed },
-      { friend_confirmed: confirmed },
-      confirmed ? '친구 확인 완료' : '친구 확인 해제',
-    )
+  const lastFriendClickIdx = useRef<number | null>(null)
+
+  const handleFriendToggle = async (id: string, confirmed: boolean, event?: React.MouseEvent) => {
+    const currentIdx = subs.findIndex((s) => s.id === id)
+
+    if (event?.shiftKey && lastFriendClickIdx.current !== null && currentIdx !== -1) {
+      // Shift+Click: 범위 일괄 변경
+      const start = Math.min(lastFriendClickIdx.current, currentIdx)
+      const end = Math.max(lastFriendClickIdx.current, currentIdx)
+      const rangeIds = subs.slice(start, end + 1).map((s) => s.id)
+      if (await bulkUpdateSubscriptions(rangeIds, { friend_confirmed: confirmed })) {
+        showSuccess(`${rangeIds.length}건 친구확인 ${confirmed ? '완료' : '해제'}`)
+        fetchSubs()
+      } else {
+        showError('친구확인 일괄 변경에 실패했습니다')
+      }
+    } else {
+      await optimisticUpdate(
+        id,
+        { friend_confirmed: confirmed },
+        { friend_confirmed: confirmed },
+        confirmed ? '친구 확인 완료' : '친구 확인 해제',
+      )
+    }
+    lastFriendClickIdx.current = currentIdx
   }
 
   const handleStartDateChange = async (id: string, startDate: string) => {
@@ -701,7 +719,6 @@ export function SubscriptionsTab() {
                     주문일 <SortIcon field="created_at" />
                   </TableHead>
                   <TableHead className="min-w-[80px]">고객명</TableHead>
-                  <TableHead className="w-[70px]">뒷4자리</TableHead>
                   <TableHead className="min-w-[80px]">카톡이름</TableHead>
                   <TableHead className="w-[90px]">상품</TableHead>
                   <TableHead className="min-w-[120px]">상품명</TableHead>
@@ -906,9 +923,11 @@ export function SubscriptionsTab() {
                       <TableCell className="py-1 text-center" onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={sub.friend_confirmed}
-                          onCheckedChange={(checked) =>
-                            handleFriendToggle(sub.id, checked === true)
-                          }
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleFriendToggle(sub.id, !sub.friend_confirmed, e)
+                          }}
+                          onCheckedChange={() => {}}
                         />
                       </TableCell>
 
