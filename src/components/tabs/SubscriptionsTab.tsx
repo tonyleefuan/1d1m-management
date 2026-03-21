@@ -1,8 +1,27 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { PageHeader } from '@/components/ui/page-header'
+import { StatGroup } from '@/components/ui/stat-group'
+import { FilterBar } from '@/components/ui/filter-bar'
+import { Button } from '@/components/ui/button'
+import { StatusBadge, type StatusType } from '@/components/ui/status-badge'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
+import { EmptyState } from '@/components/ui/empty-state'
+import { SkeletonTable } from '@/components/ui/skeleton'
+import { Toast } from '@/components/ui/Toast'
+import { useToast } from '@/lib/use-toast'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { STATUS_LABELS, STATUS_COLORS, type SubscriptionStatus } from '@/lib/constants'
+import { SUBSCRIPTION_STATUSES, STATUS_LABELS, type SubscriptionStatus } from '@/lib/constants'
+import { Users, Send, Pause, Clock, FileText, MessageSquare } from 'lucide-react'
+
+// ─── Types ───────────────────────────────────────────────
 
 interface SubRow {
   id: string
@@ -16,78 +35,63 @@ interface SubRow {
   friend_confirmed_at: string | null
   memo: string | null
   device_id: string | null
-  customer: { id: string; name: string; phone: string | null; phone_last4: string | null; kakao_friend_name: string | null; email: string | null }
-  product: { id: string; sku_code: string; title: string; message_type: string }
-  device: { id: string; phone_number: string; name: string | null } | null
+  customer: {
+    id: string
+    name: string
+    phone: string | null
+    phone_last4: string | null
+    kakao_friend_name: string | null
+    email: string | null
+  }
+  product: {
+    id: string
+    sku_code: string
+    title: string
+    message_type: string
+  }
+  device: {
+    id: string
+    phone_number: string
+    name: string | null
+  } | null
 }
 
 interface SummaryData {
-  live: number; pending: number; pause: number; archive: number; cancel: number; today_sending: number
+  live: number
+  pending: number
+  pause: number
+  archive: number
+  cancel: number
+  today_sending: number
 }
 
-const STATUS_OPTIONS: SubscriptionStatus[] = ['live', 'pending', 'pause', 'archive', 'cancel']
-
-// --- 요약 카드 ---
-function SummaryCards({ data }: { data: SummaryData | null }) {
-  if (!data) return null
-  const cards = [
-    { label: '발송중', value: data.live, color: 'text-green-600 bg-green-50' },
-    { label: '대기', value: data.pending, color: 'text-yellow-600 bg-yellow-50' },
-    { label: '일시정지', value: data.pause, color: 'text-orange-600 bg-orange-50' },
-    { label: '오늘 발송', value: data.today_sending, color: 'text-blue-600 bg-blue-50' },
-  ]
-  return (
-    <div className="flex gap-3 mb-4">
-      {cards.map(c => (
-        <div key={c.label} className={cn('px-4 py-2 rounded', c.color)}>
-          <div className="text-xs opacity-70">{c.label}</div>
-          <div className="text-lg font-bold">{c.value.toLocaleString()}</div>
-        </div>
-      ))}
-    </div>
-  )
+interface DeviceOption {
+  id: string
+  phone_number: string
+  name: string | null
 }
 
-// --- 필터바 ---
-function FilterBar({
-  filters, setFilters, devices, products
-}: {
-  filters: any; setFilters: (f: any) => void
-  devices: { id: string; phone_number: string; name: string | null }[]
-  products: { id: string; sku_code: string; title: string }[]
-}) {
-  return (
-    <div className="flex flex-wrap gap-2 mb-4">
-      <select value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value, page: 1 })}
-        className="px-3 py-1.5 border rounded text-sm">
-        <option value="">전체 상태</option>
-        {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-      </select>
-      <select value={filters.device_id} onChange={e => setFilters({ ...filters, device_id: e.target.value, page: 1 })}
-        className="px-3 py-1.5 border rounded text-sm">
-        <option value="">전체 PC</option>
-        {devices.map(d => <option key={d.id} value={d.id}>{d.phone_number} {d.name ? `(${d.name})` : ''}</option>)}
-      </select>
-      <select value={filters.product_id} onChange={e => setFilters({ ...filters, product_id: e.target.value, page: 1 })}
-        className="px-3 py-1.5 border rounded text-sm">
-        <option value="">전체 상품</option>
-        {products.map(p => <option key={p.id} value={p.id}>{p.sku_code} — {p.title}</option>)}
-      </select>
-      <select value={filters.friend_confirmed} onChange={e => setFilters({ ...filters, friend_confirmed: e.target.value, page: 1 })}
-        className="px-3 py-1.5 border rounded text-sm">
-        <option value="">친구확인 전체</option>
-        <option value="true">확인됨</option>
-        <option value="false">미확인</option>
-      </select>
-      <input type="text" value={filters.search} onChange={e => setFilters({ ...filters, search: e.target.value, page: 1 })}
-        placeholder="고객명 / 카톡이름 / 뒷4자리 검색"
-        className="px-3 py-1.5 border rounded text-sm w-60" />
-    </div>
-  )
+interface ProductOption {
+  id: string
+  sku_code: string
+  title: string
 }
 
-// --- 인라인 수정 ---
-async function updateSubscription(id: string, updates: any): Promise<boolean> {
+// ─── Constants ───────────────────────────────────────────
+
+const STATUS_MAP: Record<string, { status: StatusType; label: string }> = {
+  live: { status: 'success', label: '발송중' },
+  pending: { status: 'warning', label: '대기' },
+  pause: { status: 'info', label: '일시정지' },
+  archive: { status: 'neutral', label: '종료' },
+  cancel: { status: 'error', label: '취소' },
+}
+
+const PAGE_SIZE = 50
+
+// ─── API helper ──────────────────────────────────────────
+
+async function updateSubscription(id: string, updates: Record<string, unknown>): Promise<boolean> {
   try {
     const res = await fetch('/api/subscriptions/update', {
       method: 'PATCH',
@@ -95,35 +99,89 @@ async function updateSubscription(id: string, updates: any): Promise<boolean> {
       body: JSON.stringify({ id, ...updates }),
     })
     return res.ok
-  } catch { return false }
+  } catch {
+    return false
+  }
 }
 
-// --- 메인 탭 ---
+async function bulkUpdateSubscriptions(ids: string[], updates: Record<string, unknown>): Promise<boolean> {
+  try {
+    const res = await fetch('/api/subscriptions/update', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, ...updates }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+// ─── Main Component ──────────────────────────────────────
+
 export function SubscriptionsTab() {
+  // Data state
   const [subs, setSubs] = useState<SubRow[]>([])
   const [summary, setSummary] = useState<SummaryData | null>(null)
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
-  const [devices, setDevices] = useState<any[]>([])
-  const [products, setProducts] = useState<any[]>([])
+  const [devices, setDevices] = useState<DeviceOption[]>([])
+  const [products, setProducts] = useState<ProductOption[]>([])
+
+  // Filter state
   const [filters, setFilters] = useState({
-    status: '', device_id: '', product_id: '', friend_confirmed: '', search: '', page: 1,
+    status: '',
+    device_id: '',
+    product_id: '',
+    friend_confirmed: '',
+    search: '',
+    page: 1,
   })
+
+  // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  // Fetch reference data
-  useEffect(() => {
-    fetch('/api/products/list').then(r => r.json()).then(d => setProducts(d || []))
-    fetch('/api/admin/devices').then(r => r.json()).then(d => setDevices(d?.data || d || []))
-    fetch('/api/subscriptions/summary').then(r => r.json()).then(setSummary)
+  // Detail sheet state
+  const [detailSub, setDetailSub] = useState<SubRow | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [memoValue, setMemoValue] = useState('')
+
+  // Search debounce
+  const [searchInput, setSearchInput] = useState('')
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>()
+
+  // Toast
+  const { toast, showSuccess, showError, clearToast } = useToast()
+
+  // ─── Data fetching ───────────────────────────────────
+
+  const fetchSummary = useCallback(async () => {
+    try {
+      const res = await fetch('/api/subscriptions/summary')
+      const data = await res.json()
+      setSummary(data)
+    } catch {
+      // silent
+    }
   }, [])
 
-  // Fetch subscriptions
+  useEffect(() => {
+    fetch('/api/products/list')
+      .then((r) => r.json())
+      .then((d) => setProducts(d || []))
+      .catch(() => {})
+    fetch('/api/admin/devices')
+      .then((r) => r.json())
+      .then((d) => setDevices(d?.data || d || []))
+      .catch(() => {})
+    fetchSummary()
+  }, [fetchSummary])
+
   const fetchSubs = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams()
     params.set('page', String(filters.page))
-    params.set('limit', '50')
+    params.set('limit', String(PAGE_SIZE))
     if (filters.status) params.set('status', filters.status)
     if (filters.device_id) params.set('device_id', filters.device_id)
     if (filters.product_id) params.set('product_id', filters.product_id)
@@ -135,178 +193,542 @@ export function SubscriptionsTab() {
       const data = await res.json()
       setSubs(data.data || [])
       setTotal(data.total || 0)
-    } catch { console.error('Failed to fetch subscriptions') }
-    finally { setLoading(false) }
-  }, [filters])
+    } catch {
+      showError('구독 목록을 불러오는데 실패했습니다')
+    } finally {
+      setLoading(false)
+    }
+  }, [filters, showError])
 
-  useEffect(() => { fetchSubs() }, [fetchSubs])
+  useEffect(() => {
+    fetchSubs()
+  }, [fetchSubs])
 
   // Debounced search
-  const [searchTimeout, setSearchTimeout] = useState<any>(null)
-  const handleSearchChange = (search: string) => {
-    if (searchTimeout) clearTimeout(searchTimeout)
-    const t = setTimeout(() => setFilters(f => ({ ...f, search, page: 1 })), 300)
-    setSearchTimeout(t)
-  }
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearchInput(value)
+      if (searchTimer.current) clearTimeout(searchTimer.current)
+      searchTimer.current = setTimeout(() => {
+        setFilters((f) => ({ ...f, search: value, page: 1 }))
+      }, 300)
+    },
+    [],
+  )
 
-  // Inline update handlers
+  // ─── Inline update handlers ──────────────────────────
+
   const handleStatusChange = async (id: string, status: string) => {
     if (await updateSubscription(id, { status })) {
+      showSuccess(`상태가 ${STATUS_MAP[status]?.label ?? status}(으)로 변경되었습니다`)
       fetchSubs()
-      fetch('/api/subscriptions/summary').then(r => r.json()).then(setSummary)
+      fetchSummary()
+    } else {
+      showError('상태 변경에 실패했습니다')
     }
   }
 
-  const handleDeviceChange = async (id: string, device_id: string) => {
-    if (await updateSubscription(id, { device_id: device_id || null })) fetchSubs()
+  const handleDeviceChange = async (id: string, deviceId: string) => {
+    if (await updateSubscription(id, { device_id: deviceId || null })) {
+      showSuccess('PC가 변경되었습니다')
+      fetchSubs()
+    } else {
+      showError('PC 변경에 실패했습니다')
+    }
   }
 
   const handleFriendToggle = async (id: string, confirmed: boolean) => {
-    if (await updateSubscription(id, { friend_confirmed: confirmed })) fetchSubs()
-  }
-
-  const handleStartDateChange = async (id: string, start_date: string) => {
-    if (!start_date || start_date.length !== 10) return // 완전한 YYYY-MM-DD만 허용
-    if (await updateSubscription(id, { status: 'live', start_date })) {
+    if (await updateSubscription(id, { friend_confirmed: confirmed })) {
+      showSuccess(confirmed ? '친구 확인 완료' : '친구 확인 해제')
       fetchSubs()
-      fetch('/api/subscriptions/summary').then(r => r.json()).then(setSummary)
+    } else {
+      showError('친구 확인 변경에 실패했습니다')
     }
   }
 
-  // Bulk actions
+  const handleStartDateChange = async (id: string, startDate: string) => {
+    if (!startDate || startDate.length !== 10) return
+    if (await updateSubscription(id, { status: 'live', start_date: startDate })) {
+      showSuccess('시작일이 설정되고 발송이 시작되었습니다')
+      fetchSubs()
+      fetchSummary()
+    } else {
+      showError('시작일 설정에 실패했습니다')
+    }
+  }
+
+  const handleMemoSave = async () => {
+    if (!detailSub) return
+    if (await updateSubscription(detailSub.id, { memo: memoValue })) {
+      showSuccess('메모가 저장되었습니다')
+      fetchSubs()
+      setDetailSub((prev) => (prev ? { ...prev, memo: memoValue } : null))
+    } else {
+      showError('메모 저장에 실패했습니다')
+    }
+  }
+
+  // ─── Bulk actions ────────────────────────────────────
+
   const handleBulkStatus = async (status: string) => {
     if (selectedIds.size === 0) return
-    const res = await fetch('/api/subscriptions/update', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: Array.from(selectedIds), status }),
-    })
-    if (res.ok) {
+    if (await bulkUpdateSubscriptions(Array.from(selectedIds), { status })) {
+      showSuccess(`${selectedIds.size}건의 상태가 ${STATUS_MAP[status]?.label ?? status}(으)로 변경되었습니다`)
       setSelectedIds(new Set())
       fetchSubs()
-      fetch('/api/subscriptions/summary').then(r => r.json()).then(setSummary)
+      fetchSummary()
+    } else {
+      showError('일괄 상태 변경에 실패했습니다')
     }
   }
 
+  // ─── Selection ───────────────────────────────────────
+
   const toggleSelect = (id: string) => {
-    const next = new Set(selectedIds)
-    if (next.has(id)) next.delete(id); else next.add(id)
-    setSelectedIds(next)
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === subs.length) setSelectedIds(new Set())
-    else setSelectedIds(new Set(subs.map(s => s.id)))
+    if (selectedIds.size === subs.length && subs.length > 0) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(subs.map((s) => s.id)))
+    }
   }
 
+  // ─── Detail sheet ────────────────────────────────────
+
+  const openDetail = (sub: SubRow) => {
+    setDetailSub(sub)
+    setMemoValue(sub.memo || '')
+    setSheetOpen(true)
+  }
+
+  // ─── Pagination ──────────────────────────────────────
+
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
+  // ─── Quick filter tabs ───────────────────────────────
+
+  const quickFilters = [
+    { label: '전체', count: summary ? summary.live + summary.pending + summary.pause + summary.archive + summary.cancel : undefined, active: filters.status === '', onClick: () => setFilters((f) => ({ ...f, status: '', page: 1 })) },
+    { label: '발송중', count: summary?.live, active: filters.status === 'live', onClick: () => setFilters((f) => ({ ...f, status: 'live', page: 1 })) },
+    { label: '대기', count: summary?.pending, active: filters.status === 'pending', onClick: () => setFilters((f) => ({ ...f, status: 'pending', page: 1 })) },
+    { label: '일시정지', count: summary?.pause, active: filters.status === 'pause', onClick: () => setFilters((f) => ({ ...f, status: 'pause', page: 1 })) },
+    { label: '종료', count: summary?.archive, active: filters.status === 'archive', onClick: () => setFilters((f) => ({ ...f, status: 'archive', page: 1 })) },
+    { label: '취소', count: summary?.cancel, active: filters.status === 'cancel', onClick: () => setFilters((f) => ({ ...f, status: 'cancel', page: 1 })) },
+  ]
+
+  // ─── Stat cards ──────────────────────────────────────
+
+  const stats = [
+    { title: '발송 중', value: String(summary?.live ?? 0), icon: Send },
+    { title: '대기', value: String(summary?.pending ?? 0), icon: Clock },
+    { title: '일시정지', value: String(summary?.pause ?? 0), icon: Pause },
+    { title: '오늘 발송', value: String(summary?.today_sending ?? 0), icon: MessageSquare },
+  ]
+
+  // ─── Render ──────────────────────────────────────────
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold">구독 관리</h2>
+    <div className="space-y-6">
+      {/* 1. Page Header */}
+      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다">
         {selectedIds.size > 0 && (
-          <div className="flex gap-2 items-center">
-            <span className="text-sm text-gray-500">{selectedIds.size}건 선택</span>
-            <button onClick={() => handleBulkStatus('live')} className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200">발송 시작</button>
-            <button onClick={() => handleBulkStatus('pause')} className="px-3 py-1 text-xs bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200">일시정지</button>
-            <button onClick={() => handleBulkStatus('cancel')} className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">취소</button>
-          </div>
+          <>
+            <Badge variant="secondary" className="text-xs">
+              {selectedIds.size}건 선택
+            </Badge>
+            <Button size="sm" variant="outline" onClick={() => handleBulkStatus('live')}>
+              <Send className="mr-1 h-3 w-3" />
+              발송 시작
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => handleBulkStatus('pause')}>
+              <Pause className="mr-1 h-3 w-3" />
+              일시정지
+            </Button>
+            <Button size="sm" variant="destructive" onClick={() => handleBulkStatus('cancel')}>
+              취소
+            </Button>
+          </>
         )}
-      </div>
+      </PageHeader>
 
-      <SummaryCards data={summary} />
+      {/* 2. Stat Group */}
+      <StatGroup stats={stats} cols={4} variant="compact" />
 
-      <FilterBar filters={filters} setFilters={setFilters} devices={devices} products={products} />
+      {/* 3. Filter Bar */}
+      <FilterBar
+        search={{
+          value: searchInput,
+          onChange: handleSearchChange,
+          placeholder: '고객명 / 카톡이름 / 뒷4자리 검색',
+        }}
+        quickFilters={quickFilters}
+        filters={
+          <>
+            <Select
+              value={filters.device_id}
+              onValueChange={(v) => setFilters((f) => ({ ...f, device_id: v === '__all__' ? '' : v, page: 1 }))}
+            >
+              <SelectTrigger className="w-[130px] h-8 text-xs">
+                <SelectValue placeholder="전체 PC" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">전체 PC</SelectItem>
+                {devices.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.phone_number?.slice(-4)} {d.name ? `(${d.name})` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.product_id}
+              onValueChange={(v) => setFilters((f) => ({ ...f, product_id: v === '__all__' ? '' : v, page: 1 }))}
+            >
+              <SelectTrigger className="w-[160px] h-8 text-xs">
+                <SelectValue placeholder="전체 상품" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">전체 상품</SelectItem>
+                {products.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.sku_code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.friend_confirmed}
+              onValueChange={(v) => setFilters((f) => ({ ...f, friend_confirmed: v === '__all__' ? '' : v, page: 1 }))}
+            >
+              <SelectTrigger className="w-[120px] h-8 text-xs">
+                <SelectValue placeholder="친구확인" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">친구확인 전체</SelectItem>
+                <SelectItem value="true">확인됨</SelectItem>
+                <SelectItem value="false">미확인</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
+        }
+        layout="stacked"
+      />
 
+      {/* 4. Table */}
       {loading ? (
-        <div className="text-sm text-gray-400 py-8 text-center">로딩 중...</div>
+        <SkeletonTable rows={10} cols={14} />
       ) : subs.length === 0 ? (
-        <div className="text-sm text-gray-400 py-8 text-center">구독 내역이 없습니다</div>
+        <EmptyState
+          icon={FileText}
+          title="구독 내역이 없습니다"
+          description="주문을 업로드하면 구독이 자동 생성됩니다"
+        />
       ) : (
         <>
-          <div className="text-xs text-gray-500 mb-2">총 {total?.toLocaleString()}건</div>
-          <div className="bg-white border rounded-lg overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b">
-                  <th className="px-3 py-2.5 w-8">
-                    <input type="checkbox" checked={selectedIds.size === subs.length && subs.length > 0}
-                      onChange={toggleSelectAll} className="rounded" />
-                  </th>
-                  <th className="text-left px-3 py-2.5 font-medium text-gray-600">고객명</th>
-                  <th className="text-left px-3 py-2.5 font-medium text-gray-600">카톡이름</th>
-                  <th className="text-left px-3 py-2.5 font-medium text-gray-600">상품</th>
-                  <th className="text-left px-3 py-2.5 font-medium text-gray-600">시작일</th>
-                  <th className="text-center px-3 py-2.5 font-medium text-gray-600">Day</th>
-                  <th className="text-center px-3 py-2.5 font-medium text-gray-600">D-Day</th>
-                  <th className="text-left px-3 py-2.5 font-medium text-gray-600">상태</th>
-                  <th className="text-left px-3 py-2.5 font-medium text-gray-600">PC</th>
-                  <th className="text-center px-3 py-2.5 font-medium text-gray-600">친구확인</th>
-                </tr>
-              </thead>
-              <tbody>
-                {subs.map(sub => (
-                  <tr key={sub.id} className="border-b last:border-b-0 hover:bg-gray-50">
-                    <td className="px-3 py-2">
-                      <input type="checkbox" checked={selectedIds.has(sub.id)}
-                        onChange={() => toggleSelect(sub.id)} className="rounded" />
-                    </td>
-                    <td className="px-3 py-2">{sub.customer?.name}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600">{sub.customer?.kakao_friend_name || '-'}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{sub.product?.sku_code}</td>
-                    <td className="px-3 py-2 text-xs">
-                      {sub.status === 'pending' && !sub.start_date ? (
-                        <input type="date" className="px-2 py-1 border rounded text-xs"
-                          onChange={e => handleStartDateChange(sub.id, e.target.value)} />
-                      ) : (
-                        sub.start_date || '-'
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-center tabular-nums text-xs">
-                      {sub.start_date ? sub.current_day : '-'}
-                    </td>
-                    <td className={cn('px-3 py-2 text-center tabular-nums text-xs font-medium',
-                      sub.d_day <= 0 ? 'text-red-500' : sub.d_day <= 7 ? 'text-orange-500' : 'text-gray-600'
-                    )}>
-                      {sub.start_date ? sub.d_day : '-'}
-                    </td>
-                    <td className="px-3 py-2">
-                      <select value={sub.status} onChange={e => handleStatusChange(sub.id, e.target.value)}
-                        className={cn('px-2 py-0.5 rounded text-xs border-0 font-medium', {
-                          'bg-green-100 text-green-700': sub.status === 'live',
-                          'bg-yellow-100 text-yellow-700': sub.status === 'pending',
-                          'bg-orange-100 text-orange-700': sub.status === 'pause',
-                          'bg-gray-100 text-gray-500': sub.status === 'archive',
-                          'bg-red-100 text-red-700': sub.status === 'cancel',
-                        })}>
-                        {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-3 py-2">
-                      <select value={sub.device_id || ''} onChange={e => handleDeviceChange(sub.id, e.target.value)}
-                        className="px-2 py-0.5 rounded text-xs border bg-white">
-                        <option value="">미배정</option>
-                        {devices.map((d: any) => <option key={d.id} value={d.id}>{d.phone_number?.slice(-4)}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <input type="checkbox" checked={sub.friend_confirmed}
-                        onChange={e => handleFriendToggle(sub.id, e.target.checked)} className="rounded" />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="text-xs text-muted-foreground">
+            총 {total.toLocaleString()}건
           </div>
-          {total > 50 && (
-            <div className="flex justify-center gap-2 mt-4">
-              <button onClick={() => setFilters(f => ({ ...f, page: Math.max(1, f.page - 1) }))}
-                disabled={filters.page === 1} className="px-3 py-1 text-sm border rounded disabled:opacity-30">이전</button>
-              <span className="px-3 py-1 text-sm text-gray-500">{filters.page} / {Math.ceil(total / 50)}</span>
-              <button onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}
-                disabled={filters.page >= Math.ceil(total / 50)} className="px-3 py-1 text-sm border rounded disabled:opacity-30">다음</button>
+          <div className="rounded-lg border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={selectedIds.size === subs.length && subs.length > 0}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                  </TableHead>
+                  <TableHead className="min-w-[80px]">고객명</TableHead>
+                  <TableHead className="w-[70px]">뒷4자리</TableHead>
+                  <TableHead className="min-w-[80px]">카톡이름</TableHead>
+                  <TableHead className="w-[90px]">상품</TableHead>
+                  <TableHead className="w-[60px] text-center">기간</TableHead>
+                  <TableHead className="w-[110px]">시작일</TableHead>
+                  <TableHead className="w-[90px]">종료일</TableHead>
+                  <TableHead className="w-[50px] text-center">Day</TableHead>
+                  <TableHead className="w-[60px] text-center">D-Day</TableHead>
+                  <TableHead className="w-[120px]">상태</TableHead>
+                  <TableHead className="w-[110px]">PC</TableHead>
+                  <TableHead className="w-[60px] text-center">친구확인</TableHead>
+                  <TableHead className="min-w-[100px]">메모</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {subs.map((sub) => {
+                  const sm = STATUS_MAP[sub.status]
+                  return (
+                    <TableRow key={sub.id} className="group">
+                      {/* 1. Checkbox */}
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedIds.has(sub.id)}
+                          onCheckedChange={() => toggleSelect(sub.id)}
+                        />
+                      </TableCell>
+
+                      {/* 2. 고객명 */}
+                      <TableCell
+                        className="font-medium cursor-pointer"
+                        onClick={() => openDetail(sub)}
+                      >
+                        {sub.customer?.name}
+                      </TableCell>
+
+                      {/* 3. 뒷4자리 */}
+                      <TableCell className="text-xs text-muted-foreground tabular-nums">
+                        {sub.customer?.phone_last4 ? `••••${sub.customer.phone_last4}` : '-'}
+                      </TableCell>
+
+                      {/* 4. 카톡이름 */}
+                      <TableCell className="text-xs text-muted-foreground">
+                        {sub.customer?.kakao_friend_name || '-'}
+                      </TableCell>
+
+                      {/* 5. 상품 */}
+                      <TableCell className="font-mono text-xs">
+                        {sub.product?.sku_code}
+                      </TableCell>
+
+                      {/* 6. 기간 */}
+                      <TableCell className="text-center text-xs tabular-nums">
+                        {sub.duration_days}일
+                      </TableCell>
+
+                      {/* 7. 시작일 */}
+                      <TableCell className="text-xs" onClick={(e) => e.stopPropagation()}>
+                        {sub.status === 'pending' && !sub.start_date ? (
+                          <Input
+                            type="date"
+                            className="h-7 text-xs w-[120px]"
+                            onChange={(e) => handleStartDateChange(sub.id, e.target.value)}
+                          />
+                        ) : (
+                          <span className="tabular-nums">{sub.start_date || '-'}</span>
+                        )}
+                      </TableCell>
+
+                      {/* 8. 종료일 */}
+                      <TableCell className="text-xs tabular-nums">
+                        {sub.end_date || '-'}
+                      </TableCell>
+
+                      {/* 9. Day */}
+                      <TableCell className="text-center text-xs tabular-nums">
+                        {sub.start_date ? sub.current_day : '-'}
+                      </TableCell>
+
+                      {/* 10. D-Day */}
+                      <TableCell
+                        className={cn(
+                          'text-center text-xs tabular-nums font-medium',
+                          sub.start_date && sub.d_day <= 0
+                            ? 'text-red-500'
+                            : sub.start_date && sub.d_day <= 7
+                              ? 'text-orange-500'
+                              : '',
+                        )}
+                      >
+                        {sub.start_date ? sub.d_day : '-'}
+                      </TableCell>
+
+                      {/* 11. 상태 */}
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={sub.status}
+                          onValueChange={(v) => handleStatusChange(sub.id, v)}
+                        >
+                          <SelectTrigger className="h-7 w-[100px] border-0 bg-transparent px-0 text-xs focus:ring-0">
+                            <StatusBadge status={sm?.status ?? 'neutral'} size="xs">
+                              {sm?.label ?? sub.status}
+                            </StatusBadge>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SUBSCRIPTION_STATUSES.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                <StatusBadge status={STATUS_MAP[s].status} size="xs">
+                                  {STATUS_MAP[s].label}
+                                </StatusBadge>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+
+                      {/* 12. PC */}
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={sub.device_id || '__none__'}
+                          onValueChange={(v) => handleDeviceChange(sub.id, v === '__none__' ? '' : v)}
+                        >
+                          <SelectTrigger className="h-7 w-[90px] text-xs">
+                            <SelectValue placeholder="미배정" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">미배정</SelectItem>
+                            {devices.map((d) => (
+                              <SelectItem key={d.id} value={d.id}>
+                                {d.phone_number?.slice(-4)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+
+                      {/* 13. 친구확인 */}
+                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={sub.friend_confirmed}
+                          onCheckedChange={(checked) =>
+                            handleFriendToggle(sub.id, checked === true)
+                          }
+                        />
+                      </TableCell>
+
+                      {/* 14. 메모 */}
+                      <TableCell
+                        className="text-xs text-muted-foreground cursor-pointer truncate max-w-[150px]"
+                        title={sub.memo || undefined}
+                        onClick={() => openDetail(sub)}
+                      >
+                        {sub.memo ? sub.memo.slice(0, 20) + (sub.memo.length > 20 ? '...' : '') : '-'}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFilters((f) => ({ ...f, page: Math.max(1, f.page - 1) }))}
+                disabled={filters.page === 1}
+              >
+                이전
+              </Button>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {filters.page} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
+                disabled={filters.page >= totalPages}
+              >
+                다음
+              </Button>
             </div>
           )}
         </>
+      )}
+
+      {/* 5. Detail Sheet */}
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent side="right" size="md">
+          <SheetHeader>
+            <SheetTitle>{detailSub?.customer?.name ?? '구독 상세'}</SheetTitle>
+            <SheetDescription>
+              {detailSub?.product?.sku_code} &middot; {detailSub?.product?.title}
+            </SheetDescription>
+          </SheetHeader>
+
+          {detailSub && (
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+              {/* Customer info */}
+              <section className="space-y-3">
+                <h3 className="text-sm font-semibold">고객 정보</h3>
+                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
+                  <div className="text-muted-foreground">이름</div>
+                  <div>{detailSub.customer.name}</div>
+                  <div className="text-muted-foreground">연락처</div>
+                  <div>
+                    {detailSub.customer.phone
+                      ? `${detailSub.customer.phone.slice(0, 3)}-••••-${detailSub.customer.phone_last4 ?? '••••'}`
+                      : '-'}
+                  </div>
+                  <div className="text-muted-foreground">카톡이름</div>
+                  <div>{detailSub.customer.kakao_friend_name || '-'}</div>
+                  <div className="text-muted-foreground">이메일</div>
+                  <div>{detailSub.customer.email || '-'}</div>
+                </div>
+              </section>
+
+              {/* Subscription details */}
+              <section className="space-y-3">
+                <h3 className="text-sm font-semibold">구독 정보</h3>
+                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
+                  <div className="text-muted-foreground">상태</div>
+                  <div>
+                    <StatusBadge status={STATUS_MAP[detailSub.status]?.status ?? 'neutral'} size="sm">
+                      {STATUS_MAP[detailSub.status]?.label ?? detailSub.status}
+                    </StatusBadge>
+                  </div>
+                  <div className="text-muted-foreground">상품</div>
+                  <div className="font-mono text-xs">{detailSub.product.sku_code}</div>
+                  <div className="text-muted-foreground">기간</div>
+                  <div>{detailSub.duration_days}일</div>
+                  <div className="text-muted-foreground">시작일</div>
+                  <div className="tabular-nums">{detailSub.start_date || '-'}</div>
+                  <div className="text-muted-foreground">종료일</div>
+                  <div className="tabular-nums">{detailSub.end_date || '-'}</div>
+                  <div className="text-muted-foreground">Day / D-Day</div>
+                  <div className="tabular-nums">
+                    {detailSub.start_date
+                      ? `${detailSub.current_day}일째 / D-${detailSub.d_day}`
+                      : '-'}
+                  </div>
+                  <div className="text-muted-foreground">PC</div>
+                  <div>
+                    {detailSub.device
+                      ? `${detailSub.device.phone_number?.slice(-4)} ${detailSub.device.name ? `(${detailSub.device.name})` : ''}`
+                      : '미배정'}
+                  </div>
+                  <div className="text-muted-foreground">친구확인</div>
+                  <div>
+                    {detailSub.friend_confirmed ? (
+                      <StatusBadge status="success" size="xs">확인됨</StatusBadge>
+                    ) : (
+                      <StatusBadge status="neutral" size="xs">미확인</StatusBadge>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              {/* Memo */}
+              <section className="space-y-3">
+                <h3 className="text-sm font-semibold">메모</h3>
+                <Textarea
+                  value={memoValue}
+                  onChange={(e) => setMemoValue(e.target.value)}
+                  placeholder="메모를 입력하세요..."
+                  rows={4}
+                />
+                <div className="flex justify-end">
+                  <Button size="sm" onClick={handleMemoSave}>
+                    메모 저장
+                  </Button>
+                </div>
+              </section>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* 6. Toast */}
+      {toast && (
+        <Toast message={toast.message} type={toast.type} onClose={clearToast} />
       )}
     </div>
   )

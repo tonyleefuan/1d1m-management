@@ -2,26 +2,93 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@layer base {
+  :root {
+    --background: 0 0% 97.3%;
+    --foreground: 0 0% 6.7%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 6.7%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 6.7%;
+    --primary: 240 10% 6%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 51 100% 50%;
+    --secondary-foreground: 0 0% 6.7%;
+    --muted: 0 0% 94.1%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 0 0% 94.1%;
+    --accent-foreground: 0 0% 6.7%;
+    --destructive: 5 98% 63%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 90%;
+    --input: 0 0% 85%;
+    --ring: 51 100% 50%;
+    --radius: 0.5rem;
+
+    /* ── 1D1M Brand Colors (HSL) ── */
+    --1d1m-yellow: 51 100% 50%;
+    --1d1m-black: 0 0% 6.7%;
+
+    /* ── Surface & Background ── */
+    --surface: 0 0% 97%;
+    --surface-alt: 0 0% 94%;
+  }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border;
   }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .form-input {
+    @apply px-3 py-[7px] border border-border rounded-md text-[13px] outline-none bg-white w-full box-border;
+  }
+  .form-select {
+    @apply px-2.5 py-[7px] border border-border rounded-md text-xs bg-white outline-none w-full box-border;
+  }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: #f8f8f8;
+  color: #111;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+button {
+  font-family: inherit;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsla(var(--ring), 0.15);
+}
+
+button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+input:hover,
+select:hover {
+  border-color: #bbb;
+}
+
+::selection {
+  background-color: hsla(var(--1d1m-yellow), 0.3);
 }

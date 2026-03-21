@@ -53,10 +53,45 @@ function parseDurationFromOptionName(optionName: string): number | null {
   return null
 }
 
+/**
+ * 아임웹 엑셀의 빈 행 carry-forward 처리.
+ * 같은 주문 내 중복 품목 행은 주문번호 등이 빈칸으로 내려온다.
+ * 이전 행의 값을 이어받아 채워 넣는다.
+ */
+const CARRY_FORWARD_FIELDS: (keyof RawOrderRow)[] = [
+  '주문번호', '주문자 이름', '주문자 이메일', '주문자 번호', '최종주문금액', '주문일',
+]
+
+function applyCarryForward(rows: RawOrderRow[]): RawOrderRow[] {
+  const result: RawOrderRow[] = []
+  let prev: Partial<RawOrderRow> = {}
+
+  for (const raw of rows) {
+    const row = { ...raw }
+    for (const field of CARRY_FORWARD_FIELDS) {
+      const val = row[field]?.toString().trim()
+      if (!val) {
+        // carry forward from previous row
+        row[field] = (prev[field] as string) ?? ''
+      }
+    }
+    // update prev for next iteration
+    for (const field of CARRY_FORWARD_FIELDS) {
+      const val = row[field]?.toString().trim()
+      if (val) {
+        prev[field] = val
+      }
+    }
+    result.push(row)
+  }
+  return result
+}
+
 export function parseOrderRows(rows: RawOrderRow[]): ParsedOrderItem[] {
   const items: ParsedOrderItem[] = []
+  const filledRows = applyCarryForward(rows)
 
-  for (const row of rows) {
+  for (const row of filledRows) {
     const productSku = row['상품 SKU']?.trim() || ''
     const optionSku = row['옵션 SKU']?.trim() || ''
     const optionName = row['옵션명'] || ''
