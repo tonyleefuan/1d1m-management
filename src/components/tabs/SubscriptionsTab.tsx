@@ -828,7 +828,7 @@ export function SubscriptionsTab() {
 
                       {/* 9. Day */}
                       <TableCell className="py-1 text-center text-xs tabular-nums">
-                        {sub.day || '-'}
+                        {sub.day ?? '-'}
                       </TableCell>
 
                       {/* 10. D-Day */}
