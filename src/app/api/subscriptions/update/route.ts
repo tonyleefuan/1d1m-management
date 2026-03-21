@@ -57,6 +57,7 @@ export async function PATCH(req: Request) {
     }
 
     if (updates.status !== undefined) {
+      const today = new Date().toISOString().slice(0, 10)
       for (const subId of targetIds) {
         const prev = prevMap.get(subId)
         if (!prev) continue
@@ -66,6 +67,15 @@ export async function PATCH(req: Request) {
             { error: `${STATUS_LABELS[prev.status] || prev.status} → ${STATUS_LABELS[updates.status] || updates.status} 전환은 허용되지 않습니다` },
             { status: 400 }
           )
+        }
+        // pending → live: 시작일이 도래해야만 가능
+        if (updates.status === 'live' && prev.status === 'pending') {
+          if (!prev.start_date || prev.start_date > today) {
+            return NextResponse.json(
+              { error: `시작일(${prev.start_date || '미설정'})이 아직 도래하지 않아 발송중으로 변경할 수 없습니다` },
+              { status: 400 }
+            )
+          }
         }
       }
     }
