@@ -15,7 +15,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { SkeletonTable } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
-import { Users, Monitor, Plus } from 'lucide-react'
+import { Users, Monitor, Plus, Palette } from 'lucide-react'
 
 // --- 사용자 관리 ---
 function UsersPanel() {
@@ -338,10 +338,20 @@ function DeviceFormModal({ device, onClose, onSaved, onError }: {
 export function AdminTab() {
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="관리자 설정"
-        description="사용자 계정과 PC 장치를 관리합니다"
-      />
+      <div className="flex items-center justify-between">
+        <PageHeader
+          title="관리자 설정"
+          description="사용자 계정과 PC 장치를 관리합니다"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.open('/design-preview', '_blank')}
+        >
+          <Palette className="h-4 w-4 mr-1.5" />
+          디자인 시스템
+        </Button>
+      </div>
       <Tabs defaultValue="users">
         <TabsList>
           <TabsTrigger value="users" className="gap-1.5">

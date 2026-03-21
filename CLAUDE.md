@@ -60,12 +60,51 @@ src/
 ## UI 스펙
 → `docs/ui-specs/dashboard.md` 참조
 
+## 디자인 시스템
+
+> **프리뷰**: 관리자 설정 → 디자인 시스템 버튼 또는 `/design-preview`
+
+### 필수 규칙 — 반드시 UI 컴포넌트 사용
+| 용도 | 사용할 컴포넌트 | 금지 |
+|------|---------------|------|
+| 버튼 | `<Button>` | `<button className="...">` |
+| 입력 | `<Input>`, `<Textarea>`, `<Select>` | `<input>`, `<textarea>`, `<select>` |
+| 테이블 | `<Table>`, `<DataTable>` | `<table>` |
+| 카드/패널 | `<Card>` | `<div className="bg-white border rounded">` |
+| 뱃지/상태 | `<StatusBadge>`, `<Badge>` | 인라인 span |
+| 빈 상태 | `<EmptyState>` | 텍스트만 표시 |
+| 로딩 | `<SkeletonTable>`, `<Spinner>` | "로딩 중..." 텍스트 |
+| 모달/다이얼로그 | `<FormDialog>`, `<ConfirmDialog>`, `<DetailModal>` | 직접 만든 모달 |
+| 페이지 헤더 | `<PageHeader>` | `<h2>` 직접 사용 |
+| 알림 | `useToast()` + `<Toast>` | `alert()`, 빈 catch |
+| 필터 | `<FilterBar>` | 인라인 필터 UI |
+| 통계 | `<MetricCard>`, `<StatGroup>` | 직접 만든 stat div |
+
+### 브랜드 컬러
+- **Primary**: `hsl(240 10% 6%)` — 검정 계열, 버튼/강조
+- **Secondary**: `hsl(51 100% 50%)` — 1D1M 노랑, 포인트/포커스 링
+- **Destructive**: `hsl(5 98% 63%)` — 삭제/에러
+
+### 컬러 토큰 사용
+```
+✅ text-foreground, text-muted-foreground, bg-muted, border-border
+❌ text-gray-500, bg-gray-50, border-gray-300 (하드코딩 금지)
+```
+
+### 에러 핸들링 패턴
+```tsx
+// 모든 fetch에 적용
+const res = await fetch('/api/...')
+if (!res.ok) throw new Error('실패')
+// catch에서 showError() 호출 — 빈 catch {} 금지
+```
+
 ## 코드 규칙
 - havehad-management와 동일한 패턴 사용
 - API: `getSession()` 으로 인증 확인 필수
 - DB: `supabase` 서비스 클라이언트 사용 (서버 사이드만)
-- 컴포넌트: `src/components/ui/`에 공통 컴포넌트 분리
-- 스타일: Tailwind CSS, cn() 유틸 사용
+- 컴포넌트: `src/components/ui/`에 공통 컴포넌트 분리 (위 디자인 시스템 규칙 준수)
+- 스타일: Tailwind CSS, cn() 유틸, 시맨틱 토큰 사용
 - 타입: `src/lib/types.ts`에 정의
 
 ## 환경 변수
