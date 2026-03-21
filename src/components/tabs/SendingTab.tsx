@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { StatGroup } from '@/components/ui/stat-group'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -268,18 +267,25 @@ export function SendingTab() {
 
       {/* PC별 요약 카드 */}
       {devices.filter(d => d.is_active).length > 0 && (
-        <StatGroup
-          variant="compact"
-          cols={5}
-          stats={devices.filter(d => d.is_active).map((d) => {
+        <div className="grid grid-cols-5 gap-3">
+          {devices.filter(d => d.is_active).map((d) => {
             const s = summary[d.id] || { total: 0, pending: 0, sent: 0, failed: 0 }
-            return {
-              title: d.name || d.phone_number,
-              value: String(s.total),
-              description: `대기 ${s.pending} · 성공 ${s.sent}${s.failed > 0 ? ` · 실패 ${s.failed}` : ''}`,
-            }
+            return (
+              <Card key={d.id} className="cursor-pointer hover:border-foreground/30 transition-colors" onClick={() => setSelectedDevice(d.id)}>
+                <CardContent className="p-3">
+                  <div className="text-xs text-muted-foreground mb-1 flex items-center justify-between">
+                    <span>{d.name || d.phone_number}</span>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-xs">대기 <span className="font-semibold">{s.pending}</span></span>
+                    <span className="text-xs text-emerald-600">성공 <span className="font-semibold">{s.sent}</span>{s.total > 0 && <span className="text-[10px] ml-0.5">({Math.round((s.sent / s.total) * 100)}%)</span>}</span>
+                    {s.failed > 0 && <span className="text-xs text-destructive">실패 <span className="font-semibold">{s.failed}</span><span className="text-[10px] ml-0.5">({Math.round((s.failed / s.total) * 100)}%)</span></span>}
+                  </div>
+                </CardContent>
+              </Card>
+            )
           })}
-        />
+        </div>
       )}
 
       {/* PC 탭 */}
