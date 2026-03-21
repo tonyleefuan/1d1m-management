@@ -48,7 +48,7 @@ export function Dashboard({ userName, userRole }: Props) {
       {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50">
         <div className="max-w-[1400px] mx-auto px-4 h-12 flex items-center justify-between">
-          <h1 className="text-sm font-bold">1D1M Management</h1>
+          <img src="/logo.png" alt="1Day1Message" className="h-5" />
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500">{userName} ({userRole})</span>
             <button

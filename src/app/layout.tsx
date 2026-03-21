@@ -16,6 +16,9 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: "1D1M Management",
   description: "1Day1Message 운영 대시보드",
+  icons: {
+    icon: "/favicon.png",
+  },
 }
 
 export default function RootLayout({
