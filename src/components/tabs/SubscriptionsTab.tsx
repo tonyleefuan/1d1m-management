@@ -100,10 +100,10 @@ interface ProductOption {
 
 // ─── Constants ───────────────────────────────────────────
 
-const STATUS_MAP: Record<string, { status: StatusType; label: string }> = {
-  live: { status: 'success', label: '발송중' },
+const STATUS_MAP: Record<string, { status: StatusType; label: string; className?: string }> = {
+  live: { status: 'info', label: '발송중' },
   pending: { status: 'warning', label: '대기' },
-  pause: { status: 'info', label: '일시정지' },
+  pause: { status: 'neutral', label: '일시정지', className: 'bg-purple-100 text-purple-800' },
   archive: { status: 'neutral', label: '종료' },
   cancel: { status: 'error', label: '취소' },
 }
@@ -512,7 +512,7 @@ export function SubscriptionsTab() {
                 <SelectItem value="__all__">전체 PC</SelectItem>
                 {devices.map((d) => (
                   <SelectItem key={d.id} value={d.id}>
-                    {d.phone_number?.slice(-4)} {d.name ? `(${d.name})` : ''}
+                    {d.phone_number}{d.name ? ` (${d.name})` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -521,14 +521,16 @@ export function SubscriptionsTab() {
               value={filters.product_id}
               onValueChange={(v) => setFilters((f) => ({ ...f, product_id: v === '__all__' ? '' : v, page: 1 }))}
             >
-              <SelectTrigger className="w-[160px] h-8 text-xs">
+              <SelectTrigger className="w-[240px] h-8 text-xs">
                 <SelectValue placeholder="전체 상품" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">전체 상품</SelectItem>
-                {products.map((p) => (
+                {[...products].sort((a, b) =>
+                  a.sku_code.localeCompare(b.sku_code, undefined, { numeric: true })
+                ).map((p) => (
                   <SelectItem key={p.id} value={p.id}>
-                    {p.sku_code}
+                    {p.sku_code} {p.title}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -652,7 +654,7 @@ export function SubscriptionsTab() {
                       </TableCell>
 
                       {/* 5.5 상품명 */}
-                      <TableCell className="py-1 text-xs text-muted-foreground truncate max-w-[160px]">
+                      <TableCell className="py-1 text-xs text-muted-foreground">
                         {sub.product?.title || '-'}
                       </TableCell>
 
@@ -698,18 +700,21 @@ export function SubscriptionsTab() {
                             onValueChange={(v) => handleStatusChange(sub.id, v)}
                           >
                             <SelectTrigger className="h-6 w-[100px] border-0 bg-transparent px-0 text-xs focus:ring-0">
-                              <StatusBadge status={sm?.status ?? 'neutral'} size="xs">
+                              <StatusBadge status={sm?.status ?? 'neutral'} size="xs" className={sm?.className}>
                                 {sm?.label ?? sub.status}
                               </StatusBadge>
                             </SelectTrigger>
                             <SelectContent>
-                              {SUBSCRIPTION_STATUSES.map((s) => (
-                                <SelectItem key={s} value={s}>
-                                  <StatusBadge status={STATUS_MAP[s].status} size="xs">
-                                    {STATUS_MAP[s].label}
-                                  </StatusBadge>
-                                </SelectItem>
-                              ))}
+                              {SUBSCRIPTION_STATUSES.map((s) => {
+                                const m = STATUS_MAP[s]
+                                return (
+                                  <SelectItem key={s} value={s}>
+                                    <StatusBadge status={m.status} size="xs" className={m.className}>
+                                      {m.label}
+                                    </StatusBadge>
+                                  </SelectItem>
+                                )
+                              })}
                             </SelectContent>
                           </Select>
                           {sub.status === 'pause' && sub.resume_date && (

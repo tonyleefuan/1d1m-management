@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { sanitizeSearch } from '@/lib/sanitize'
 
 export async function GET(req: Request) {
   const session = await getSession()
@@ -13,38 +14,49 @@ export async function GET(req: Request) {
 
   const page = parseInt(searchParams.get('page') || '1')
   const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200)
+  const search = searchParams.get('search') || ''
 
-  // 먼저 총 개수 조회 (내용 없이)
-  const { count } = await supabase
+  // 검색 조건 구성
+  let countQuery = supabase
     .from('messages')
     .select('id', { count: 'exact', head: true })
     .eq('product_id', productId)
 
-  // 페이지네이션 적용 — 내용은 미리보기용 200자만
-  const { data, error } = await supabase
+  let dataQuery = supabase
     .from('messages')
-    .select('id, product_id, day_number, sort_order, image_path, created_at')
+    .select('id, product_id, day_number, sort_order, image_path, created_at, content')
     .eq('product_id', productId)
     .order('day_number')
-    .range((page - 1) * limit, page * limit - 1)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  // 미리보기용 content 별도 조회 (200자 제한)
-  if (data?.length) {
-    const ids = data.map(d => d.id)
-    const { data: contents } = await supabase
-      .from('messages')
-      .select('id, content')
-      .in('id', ids)
-
-    const contentMap = new Map(contents?.map(c => [c.id, c.content]) || [])
-    for (const msg of data) {
-      const full = contentMap.get(msg.id) || ''
-      ;(msg as any).content = full.slice(0, 200)
-      ;(msg as any).content_length = full.length
+  if (search) {
+    const s = sanitizeSearch(search)
+    if (s) {
+      const dayMatch = s.match(/^d?(\d+)$/i)
+      if (dayMatch) {
+        // Day 번호로 검색 (예: "D15", "15")
+        const dayNum = parseInt(dayMatch[1])
+        countQuery = countQuery.eq('day_number', dayNum)
+        dataQuery = dataQuery.eq('day_number', dayNum)
+      } else {
+        // 메시지 내용 검색
+        const escaped = s.replace(/%/g, '\\%').replace(/_/g, '\\_')
+        countQuery = countQuery.ilike('content', `%${escaped}%`)
+        dataQuery = dataQuery.ilike('content', `%${escaped}%`)
+      }
     }
   }
 
-  return NextResponse.json({ data, total: count, page, limit })
+  const { count } = await countQuery
+  const { data, error } = await dataQuery.range((page - 1) * limit, page * limit - 1)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // content 미리보기 200자로 자르기
+  const trimmed = data?.map(msg => ({
+    ...msg,
+    content: (msg.content || '').slice(0, 200),
+    content_length: (msg.content || '').length,
+  }))
+
+  return NextResponse.json({ data: trimmed, total: count, page, limit })
 }

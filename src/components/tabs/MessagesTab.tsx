@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { PageHeader, SectionHeader } from '@/components/ui/page-header'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -183,14 +183,28 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
   const [editing, setEditing] = useState<Message | null | undefined>(undefined)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+  const [msgSearch, setMsgSearch] = useState('')
+  const [msgSearchInput, setMsgSearchInput] = useState('')
+  const msgSearchTimer = useRef<ReturnType<typeof setTimeout>>()
   const pageSize = 50
   const { toast, showSuccess, showError, clearToast } = useToast()
+
+  const handleMsgSearch = (value: string) => {
+    setMsgSearchInput(value)
+    if (msgSearchTimer.current) clearTimeout(msgSearchTimer.current)
+    msgSearchTimer.current = setTimeout(() => {
+      setMsgSearch(value)
+      setPage(1)
+    }, 300)
+  }
 
   const fetchMessages = useCallback(async () => {
     if (!selectedProduct) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/messages/list?product_id=${selectedProduct}&page=${page}&limit=${pageSize}`)
+      const params = new URLSearchParams({ product_id: selectedProduct, page: String(page), limit: String(pageSize) })
+      if (msgSearch) params.set('search', msgSearch)
+      const res = await fetch(`/api/messages/list?${params}`)
       if (!res.ok) throw new Error('Failed')
       const data = await res.json()
       setMessages(data.data || data || [])
@@ -198,7 +212,7 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
     } catch {
       showError('메시지를 불러오지 못했습니다')
     } finally { setLoading(false) }
-  }, [selectedProduct, page, showError])
+  }, [selectedProduct, page, msgSearch, showError])
 
   useEffect(() => { fetchMessages() }, [fetchMessages])
   useEffect(() => { setPage(1) }, [selectedProduct])
@@ -235,8 +249,14 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
           <MessageListSkeleton />
         ) : (
           <>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-muted-foreground">총 {total}개 메시지</span>
+            <div className="flex items-center gap-3 mb-3">
+              <Input
+                value={msgSearchInput}
+                onChange={e => handleMsgSearch(e.target.value)}
+                placeholder="Day 번호 또는 내용 검색"
+                className="h-8 text-xs w-[200px]"
+              />
+              <span className="text-sm text-muted-foreground flex-1">총 {total}개</span>
               <Button size="sm" onClick={() => setEditing(null)}>
                 <Plus className="h-3.5 w-3.5 mr-1" />
                 Day 추가
