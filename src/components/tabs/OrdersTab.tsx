@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { Upload, Package, ShoppingCart, Search } from 'lucide-react'
+import { Upload, Package, ShoppingCart, Search, Trash2 } from 'lucide-react'
 import { FilterBar } from '@/components/ui/filter-bar'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,9 @@ import { SkeletonTable } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { MetricCard } from '@/components/ui/metric-card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Badge } from '@/components/ui/badge'
+import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 
 interface UploadResult {
   total: number
@@ -223,10 +226,71 @@ function OrderList() {
   const [searchInput, setSearchInput] = useState('')
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
   const limit = 50
-  const { toast, showError, clearToast } = useToast()
+  const { toast, showSuccess, showError, clearToast } = useToast()
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
+  const lastClickedIdx = useRef<number | null>(null)
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+
+  const toggleSelect = (id: string, event?: React.MouseEvent) => {
+    const currentIdx = orders.findIndex((o: any) => o.id === id)
+
+    if (event?.shiftKey && lastClickedIdx.current !== null && currentIdx !== -1) {
+      const start = Math.min(lastClickedIdx.current, currentIdx)
+      const end = Math.max(lastClickedIdx.current, currentIdx)
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        orders.slice(start, end + 1).forEach((o: any) => next.add(o.id))
+        return next
+      })
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+    }
+    lastClickedIdx.current = currentIdx
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === orders.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(orders.map((o: any) => o.id)))
+    }
+  }
+
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: '주문 삭제',
+      description: `선택한 ${selectedIds.size}건의 주문을 삭제하시겠습니까? 관련 구독도 함께 삭제됩니다.`,
+      variant: 'destructive',
+    })
+    if (!ok) return
+    setDeleting(true)
+    try {
+      const res = await fetch('/api/orders/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      })
+      if (!res.ok) throw new Error()
+      const data = await res.json()
+      showSuccess(`${data.deleted}건 삭제 완료`)
+      setSelectedIds(new Set())
+      fetchOrders()
+    } catch {
+      showError('삭제에 실패했습니다')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
+    setSelectedIds(new Set())
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) })
       if (search) params.set('search', search)
@@ -268,12 +332,22 @@ function OrderList() {
           placeholder: '고객명 / 주문번호 검색',
         }}
         actions={
-          <span className="text-xs text-muted-foreground">총 {total?.toLocaleString()}건</span>
+          selectedIds.size > 0 ? (
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-xs">{selectedIds.size}건 선택</Badge>
+              <Button size="sm" variant="destructive" onClick={handleDelete} disabled={deleting}>
+                <Trash2 className="h-3 w-3 mr-1" />
+                삭제
+              </Button>
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">총 {total?.toLocaleString()}건</span>
+          )
         }
       />
 
       {loading ? (
-        <SkeletonTable cols={7} rows={8} />
+        <SkeletonTable cols={8} rows={8} />
       ) : orders.length === 0 ? (
         <EmptyState
           icon={ShoppingCart}
@@ -286,6 +360,12 @@ function OrderList() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[40px]">
+                    <Checkbox
+                      checked={orders.length > 0 && selectedIds.size === orders.length}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                  </TableHead>
                   <TableHead className="w-[100px]">주문일</TableHead>
                   <TableHead>고객명</TableHead>
                   <TableHead>상품</TableHead>
@@ -298,6 +378,19 @@ function OrderList() {
               <TableBody>
                 {orders.map((item: any) => (
                   <TableRow key={item.id}>
+                    <TableCell
+                      className="py-1.5 cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleSelect(item.id, e as unknown as React.MouseEvent)
+                      }}
+                    >
+                      <Checkbox
+                        checked={selectedIds.has(item.id)}
+                        onCheckedChange={() => {}}
+                        className="pointer-events-none"
+                      />
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-xs tabular-nums py-1.5 whitespace-nowrap">
                       {item.order?.ordered_at?.slice(0, 10)}
                     </TableCell>
@@ -346,6 +439,7 @@ function OrderList() {
           )}
         </>
       )}
+      {ConfirmDialogElement}
       {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
     </div>
   )
