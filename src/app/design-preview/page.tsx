@@ -32,6 +32,10 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { InlineBanner } from '@/components/ui/inline-banner'
 import { Separator } from '@/components/ui/separator'
 import {
+  CellCode, CellCurrency, CellCurrencyKr, CellNumber, CellPercent,
+  CellDate, CellStatus, CellTags, CellLink, CellToggle, CellImage,
+} from '@/components/ui/column-types'
+import {
   ArrowLeft, Users, Package, MessageSquare, Monitor,
   ShoppingCart, Plus, TrendingUp, Calendar, Send,
   AlertCircle, Check,
@@ -70,6 +74,7 @@ const NAV_ITEMS = [
   { id: 'data', label: '데이터 표시' },
   { id: 'input', label: '입력 & 필터' },
   { id: 'feedback', label: '피드백 & 상태' },
+  { id: 'column-types', label: '칼럼 타입' },
   { id: 'tables', label: '테이블' },
 ]
 
@@ -97,6 +102,7 @@ const COLOR_PALETTE = {
 export default function DesignPreviewPage() {
   const [activeSection, setActiveSection] = useState('global')
   const [filterSearch, setFilterSearch] = useState('')
+  const [filterTab, setFilterTab] = useState('all')
   const [formDialogOpen, setFormDialogOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [dateVal, setDateVal] = useState('2026-03-22')
@@ -704,20 +710,89 @@ export default function DesignPreviewPage() {
                 <h3 className="text-sm font-semibold">FilterBar</h3>
                 <ComponentId name="FilterBar" path="@/components/ui/filter-bar" />
               </div>
-              <Card>
-                <CardContent className="pt-6 space-y-4">
-                  <FilterBar
-                    search={{ value: filterSearch, onChange: setFilterSearch, placeholder: '구독자 검색...' }}
-                    quickFilters={[
-                      { label: '전체', active: !filterSearch, onClick: () => setFilterSearch('') },
-                      { label: '활성', count: 1102, onClick: () => setFilterSearch('활성') },
-                      { label: '일시정지', count: 85, onClick: () => setFilterSearch('일시정지') },
-                      { label: '만료', count: 72, onClick: () => setFilterSearch('만료') },
-                    ]}
-                    actions={<Button size="sm"><Plus className="h-4 w-4 mr-1" />추가</Button>}
-                  />
-                </CardContent>
-              </Card>
+              <div className="space-y-4">
+                {/* Variant 1: quickFilters + search + actions */}
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-xs text-muted-foreground mb-3">quickFilters + search + actions</p>
+                    <FilterBar
+                      search={{ value: filterSearch, onChange: setFilterSearch, placeholder: '구독자 검색...' }}
+                      quickFilters={[
+                        { label: '전체', active: filterTab === 'all', onClick: () => setFilterTab('all') },
+                        { label: '활성', count: 1102, active: filterTab === 'live', onClick: () => setFilterTab('live') },
+                        { label: '대기', count: 45, active: filterTab === 'pending', onClick: () => setFilterTab('pending') },
+                        { label: '일시정지', count: 85, active: filterTab === 'pause', onClick: () => setFilterTab('pause') },
+                        { label: '만료', count: 72, active: filterTab === 'archive', onClick: () => setFilterTab('archive') },
+                        { label: '취소', count: 18, active: filterTab === 'cancel', onClick: () => setFilterTab('cancel') },
+                      ]}
+                      actions={<Button size="sm"><Plus className="h-4 w-4 mr-1" />구독 추가</Button>}
+                    />
+                  </CardContent>
+                </Card>
+
+                {/* Variant 2: search + dropdown filters */}
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-xs text-muted-foreground mb-3">search + filters (드롭다운)</p>
+                    <FilterBar
+                      search={{ value: filterSearch, onChange: setFilterSearch, placeholder: '상품명, SKU 검색...' }}
+                      filters={
+                        <div className="flex gap-2">
+                          <Select defaultValue="all">
+                            <SelectTrigger className="w-[130px] h-9 text-xs">
+                              <SelectValue placeholder="메시지 타입" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">전체 타입</SelectItem>
+                              <SelectItem value="fixed">고정</SelectItem>
+                              <SelectItem value="realtime">실시간</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Select defaultValue="all">
+                            <SelectTrigger className="w-[130px] h-9 text-xs">
+                              <SelectValue placeholder="상태" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">전체 상태</SelectItem>
+                              <SelectItem value="active">활성</SelectItem>
+                              <SelectItem value="inactive">비활성</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      }
+                      actions={<Button size="sm" variant="outline">내보내기</Button>}
+                    />
+                  </CardContent>
+                </Card>
+
+                {/* Variant 3: stacked layout */}
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-xs text-muted-foreground mb-3">layout=&quot;stacked&quot; (2줄 배치)</p>
+                    <FilterBar
+                      layout="stacked"
+                      search={{ value: filterSearch, onChange: setFilterSearch, placeholder: '주문번호, 고객명 검색...' }}
+                      quickFilters={[
+                        { label: '전체', active: true, onClick: () => {} },
+                        { label: '오늘', count: 12, onClick: () => {} },
+                        { label: '이번 주', count: 48, onClick: () => {} },
+                      ]}
+                      filters={
+                        <Select defaultValue="all">
+                          <SelectTrigger className="w-[130px] h-9 text-xs">
+                            <SelectValue placeholder="PC 선택" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">전체 PC</SelectItem>
+                            <SelectItem value="pc1">PC 1호기</SelectItem>
+                            <SelectItem value="pc2">PC 2호기</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      }
+                    />
+                  </CardContent>
+                </Card>
+              </div>
             </div>
 
             {/* SmartSelect */}
@@ -931,38 +1006,264 @@ export default function DesignPreviewPage() {
           </div>
         </section>
 
-        {/* ═══════════════ 7. 테이블 ═══════════════ */}
-        <section id="tables">
-          <SectionHeader title="테이블">
-            <ComponentId name="DataTable" path="@/components/ui/data-table" />
+        {/* ═══════════════ 7. 칼럼 타입 갤러리 ═══════════════ */}
+        <section id="column-types">
+          <SectionHeader title="칼럼 타입 갤러리">
+            <ComponentId name="CellCode" path="@/components/ui/column-types" />
           </SectionHeader>
+          <p className="text-sm text-muted-foreground mt-2 mb-6">
+            테이블 안에서 사용 가능한 모든 칼럼 렌더링 타입. DataTable의 <code className="text-xs bg-muted px-1 rounded">render</code> 함수에서 사용합니다.
+          </p>
 
-          <div className="mt-6">
-            <DataTable
-              title="구독 목록"
-              columns={[
-                { key: 'name', label: '구독자', sortable: true },
-                { key: 'product', label: '상품', sortable: true },
-                { key: 'pc', label: 'PC' },
-                {
-                  key: 'status', label: '상태', align: 'center' as const,
-                  render: (_: string, row: { status: string; statusLabel: string }) => (
-                    <StatusBadge status={row.status as 'success' | 'warning' | 'error' | 'info' | 'neutral'} variant="dot">
-                      {row.statusLabel}
-                    </StatusBadge>
-                  ),
-                },
-                { key: 'startDate', label: '시작일', sortable: true },
-                { key: 'endDate', label: '종료일' },
-              ] as DataTableColumn<typeof SAMPLE_SUBSCRIPTIONS[number]>[]}
-              data={SAMPLE_SUBSCRIPTIONS}
-              searchKeys={['name', 'product']}
-              rowActions={(row) => [
-                { label: '수정', onClick: () => {} },
-                { label: '일시정지', onClick: () => {} },
-                { label: '삭제', onClick: () => {}, destructive: true },
-              ]}
-            />
+          <Card>
+            <CardContent className="pt-6">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[140px]">타입명</TableHead>
+                    <TableHead className="w-[200px]">예시 A</TableHead>
+                    <TableHead className="w-[200px]">예시 B</TableHead>
+                    <TableHead>용도</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellCode</TableCell>
+                    <TableCell><CellCode value="SUB-31" /></TableCell>
+                    <TableCell><CellCode value={null} /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">SKU 코드, 주문번호</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellCurrency</TableCell>
+                    <TableCell><CellCurrency value={38500} /></TableCell>
+                    <TableCell><CellCurrency value={-9800} /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">통화 — 음수 빨간색</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellCurrencyKr</TableCell>
+                    <TableCell><CellCurrencyKr value={1950000} /></TableCell>
+                    <TableCell><CellCurrencyKr value={42000000} /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">한국식 축약 (만/억)</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellNumber</TableCell>
+                    <TableCell><CellNumber value={365} /></TableCell>
+                    <TableCell><CellNumber value={180} unit="일" /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">숫자 + 선택적 단위</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellPercent</TableCell>
+                    <TableCell><CellPercent value={12.5} showSign /></TableCell>
+                    <TableCell><CellPercent value={-3.2} showSign /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">퍼센트 — 양수 초록, 음수 빨강</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellDate</TableCell>
+                    <TableCell><CellDate value="2026-03-22" /></TableCell>
+                    <TableCell><CellDate value="2026-03-22" showIcon /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">날짜 (아이콘 선택)</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellStatus</TableCell>
+                    <TableCell><CellStatus value="활성" statusMap={{ '활성': { status: 'success' }, '대기': { status: 'warning' } }} /></TableCell>
+                    <TableCell><CellStatus value="대기" statusMap={{ '활성': { status: 'success' }, '대기': { status: 'warning' } }} /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">StatusBadge 자동 연동</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellTags</TableCell>
+                    <TableCell><CellTags value={['365일', '카카오톡']} /></TableCell>
+                    <TableCell><CellTags value={['90일', 'iMessage']} /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">다중 태그</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellLink</TableCell>
+                    <TableCell><CellLink value="https://example.com" label="아임웹 주문" /></TableCell>
+                    <TableCell><CellLink value={null} /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">외부 링크</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellToggle</TableCell>
+                    <TableCell><CellToggle value={true} /></TableCell>
+                    <TableCell><CellToggle value={false} /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">토글 스위치</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs font-mono">CellImage</TableCell>
+                    <TableCell><CellImage value={null} /></TableCell>
+                    <TableCell><CellImage value={null} size={48} /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">썸네일 (32/48px)</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* ═══════════════ 8. 테이블 ═══════════════ */}
+        <section id="tables">
+          <SectionHeader title="테이블" />
+
+          <div className="mt-6 space-y-10">
+            {/* Raw Table */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <h3 className="text-sm font-semibold">Table (기본)</h3>
+                <ComponentId name="Table" path="@/components/ui/table" />
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">기본 테이블 — 정적 데이터, 간단한 목록에 사용</p>
+              <Card>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>SKU</TableHead>
+                        <TableHead>상품명</TableHead>
+                        <TableHead>타입</TableHead>
+                        <TableHead className="text-right">총 일수</TableHead>
+                        <TableHead className="text-right">가격</TableHead>
+                        <TableHead className="text-center">상태</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="font-mono text-xs">SUB-31</TableCell>
+                        <TableCell>미드 프렌즈 속 영어 표현</TableCell>
+                        <TableCell><StatusBadge status="info" size="xs">고정</StatusBadge></TableCell>
+                        <TableCell className="text-right tabular-nums">365일</TableCell>
+                        <TableCell className="text-right tabular-nums">38,500원</TableCell>
+                        <TableCell className="text-center"><StatusBadge status="success" variant="dot">활성</StatusBadge></TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="font-mono text-xs">SUB-46</TableCell>
+                        <TableCell>경제 뉴스 따라잡기</TableCell>
+                        <TableCell><StatusBadge status="warning" size="xs">실시간</StatusBadge></TableCell>
+                        <TableCell className="text-right tabular-nums">365일</TableCell>
+                        <TableCell className="text-right tabular-nums">38,500원</TableCell>
+                        <TableCell className="text-center"><StatusBadge status="success" variant="dot">활성</StatusBadge></TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="font-mono text-xs">SUB-48</TableCell>
+                        <TableCell>90일 완성 여행 영어 회화</TableCell>
+                        <TableCell><StatusBadge status="info" size="xs">고정</StatusBadge></TableCell>
+                        <TableCell className="text-right tabular-nums">90일</TableCell>
+                        <TableCell className="text-right tabular-nums">9,800원</TableCell>
+                        <TableCell className="text-center"><StatusBadge status="neutral" variant="dot">비활성</StatusBadge></TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* DataTable */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <h3 className="text-sm font-semibold">DataTable (검색/정렬/액션)</h3>
+                <ComponentId name="DataTable" path="@/components/ui/data-table" />
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                검색, 컬럼 정렬, 행 액션, 페이지네이션 내장. 읽기 전용 목록에 사용.
+              </p>
+              <DataTable
+                title="구독 목록"
+                columns={[
+                  { key: 'name', label: '구독자', sortable: true },
+                  { key: 'product', label: '상품', sortable: true },
+                  { key: 'pc', label: 'PC' },
+                  { key: 'days', label: '진행', align: 'right' as const,
+                    render: (_: unknown, row: { currentDay: number; totalDays: number }) => (
+                      <span className="tabular-nums text-xs">{row.currentDay}/{row.totalDays}일</span>
+                    ),
+                  },
+                  {
+                    key: 'status', label: '상태', align: 'center' as const,
+                    render: (_: string, row: { status: string; statusLabel: string }) => (
+                      <StatusBadge status={row.status as 'success' | 'warning' | 'error' | 'info' | 'neutral'} variant="dot">
+                        {row.statusLabel}
+                      </StatusBadge>
+                    ),
+                  },
+                  { key: 'startDate', label: '시작일', sortable: true },
+                  { key: 'endDate', label: '종료일' },
+                ] as DataTableColumn<typeof SAMPLE_SUBSCRIPTIONS[number]>[]}
+                data={SAMPLE_SUBSCRIPTIONS}
+                searchKeys={['name', 'product']}
+                rowActions={() => [
+                  { label: '상세 보기', onClick: () => {} },
+                  { label: 'PC 변경', onClick: () => {} },
+                  { label: '일시정지', onClick: () => {} },
+                  { label: '구독 취소', onClick: () => {}, destructive: true },
+                ]}
+              />
+            </div>
+
+            {/* FilterBar + DataTable 조합 */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <h3 className="text-sm font-semibold">FilterBar + DataTable 조합</h3>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                실제 탭에서 사용하는 패턴 — FilterBar 위에 놓고, DataTable과 조합
+              </p>
+              <div className="space-y-3">
+                <FilterBar
+                  search={{ value: filterSearch, onChange: setFilterSearch, placeholder: '상품명, SKU 검색...' }}
+                  quickFilters={[
+                    { label: '전체', active: filterTab === 'all', onClick: () => setFilterTab('all') },
+                    { label: '고정 메시지', active: filterTab === 'fixed', onClick: () => setFilterTab('fixed') },
+                    { label: '실시간', active: filterTab === 'realtime', onClick: () => setFilterTab('realtime') },
+                  ]}
+                  filters={
+                    <Select defaultValue="all">
+                      <SelectTrigger className="w-[130px] h-9 text-xs">
+                        <SelectValue placeholder="상태" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">전체</SelectItem>
+                        <SelectItem value="active">활성</SelectItem>
+                        <SelectItem value="inactive">비활성</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  }
+                  actions={
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline">내보내기</Button>
+                      <Button size="sm"><Plus className="h-4 w-4 mr-1" />상품 추가</Button>
+                    </div>
+                  }
+                />
+                <Card>
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>SKU</TableHead>
+                          <TableHead>상품명</TableHead>
+                          <TableHead>타입</TableHead>
+                          <TableHead className="text-right">총 일수</TableHead>
+                          <TableHead className="text-right">메시지 수</TableHead>
+                          <TableHead className="text-right">활성 구독</TableHead>
+                          <TableHead className="text-center">상태</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {SAMPLE_PRODUCTS.map(p => (
+                          <TableRow key={p.sku} className="cursor-pointer hover:bg-muted/50">
+                            <TableCell><CellCode value={p.sku} /></TableCell>
+                            <TableCell className="max-w-[250px] truncate">{p.title}</TableCell>
+                            <TableCell><StatusBadge status={p.type === '고정' ? 'info' : 'warning'} size="xs">{p.type}</StatusBadge></TableCell>
+                            <TableCell className="text-right"><CellNumber value={p.days} unit="일" /></TableCell>
+                            <TableCell className="text-right"><CellNumber value={p.messages} /></TableCell>
+                            <TableCell className="text-right"><CellNumber value={p.subs} /></TableCell>
+                            <TableCell className="text-center"><StatusBadge status={p.active ? 'success' : 'neutral'} variant="dot">{p.active ? '활성' : '비활성'}</StatusBadge></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
           </div>
         </section>
       </div>
@@ -971,12 +1272,23 @@ export default function DesignPreviewPage() {
 }
 
 const SAMPLE_SUBSCRIPTIONS = [
-  { id: 1, name: '김민수', product: '매일 영어 한마디', pc: 'PC 1호기', status: 'success', statusLabel: '활성', startDate: '2026-01-15', endDate: '2026-07-15' },
-  { id: 2, name: '이지은', product: '오늘의 명언', pc: 'PC 2호기', status: 'warning', statusLabel: '대기', startDate: '2026-02-01', endDate: '2026-08-01' },
-  { id: 3, name: '박준혁', product: '매일 영어 한마디', pc: 'PC 1호기', status: 'error', statusLabel: '취소', startDate: '2025-11-20', endDate: '2026-05-20' },
-  { id: 4, name: '최서연', product: '뉴스 브리핑', pc: 'PC 3호기', status: 'success', statusLabel: '활성', startDate: '2026-03-01', endDate: '2026-09-01' },
-  { id: 5, name: '정태영', product: '매일 영어 한마디', pc: 'PC 1호기', status: 'info', statusLabel: '일시정지', startDate: '2025-12-01', endDate: '2026-06-01' },
-  { id: 6, name: '한소희', product: '오늘의 명언', pc: 'PC 2호기', status: 'success', statusLabel: '활성', startDate: '2026-01-20', endDate: '2026-07-20' },
-  { id: 7, name: '윤도현', product: '뉴스 브리핑', pc: 'PC 3호기', status: 'neutral', statusLabel: '만료', startDate: '2025-09-01', endDate: '2026-03-01' },
-  { id: 8, name: '강지원', product: '매일 영어 한마디', pc: 'PC 1호기', status: 'success', statusLabel: '활성', startDate: '2026-02-15', endDate: '2026-08-15' },
+  { id: 1, name: '김민수', product: '미드 프렌즈 영어', pc: 'PC 1', currentDay: 142, totalDays: 365, status: 'success', statusLabel: '활성', startDate: '2025-11-01', endDate: '2026-11-01' },
+  { id: 2, name: '이지은', product: '오늘의 명언', pc: 'PC 2', currentDay: 0, totalDays: 365, status: 'warning', statusLabel: '대기', startDate: '2026-03-25', endDate: '2027-03-25' },
+  { id: 3, name: '박준혁', product: 'BBC 영어 표현', pc: 'PC 1', currentDay: 0, totalDays: 365, status: 'error', statusLabel: '취소', startDate: '2025-11-20', endDate: '2026-05-20' },
+  { id: 4, name: '최서연', product: '경제 뉴스', pc: 'PC 3', currentDay: 88, totalDays: 180, status: 'success', statusLabel: '활성', startDate: '2025-12-24', endDate: '2026-06-22' },
+  { id: 5, name: '정태영', product: '토익 기출 단어', pc: 'PC 1', currentDay: 55, totalDays: 365, status: 'info', statusLabel: '일시정지', startDate: '2026-01-01', endDate: '2027-01-01' },
+  { id: 6, name: '한소희', product: '시티팝 일본어', pc: 'PC 2', currentDay: 230, totalDays: 365, status: 'success', statusLabel: '활성', startDate: '2025-08-05', endDate: '2026-08-05' },
+  { id: 7, name: '윤도현', product: '경제 뉴스', pc: 'PC 3', currentDay: 180, totalDays: 180, status: 'neutral', statusLabel: '만료', startDate: '2025-09-01', endDate: '2026-03-01' },
+  { id: 8, name: '강지원', product: '여행 영어 회화', pc: 'PC 1', currentDay: 45, totalDays: 90, status: 'success', statusLabel: '활성', startDate: '2026-02-05', endDate: '2026-05-06' },
+  { id: 9, name: '임수정', product: 'JLPT 단어', pc: 'PC 4', currentDay: 300, totalDays: 365, status: 'success', statusLabel: '활성', startDate: '2025-05-27', endDate: '2026-05-27' },
+  { id: 10, name: '조현우', product: '굿플레이스 영어', pc: 'PC 2', currentDay: 365, totalDays: 365, status: 'neutral', statusLabel: '만료', startDate: '2025-03-22', endDate: '2026-03-22' },
+]
+
+const SAMPLE_PRODUCTS = [
+  { sku: 'SUB-31', title: '하루에 한 문장, 미드 프렌즈 속 영어 표현', type: '고정', days: 365, messages: 509, subs: 186, active: true },
+  { sku: 'SUB-46', title: '사회 초년생을 위한 경제 뉴스 따라잡기', type: '실시간', days: 365, messages: 0, subs: 142, active: true },
+  { sku: 'SUB-38', title: '하루에 한 번, 토익 기출 단어 5개', type: '고정', days: 365, messages: 730, subs: 98, active: true },
+  { sku: 'SUB-48', title: '하루에 한 패턴, 90일 완성 여행 영어 회화', type: '고정', days: 90, messages: 277, subs: 54, active: true },
+  { sku: 'SUB-25', title: '7080 시티팝 속 매력적인 일본어 표현', type: '고정', days: 365, messages: 436, subs: 33, active: true },
+  { sku: 'SUB-79', title: '미드 프렌즈 속 영어 표현 (레거시)', type: '고정', days: 180, messages: 10, subs: 0, active: false },
 ]
