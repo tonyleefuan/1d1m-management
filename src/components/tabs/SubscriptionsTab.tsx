@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { SUBSCRIPTION_STATUSES, STATUS_LABELS, PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Timeline } from '@/components/ui/timeline'
 import { Users, Send, Pause, Clock, FileText, MessageSquare, Check, RefreshCw } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────
@@ -1125,39 +1126,48 @@ export function SubscriptionsTab() {
 
               {/* History Timeline */}
               <section className="space-y-3">
-                <h3 className="text-sm font-semibold">변경 히스토리</h3>
+                <h3 className="text-sm font-semibold">히스토리</h3>
                 {logsLoading ? (
                   <div className="space-y-2">
                     {[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
                   </div>
-                ) : logs.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">변경 이력이 없습니다</p>
                 ) : (
-                  <div className="space-y-0 border-l-2 border-muted ml-2">
-                    {logs.map(log => (
-                      <div key={log.id} className="relative pl-5 pb-4">
-                        <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-muted-foreground/40" />
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-[11px] text-muted-foreground tabular-nums">
-                            {log.created_at?.slice(0, 16)?.replace('T', ' ')}
-                          </span>
-                          {log.user?.name && (
-                            <span className="text-[10px] text-muted-foreground">({log.user.name})</span>
-                          )}
-                        </div>
-                        <p className="text-xs mt-0.5">
-                          {log.old_value && log.new_value ? (
-                            <>{log.field_name === 'status' ? '상태' : log.field_name}: <span className="text-muted-foreground line-through">{log.old_value}</span> → <span className="font-medium">{log.new_value}</span></>
-                          ) : log.new_value ? (
-                            <>{log.field_name}: <span className="font-medium">{log.new_value}</span></>
-                          ) : (
-                            <span className="text-muted-foreground">{log.action}</span>
-                          )}
-                        </p>
-                        {log.memo && <p className="text-[11px] text-muted-foreground mt-0.5">{log.memo}</p>}
-                      </div>
-                    ))}
-                  </div>
+                  <Timeline
+                    variant="compact"
+                    items={[
+                      // 변경 로그
+                      ...logs.map(log => ({
+                        date: log.created_at?.slice(0, 16)?.replace('T', ' ') || '',
+                        title: log.old_value && log.new_value
+                          ? `${log.field_name === 'status' ? '상태' : log.field_name}: ${log.old_value} → ${log.new_value}`
+                          : log.new_value
+                            ? `${log.field_name}: ${log.new_value}`
+                            : log.action || '변경',
+                        description: [log.user?.name ? `by ${log.user.name}` : '', log.memo].filter(Boolean).join(' · ') || undefined,
+                        status: (log.field_name === 'status'
+                          ? log.new_value === 'live' ? 'success'
+                            : log.new_value === 'cancel' ? 'error'
+                            : log.new_value === 'pause' ? 'warning'
+                            : log.new_value === 'archive' ? 'neutral'
+                            : 'info'
+                          : 'info') as 'success' | 'warning' | 'error' | 'info' | 'neutral',
+                      })),
+                      // 구독 생성
+                      ...(detailSub.created_at ? [{
+                        date: detailSub.created_at.slice(0, 16).replace('T', ' '),
+                        title: '구독 생성',
+                        description: `${detailSub.product.sku_code} · ${detailSub.duration_days}일`,
+                        status: 'info' as const,
+                      }] : []),
+                      // 주문일
+                      ...(detailSub.order_item?.order?.ordered_at ? [{
+                        date: detailSub.order_item.order.ordered_at.slice(0, 16).replace('T', ' '),
+                        title: '주문 접수',
+                        description: detailSub.customer.name,
+                        status: 'neutral' as const,
+                      }] : []),
+                    ]}
+                  />
                 )}
               </section>
             </div>
