@@ -101,10 +101,13 @@ async function main() {
     process.exit(1)
   }
 
-  const cookies = loginRes.headers.getSetCookie?.() || []
-  const sessionCookie = cookies.find(c => c.startsWith('session='))
+  // Extract session cookie (compatible with Node 18+)
+  const setCookieHeader = loginRes.headers.get('set-cookie') || ''
+  const cookies = loginRes.headers.getSetCookie?.() || [setCookieHeader]
+  const allCookies = cookies.length > 0 ? cookies : [setCookieHeader]
+  const sessionCookie = allCookies.find((c: string) => c.includes('session='))
   if (!sessionCookie) {
-    console.error('No session cookie received')
+    console.error('No session cookie received. Headers:', Object.fromEntries(loginRes.headers.entries()))
     process.exit(1)
   }
   const cookie = sessionCookie.split(';')[0]
