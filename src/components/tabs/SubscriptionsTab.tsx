@@ -196,13 +196,6 @@ export function SubscriptionsTab() {
     }
   }, [])
 
-  // 자연 정렬 (PC 1, PC 2, ... PC 10)
-  const naturalSort = (a: DeviceOption, b: DeviceOption) => {
-    const nameA = a.name || ''
-    const nameB = b.name || ''
-    return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' })
-  }
-
   useEffect(() => {
     fetch('/api/products/list')
       .then((r) => r.json())
@@ -210,10 +203,7 @@ export function SubscriptionsTab() {
       .catch(() => {})
     fetch('/api/admin/devices')
       .then((r) => r.json())
-      .then((d) => {
-        const list = d?.data || d || []
-        setDevices(list.sort(naturalSort))
-      })
+      .then((d) => setDevices(d?.data || d || []))
       .catch(() => {})
     fetchSummary()
   }, [fetchSummary])
@@ -526,9 +516,7 @@ export function SubscriptionsTab() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">전체 상품</SelectItem>
-                {[...products].sort((a, b) =>
-                  a.sku_code.localeCompare(b.sku_code, undefined, { numeric: true })
-                ).map((p) => (
+                {products.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.sku_code} {p.title}
                   </SelectItem>

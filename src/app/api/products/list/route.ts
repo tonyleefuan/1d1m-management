@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { naturalSortBy } from '@/lib/utils'
 
 export async function GET() {
   const session = await getSession()
@@ -32,5 +33,5 @@ export async function GET() {
     active_subscriptions: countMap[p.id] || 0,
   }))
 
-  return NextResponse.json(result)
+  return NextResponse.json(naturalSortBy(result || [], 'sku_code'))
 }

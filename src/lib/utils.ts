@@ -107,3 +107,15 @@ export function getMonthStart(): string {
   d.setDate(1)
   return toKST(d)
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  자연 정렬 — "SUB-1, SUB-2, ..., SUB-10" / "PC 1, PC 2, ..., PC 10"
+ * ═══════════════════════════════════════════════════════════════════ */
+export function naturalCompare(a: string, b: string): number {
+  return (a || '').localeCompare(b || '', undefined, { numeric: true, sensitivity: 'base' })
+}
+
+/** 객체 배열을 특정 키의 자연 정렬로 정렬 */
+export function naturalSortBy<T>(arr: T[], key: keyof T): T[] {
+  return [...arr].sort((a, b) => naturalCompare(String(a[key] ?? ''), String(b[key] ?? '')))
+}

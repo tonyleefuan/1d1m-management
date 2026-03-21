@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { naturalSortBy } from '@/lib/utils'
 
 export async function GET() {
   const session = await getSession()
@@ -26,7 +27,7 @@ export async function GET() {
   })
 
   const enriched = data?.map(d => ({ ...d, active_subscriptions: countMap[d.id] || 0 }))
-  return NextResponse.json(enriched)
+  return NextResponse.json(naturalSortBy(enriched || [], 'name'))
 }
 
 export async function POST(req: Request) {
