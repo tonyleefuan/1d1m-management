@@ -716,16 +716,16 @@ export function SubscriptionsTab() {
                       <TableCell
                         className={cn(
                           'py-1 text-center text-xs tabular-nums font-medium',
-                          sub.d_day === null
+                          sub.status === 'pause'
                             ? 'text-muted-foreground'
-                            : sub.d_day <= 0
+                            : sub.d_day !== null && sub.d_day <= 0
                               ? 'text-destructive'
-                              : sub.d_day <= 7
+                              : sub.d_day !== null && sub.d_day <= 7
                                 ? 'text-amber-600'
                                 : '',
                         )}
                       >
-                        {sub.d_day === null ? '일시정지' : sub.start_date ? sub.d_day : '-'}
+                        {sub.status === 'pause' ? '일시정지' : sub.d_day !== null ? sub.d_day : '-'}
                       </TableCell>
 
                       {/* 11. 상태 */}
