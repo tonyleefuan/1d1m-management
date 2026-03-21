@@ -31,7 +31,7 @@ interface SubRow {
   end_date: string | null
   duration_days: number
   day: number
-  d_day: number
+  d_day: number | null
   friend_confirmed: boolean
   friend_confirmed_at: string | null
   auto_confirmed: boolean
@@ -319,18 +319,11 @@ export function SubscriptionsTab() {
 
   const handleStartDateChange = async (id: string, startDate: string) => {
     if (!startDate || startDate.length !== 10) return
-    const endDate = new Date(startDate)
-    const sub = subs.find((s) => s.id === id)
-    if (sub) endDate.setDate(endDate.getDate() + sub.duration_days - 1)
     const ok = await optimisticUpdate(
       id,
-      {
-        status: 'live' as SubscriptionStatus,
-        start_date: startDate,
-        end_date: endDate.toISOString().slice(0, 10),
-      },
-      { status: 'live', start_date: startDate },
-      '시작일이 설정되고 발송이 시작되었습니다',
+      { start_date: startDate },
+      { start_date: startDate },
+      '시작일이 변경되었습니다',
     )
     if (ok) fetchSummary()
   }
@@ -636,15 +629,16 @@ export function SubscriptionsTab() {
                     <TableRow key={sub.id} className="group">
                       {/* 1. Checkbox (Shift+Click 범위 선택 지원) */}
                       <TableCell
-                        className="py-1 cursor-pointer"
+                        className="py-1 cursor-pointer select-none"
                         onClick={(e) => {
                           e.stopPropagation()
-                          toggleSelect(sub.id, e as unknown as React.MouseEvent)
+                          e.preventDefault()
+                          toggleSelect(sub.id, e)
                         }}
                       >
                         <Checkbox
                           checked={selectedIds.has(sub.id)}
-                          onCheckedChange={() => toggleSelect(sub.id)}
+                          className="pointer-events-none"
                         />
                       </TableCell>
 
@@ -715,21 +709,23 @@ export function SubscriptionsTab() {
 
                       {/* 9. Day */}
                       <TableCell className="py-1 text-center text-xs tabular-nums">
-                        {sub.start_date ? sub.day : '-'}
+                        {sub.day || '-'}
                       </TableCell>
 
                       {/* 10. D-Day */}
                       <TableCell
                         className={cn(
                           'py-1 text-center text-xs tabular-nums font-medium',
-                          sub.start_date && sub.d_day <= 0
-                            ? 'text-destructive'
-                            : sub.start_date && sub.d_day <= 7
-                              ? 'text-amber-600'
-                              : '',
+                          sub.d_day === null
+                            ? 'text-muted-foreground'
+                            : sub.d_day <= 0
+                              ? 'text-destructive'
+                              : sub.d_day <= 7
+                                ? 'text-amber-600'
+                                : '',
                         )}
                       >
-                        {sub.start_date ? sub.d_day : '-'}
+                        {sub.d_day === null ? '일시정지' : sub.start_date ? sub.d_day : '-'}
                       </TableCell>
 
                       {/* 11. 상태 */}
@@ -913,9 +909,11 @@ export function SubscriptionsTab() {
                   <div className="tabular-nums">{detailSub.end_date || '-'}</div>
                   <div className="text-muted-foreground">Day / D-Day</div>
                   <div className="tabular-nums">
-                    {detailSub.start_date
-                      ? `${detailSub.day}일째 / D-${detailSub.d_day}`
-                      : '-'}
+                    {detailSub.status === 'pause'
+                      ? `${detailSub.day}일째 / 일시정지`
+                      : detailSub.start_date
+                        ? `${detailSub.day}일째 / D-${detailSub.d_day ?? '-'}`
+                        : '-'}
                   </div>
                   <div className="text-muted-foreground">PC</div>
                   <div>
