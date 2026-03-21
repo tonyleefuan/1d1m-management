@@ -310,8 +310,8 @@ export function SendingTab() {
                 selectedDevice === d.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
-              {d.name || d.phone_number.slice(-4)}
-              <span className="ml-1 text-muted-foreground">
+              <span className="block">{d.phone_number}</span>
+              <span className="block text-muted-foreground">
                 {s.sent}/{s.total}
                 {s.failed > 0 && <span className="text-destructive ml-0.5">({s.failed})</span>}
               </span>
