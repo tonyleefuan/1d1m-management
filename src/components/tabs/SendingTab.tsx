@@ -75,7 +75,7 @@ export function SendingTab() {
   const [selectedDevice, setSelectedDevice] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   // ─── Fetch ───
 

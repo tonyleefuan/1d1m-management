@@ -115,22 +115,6 @@ export async function PATCH(req: Request) {
         updateData.cancel_reason = updates.cancel_reason || null
       }
       if (updates.status === 'live') {
-        // pause → live: end_date를 pause 일수만큼 연장
-        for (const subId of targetIds) {
-          const prev = prevMap.get(subId)
-          if (prev?.status === 'pause' && prev.paused_at && prev.end_date) {
-            const pausedAt = new Date(prev.paused_at)
-            pausedAt.setHours(0, 0, 0, 0)
-            const now = new Date()
-            now.setHours(0, 0, 0, 0)
-            const pauseDays = Math.max(0, Math.floor((now.getTime() - pausedAt.getTime()) / (1000 * 60 * 60 * 24)))
-            if (pauseDays > 0) {
-              const newEnd = new Date(prev.end_date)
-              newEnd.setDate(newEnd.getDate() + pauseDays)
-              updateData.end_date = newEnd.toISOString().slice(0, 10)
-            }
-          }
-        }
         updateData.paused_at = null
         updateData.resume_date = null
       }
@@ -198,6 +182,25 @@ export async function PATCH(req: Request) {
       .from('subscriptions')
       .update(updateData)
       .in('id', targetIds)
+
+    // Fix end_date individually for pause→live transitions
+    if (updates.status === 'live') {
+      for (const subId of targetIds) {
+        const prev = prevMap.get(subId)
+        if (prev?.status === 'pause' && prev.paused_at && prev.end_date) {
+          const pausedAt = new Date(prev.paused_at)
+          const endDate = new Date(prev.end_date)
+          const now = new Date()
+          const pauseDays = Math.ceil((now.getTime() - pausedAt.getTime()) / (1000 * 60 * 60 * 24))
+          const newEnd = new Date(endDate)
+          newEnd.setDate(newEnd.getDate() + pauseDays)
+          await supabase
+            .from('subscriptions')
+            .update({ end_date: newEnd.toISOString().slice(0, 10) })
+            .eq('id', subId)
+        }
+      }
+    }
 
     // kakao_friend_name 업데이트
     if (updates.kakao_friend_name !== undefined && targetIds.length === 1) {

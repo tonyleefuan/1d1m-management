@@ -13,7 +13,8 @@ export async function POST(req: Request) {
     if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  // KST (UTC+9) 기준 오늘 날짜
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)
   const results = { pending_to_live: 0, live_to_archive: 0, pause_to_live: 0 }
 
   // 1. pending -> live: start_date <= today AND last_send_failure IS NULL
