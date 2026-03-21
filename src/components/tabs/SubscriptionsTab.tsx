@@ -166,7 +166,6 @@ export function SubscriptionsTab() {
     status: '',
     device_id: '',
     product_id: '',
-    friend_confirmed: '',
     search: '',
     page: 1,
     sort: 'created_at',
@@ -237,7 +236,6 @@ export function SubscriptionsTab() {
     if (filters.status) params.set('status', filters.status)
     if (filters.device_id) params.set('device_id', filters.device_id)
     if (filters.product_id) params.set('product_id', filters.product_id)
-    if (filters.friend_confirmed) params.set('friend_confirmed', filters.friend_confirmed)
     if (filters.search) params.set('search', filters.search)
     params.set('sort', filters.sort)
     params.set('order', filters.order)
@@ -324,33 +322,6 @@ export function SubscriptionsTab() {
       { device_id: deviceId || null },
       'PC가 변경되었습니다',
     )
-  }
-
-  const lastFriendClickIdx = useRef<number | null>(null)
-
-  const handleFriendToggle = async (id: string, confirmed: boolean, event?: React.MouseEvent) => {
-    const currentIdx = subs.findIndex((s) => s.id === id)
-
-    if (event?.shiftKey && lastFriendClickIdx.current !== null && currentIdx !== -1) {
-      // Shift+Click: 범위 일괄 변경
-      const start = Math.min(lastFriendClickIdx.current, currentIdx)
-      const end = Math.max(lastFriendClickIdx.current, currentIdx)
-      const rangeIds = subs.slice(start, end + 1).map((s) => s.id)
-      if (await bulkUpdateSubscriptions(rangeIds, { friend_confirmed: confirmed })) {
-        showSuccess(`${rangeIds.length}건 친구확인 ${confirmed ? '완료' : '해제'}`)
-        fetchSubs()
-      } else {
-        showError('친구확인 일괄 변경에 실패했습니다')
-      }
-    } else {
-      await optimisticUpdate(
-        id,
-        { friend_confirmed: confirmed },
-        { friend_confirmed: confirmed },
-        confirmed ? '친구 확인 완료' : '친구 확인 해제',
-      )
-    }
-    lastFriendClickIdx.current = currentIdx
   }
 
   const handleStartDateChange = async (id: string, startDate: string) => {
@@ -674,19 +645,6 @@ export function SubscriptionsTab() {
                 ))}
               </SelectContent>
             </Select>
-            <Select
-              value={filters.friend_confirmed}
-              onValueChange={(v) => setFilters((f) => ({ ...f, friend_confirmed: v === '__all__' ? '' : v, page: 1 }))}
-            >
-              <SelectTrigger className="w-[120px] h-8 text-xs">
-                <SelectValue placeholder="친구확인" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">친구확인 전체</SelectItem>
-                <SelectItem value="true">확인됨</SelectItem>
-                <SelectItem value="false">미확인</SelectItem>
-              </SelectContent>
-            </Select>
           </>
         }
         layout="stacked"
@@ -736,8 +694,7 @@ export function SubscriptionsTab() {
                   <TableHead className="w-[60px] text-center">D-Day</TableHead>
                   <TableHead className="w-[120px]">상태</TableHead>
                   <TableHead className="w-[110px]">PC</TableHead>
-                  <TableHead className="w-[60px] text-center">친구확인</TableHead>
-                  <TableHead className="w-[40px] text-center">오토</TableHead>
+                  <TableHead className="w-[50px] text-center">정상</TableHead>
                   <TableHead className="w-[60px] text-center">실패</TableHead>
                   <TableHead className="w-[80px] text-center">발송순서</TableHead>
                   <TableHead className="min-w-[100px]">메모</TableHead>
@@ -916,25 +873,10 @@ export function SubscriptionsTab() {
                         </Select>
                       </TableCell>
 
-                      {/* 13. 친구확인 */}
-                      <TableCell
-                        className="py-1 text-center cursor-pointer"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleFriendToggle(sub.id, !sub.friend_confirmed, e as unknown as React.MouseEvent)
-                        }}
-                      >
-                        <Checkbox
-                          checked={sub.friend_confirmed}
-                          onCheckedChange={() => {}}
-                          className="pointer-events-none"
-                        />
-                      </TableCell>
-
-                      {/* 14. 오토체크 */}
+                      {/* 13. 정상 (발송 성공 자동 체크) */}
                       <TableCell className="py-1 text-center text-xs">
                         {sub.auto_confirmed ? (
-                          <Check className="inline h-3.5 w-3.5 text-emerald-500/70" />
+                          <Check className="inline h-3.5 w-3.5 text-emerald-500" />
                         ) : (
                           <span className="text-muted-foreground">-</span>
                         )}
@@ -1084,18 +1026,10 @@ export function SubscriptionsTab() {
                       ? `${detailSub.device.phone_number?.slice(-4)} ${detailSub.device.name ? `(${detailSub.device.name})` : ''}`
                       : '미배정'}
                   </div>
-                  <div className="text-muted-foreground">친구확인</div>
-                  <div>
-                    {detailSub.friend_confirmed ? (
-                      <StatusBadge status="success" size="xs">확인됨</StatusBadge>
-                    ) : (
-                      <StatusBadge status="neutral" size="xs">미확인</StatusBadge>
-                    )}
-                  </div>
-                  <div className="text-muted-foreground">오토체크</div>
+                  <div className="text-muted-foreground">정상 발송</div>
                   <div>
                     {detailSub.auto_confirmed ? (
-                      <StatusBadge status="success" size="xs">자동확인됨</StatusBadge>
+                      <StatusBadge status="success" size="xs">정상</StatusBadge>
                     ) : (
                       <StatusBadge status="neutral" size="xs">미확인</StatusBadge>
                     )}
