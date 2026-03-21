@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { TABS } from '@/lib/constants'
+import { TABS, TabConfig } from '@/lib/constants'
 import dynamic from 'next/dynamic'
 
 const ProductsTab = dynamic(() => import('./tabs/ProductsTab').then(m => ({ default: m.ProductsTab })))
@@ -19,6 +19,7 @@ interface Props {
 
 export function Dashboard({ userName, userRole }: Props) {
   const router = useRouter()
+  const [tabs, setTabs] = useState<TabConfig[]>(TABS)
   const [tab, setTab] = useState(() => {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.slice(1)
@@ -30,6 +31,35 @@ export function Dashboard({ userName, userRole }: Props) {
   useEffect(() => {
     const hash = window.location.hash.slice(1)
     if (TABS.some(t => t.id === hash)) setTab(hash)
+  }, [])
+
+  // Fetch saved tab order from DB
+  useEffect(() => {
+    fetch('/api/admin/settings')
+      .then(r => r.json())
+      .then(settings => {
+        if (settings.tab_order) {
+          const order = settings.tab_order as { id: string; visible: boolean }[]
+          const ordered = order
+            .map(o => {
+              const t = TABS.find(tab => tab.id === o.id)
+              return t ? { ...t, visible: o.visible } : null
+            })
+            .filter((t): t is TabConfig => t !== null)
+          // Add any new tabs not in saved order
+          TABS.forEach(t => {
+            if (!ordered.find(o => o.id === t.id)) ordered.push(t)
+          })
+          setTabs(ordered)
+          // If current tab is hidden, switch to first visible
+          const visibleTabs = ordered.filter(t => t.visible)
+          if (visibleTabs.length > 0 && !visibleTabs.find(t => t.id === tab)) {
+            setTab(visibleTabs[0].id)
+          }
+        }
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleTabChange = useCallback((id: string) => {
@@ -64,7 +94,7 @@ export function Dashboard({ userName, userRole }: Props) {
       {/* Tab Navigation */}
       <nav className="bg-white border-b">
         <div className="max-w-[1400px] mx-auto px-4 flex gap-0 overflow-x-auto">
-          {TABS.filter(t => t.visible).map(t => (
+          {tabs.filter(t => t.visible).map(t => (
             <button
               key={t.id}
               onClick={() => handleTabChange(t.id)}

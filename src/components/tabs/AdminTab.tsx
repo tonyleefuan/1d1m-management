@@ -15,7 +15,9 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { SkeletonTable } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
-import { Users, Monitor, Plus, Palette } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import { TABS } from '@/lib/constants'
+import { Users, Monitor, Plus, Palette, LayoutGrid, ArrowUp, ArrowDown } from 'lucide-react'
 
 // --- 사용자 관리 ---
 function UsersPanel() {
@@ -335,6 +337,104 @@ function DeviceFormModal({ device, onClose, onSaved, onError }: {
   )
 }
 
+// --- 탭 순서 관리 ---
+function TabOrderPanel() {
+  const [tabList, setTabList] = useState<{ id: string; label: string; visible: boolean }[]>(
+    TABS.map(t => ({ id: t.id, label: t.label, visible: t.visible }))
+  )
+  const [saving, setSaving] = useState(false)
+  const { toast, showSuccess, showError, clearToast } = useToast()
+
+  useEffect(() => {
+    fetch('/api/admin/settings')
+      .then(r => r.json())
+      .then(settings => {
+        if (settings.tab_order) {
+          const order = settings.tab_order as { id: string; visible: boolean }[]
+          const ordered = order
+            .map(o => {
+              const tab = TABS.find(t => t.id === o.id)
+              return tab ? { id: tab.id, label: tab.label, visible: o.visible } : null
+            })
+            .filter((t): t is { id: string; label: string; visible: boolean } => t !== null)
+          // Add missing tabs
+          TABS.forEach(t => {
+            if (!ordered.find(o => o.id === t.id)) {
+              ordered.push({ id: t.id, label: t.label, visible: t.visible })
+            }
+          })
+          setTabList(ordered)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const moveTab = (index: number, direction: 'up' | 'down') => {
+    const newTabs = [...tabList]
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= newTabs.length) return
+    ;[newTabs[index], newTabs[targetIndex]] = [newTabs[targetIndex], newTabs[index]]
+    setTabList(newTabs)
+  }
+
+  const toggleVisibility = (index: number) => {
+    const newTabs = [...tabList]
+    if (newTabs[index].id === 'admin') return // Can't hide admin
+    newTabs[index] = { ...newTabs[index], visible: !newTabs[index].visible }
+    setTabList(newTabs)
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'tab_order',
+          value: tabList.map(t => ({ id: t.id, visible: t.visible }))
+        })
+      })
+      if (!res.ok) throw new Error()
+      showSuccess('탭 순서가 저장되었습니다. 새로고침하면 적용됩니다.')
+    } catch {
+      showError('저장에 실패했습니다')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="space-y-1 mb-4">
+        {tabList.map((tab, i) => (
+          <div key={tab.id} className="flex items-center gap-3 px-3 py-2 bg-white border rounded-lg">
+            <div className="flex gap-1">
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === 0} onClick={() => moveTab(i, 'up')}>
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === tabList.length - 1} onClick={() => moveTab(i, 'down')}>
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            </div>
+            <span className="flex-1 text-sm">{tab.label}</span>
+            <Switch
+              size="sm"
+              checked={tab.visible}
+              onCheckedChange={() => toggleVisibility(i)}
+              disabled={tab.id === 'admin'}
+            />
+          </div>
+        ))}
+      </div>
+      <Button onClick={handleSave} disabled={saving}>
+        {saving ? '저장 중...' : '순서 저장'}
+      </Button>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
+    </div>
+  )
+}
+
 // --- 메인 탭 ---
 export function AdminTab() {
   return (
@@ -363,12 +463,19 @@ export function AdminTab() {
             <Monitor className="h-4 w-4" />
             PC 장치 관리
           </TabsTrigger>
+          <TabsTrigger value="tabs" className="gap-1.5">
+            <LayoutGrid className="h-4 w-4" />
+            탭 관리
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="users">
           <UsersPanel />
         </TabsContent>
         <TabsContent value="devices">
           <DevicesPanel />
+        </TabsContent>
+        <TabsContent value="tabs">
+          <TabOrderPanel />
         </TabsContent>
       </Tabs>
     </div>
