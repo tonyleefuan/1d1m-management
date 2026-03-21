@@ -915,14 +915,17 @@ export function SubscriptionsTab() {
                       </TableCell>
 
                       {/* 13. 친구확인 */}
-                      <TableCell className="py-1 text-center" onClick={(e) => e.stopPropagation()}>
+                      <TableCell
+                        className="py-1 text-center cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleFriendToggle(sub.id, !sub.friend_confirmed, e as unknown as React.MouseEvent)
+                        }}
+                      >
                         <Checkbox
                           checked={sub.friend_confirmed}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleFriendToggle(sub.id, !sub.friend_confirmed, e)
-                          }}
                           onCheckedChange={() => {}}
+                          className="pointer-events-none"
                         />
                       </TableCell>
 
