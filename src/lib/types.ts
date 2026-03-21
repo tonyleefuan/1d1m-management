@@ -113,6 +113,7 @@ export interface Message {
   id: string
   product_id: string
   day_number: number
+  sort_order: number
   content: string
   image_path: string | null
   created_at: string
