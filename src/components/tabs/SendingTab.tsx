@@ -82,7 +82,8 @@ export function SendingTab() {
     const res = await fetch('/api/admin/devices')
     if (res.ok) {
       const json = await res.json()
-      setDevices(json.data || [])
+      // devices API는 배열을 직접 반환
+      setDevices(Array.isArray(json) ? json : json.data || [])
     }
   }, [])
 
@@ -286,7 +287,11 @@ export function SendingTab() {
                 selectedDevice === d.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
-              {d.name || d.phone_number.slice(-4)} ({s.total})
+              {d.name || d.phone_number.slice(-4)}
+              <span className="ml-1 text-muted-foreground">
+                {s.total > 0 ? `${s.sent}/${s.total}` : '0'}
+                {s.failed > 0 && <span className="text-destructive ml-0.5">({s.failed}실패)</span>}
+              </span>
             </button>
           )
         })}
@@ -336,15 +341,15 @@ export function SendingTab() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[80px]">예약시간</TableHead>
-                  {!selectedDevice && <TableHead className="w-[120px]">PC</TableHead>}
-                  <TableHead className="w-[120px]">카톡이름</TableHead>
-                  <TableHead className="w-[80px]">상품</TableHead>
-                  <TableHead className="w-[60px] text-center">Day</TableHead>
-                  <TableHead className="w-[50px] text-center">타입</TableHead>
-                  <TableHead>내용</TableHead>
-                  <TableHead className="w-[60px] text-center">상태</TableHead>
-                  <TableHead className="w-[80px]">실제시간</TableHead>
+                  <TableHead className="whitespace-nowrap">예약시간</TableHead>
+                  {!selectedDevice && <TableHead className="whitespace-nowrap">PC</TableHead>}
+                  <TableHead className="whitespace-nowrap">카톡이름</TableHead>
+                  <TableHead className="whitespace-nowrap">상품</TableHead>
+                  <TableHead className="text-center whitespace-nowrap">Day</TableHead>
+                  <TableHead className="text-center whitespace-nowrap">타입</TableHead>
+                  <TableHead className="whitespace-nowrap">내용</TableHead>
+                  <TableHead className="text-center whitespace-nowrap">상태</TableHead>
+                  <TableHead className="whitespace-nowrap">실제시간</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -356,33 +361,33 @@ export function SendingTab() {
                       item.status === 'failed' && 'bg-destructive/5',
                       item.status === 'sent' && 'text-muted-foreground',
                     )}>
-                      <TableCell className="py-1 text-xs tabular-nums font-mono">
+                      <TableCell className="py-1 text-xs tabular-nums font-mono whitespace-nowrap">
                         {item.estimated_time}
                       </TableCell>
                       {!selectedDevice && (
-                        <TableCell className="py-1 text-xs">
-                          {getDeviceName(item.device_id)}
+                        <TableCell className="py-1 text-xs whitespace-nowrap">
+                          {(() => {
+                            const d = devices.find(d => d.id === item.device_id)
+                            return d ? (d.name || d.phone_number.slice(-4)) : item.device_id.slice(0, 6)
+                          })()}
                         </TableCell>
                       )}
-                      <TableCell className="py-1 text-xs font-medium">
+                      <TableCell className="py-1 text-xs font-medium whitespace-nowrap">
                         {item.kakao_friend_name}
                       </TableCell>
-                      <TableCell className="py-1 text-xs font-mono">
+                      <TableCell className="py-1 text-xs font-mono whitespace-nowrap">
                         {sub?.product?.sku_code || '-'}
                       </TableCell>
-                      <TableCell className="py-1 text-center text-xs tabular-nums">
+                      <TableCell className="py-1 text-center text-xs tabular-nums whitespace-nowrap">
                         {sub?.day || '-'}
                       </TableCell>
-                      <TableCell className="py-1 text-center text-xs">
-                        {item.image_path
-                          ? <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-amber-50 text-amber-700">파일</Badge>
-                          : <Badge variant="outline" className="text-[10px] px-1.5 py-0">텍스트</Badge>
-                        }
+                      <TableCell className="py-1 text-center text-xs whitespace-nowrap">
+                        {item.image_path ? '파일' : '텍스트'}
                       </TableCell>
-                      <TableCell className="py-1 text-xs max-w-[400px] truncate">
+                      <TableCell className="py-1 text-xs max-w-[250px] truncate">
                         {item.image_path
                           ? item.image_path.split('/').pop()
-                          : item.message_content.slice(0, 80)
+                          : item.message_content.slice(0, 60)
                         }
                       </TableCell>
                       <TableCell className="py-1 text-center">
