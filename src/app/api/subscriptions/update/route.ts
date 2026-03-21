@@ -161,6 +161,7 @@ export async function PATCH(req: Request) {
       }
     }
     if (updates.memo !== undefined) updateData.memo = updates.memo
+    if (updates.send_priority !== undefined) updateData.send_priority = updates.send_priority
     if (updates.last_send_failure !== undefined) {
       updateData.last_send_failure = updates.last_send_failure
       // If clearing failure (setting to null), transition back to live

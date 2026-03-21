@@ -103,6 +103,7 @@ export interface Subscription {
   cancel_reason: string | null
   last_send_failure: string | null
   resume_date: string | null
+  send_priority: 1 | 2 | 3 | 4
   created_at: string
   updated_at: string
   // joined

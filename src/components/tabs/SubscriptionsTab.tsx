@@ -39,6 +39,7 @@ interface SubRow {
   resume_date: string | null
   memo: string | null
   device_id: string | null
+  send_priority: 1 | 2 | 3 | 4
   created_at?: string
   order_item?: {
     order?: {
@@ -738,6 +739,7 @@ export function SubscriptionsTab() {
                   <TableHead className="w-[60px] text-center">친구확인</TableHead>
                   <TableHead className="w-[40px] text-center">오토</TableHead>
                   <TableHead className="w-[60px] text-center">실패</TableHead>
+                  <TableHead className="w-[80px] text-center">발송순서</TableHead>
                   <TableHead className="min-w-[100px]">메모</TableHead>
                 </TableRow>
               </TableHeader>
@@ -952,7 +954,30 @@ export function SubscriptionsTab() {
                         )}
                       </TableCell>
 
-                      {/* 16. 메모 */}
+                      {/* 16. 발송순서 */}
+                      <TableCell className="py-1 text-center" onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={String(sub.send_priority || 3)}
+                          onValueChange={(v) =>
+{
+                              const p = Number(v) as 1|2|3|4
+                              optimisticUpdate(sub.id, { send_priority: p }, { send_priority: p }, '발송순서 변경')
+                            }
+                          }
+                        >
+                          <SelectTrigger className="h-6 w-[70px] text-xs border-0 bg-transparent px-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">아주빨리</SelectItem>
+                            <SelectItem value="2">빨리</SelectItem>
+                            <SelectItem value="3">보통</SelectItem>
+                            <SelectItem value="4">늦게</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+
+                      {/* 17. 메모 */}
                       <TableCell
                         className="py-1 text-xs text-muted-foreground cursor-pointer truncate max-w-[150px]"
                         title={sub.memo || undefined}
