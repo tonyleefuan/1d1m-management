@@ -24,7 +24,32 @@ export async function GET(req: Request) {
 
   if (search) {
     const s = sanitizeSearch(search)
-    if (s) query = query.or(`raw_option_name.ilike.%${s}%,imweb_item_no.ilike.%${s}%`)
+    if (s) {
+      const escaped = s.replace(/%/g, '\\%').replace(/_/g, '\\_')
+      // 고객명으로 검색 시 customer_id 필터
+      const { data: customers } = await supabase
+        .from('customers')
+        .select('id')
+        .ilike('name', `%${escaped}%`)
+        .limit(200)
+
+      if (customers?.length) {
+        // 고객명 OR 주문번호 OR 옵션명으로 검색
+        const customerIds = customers.map(c => c.id)
+        const { data: orderIds } = await supabase
+          .from('orders')
+          .select('id')
+          .in('customer_id', customerIds)
+
+        if (orderIds?.length) {
+          query = query.or(`order_id.in.(${orderIds.map(o => o.id).join(',')}),raw_option_name.ilike.%${escaped}%,imweb_item_no.ilike.%${escaped}%`)
+        } else {
+          query = query.or(`raw_option_name.ilike.%${escaped}%,imweb_item_no.ilike.%${escaped}%`)
+        }
+      } else {
+        query = query.or(`raw_option_name.ilike.%${escaped}%,imweb_item_no.ilike.%${escaped}%`)
+      }
+    }
   }
 
   const { data, count, error } = await query

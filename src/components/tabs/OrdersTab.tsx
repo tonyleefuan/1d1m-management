@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { Upload, Package, ShoppingCart } from 'lucide-react'
+import { Upload, Package, ShoppingCart, Search } from 'lucide-react'
+import { FilterBar } from '@/components/ui/filter-bar'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -218,13 +219,18 @@ function OrderList() {
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>()
   const limit = 50
   const { toast, showError, clearToast } = useToast()
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/orders/list?page=${page}&limit=${limit}`)
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+      if (search) params.set('search', search)
+      const res = await fetch(`/api/orders/list?${params}`)
       const data = await res.json()
       setOrders(data.data || [])
       setTotal(data.total || 0)
@@ -233,88 +239,112 @@ function OrderList() {
     } finally {
       setLoading(false)
     }
-  }, [page, showError])
+  }, [page, search, showError])
+
+  useEffect(() => { fetchOrders() }, [fetchOrders])
 
   useEffect(() => {
-    fetchOrders()
-  }, [fetchOrders])
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
+  }, [])
+
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => {
+      setSearch(value)
+      setPage(1)
+    }, 300)
+  }
 
   const totalPages = Math.ceil(total / limit)
 
-  if (loading) return <SkeletonTable cols={6} rows={8} />
-
-  if (orders.length === 0) {
-    return (
-      <EmptyState
-        icon={ShoppingCart}
-        title="주문 내역이 없습니다"
-        description="아임웹 주문 엑셀을 업로드하여 주문을 등록하세요"
-      />
-    )
-  }
-
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">총 {total?.toLocaleString()}건</p>
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>주문일</TableHead>
-                <TableHead>고객명</TableHead>
-                <TableHead>상품</TableHead>
-                <TableHead>기간</TableHead>
-                <TableHead className="text-right">금액</TableHead>
-                <TableHead className="text-center">1+1</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {orders.map((item: any) => (
-                <TableRow key={item.id}>
-                  <TableCell className="text-muted-foreground text-xs">
-                    {item.order?.ordered_at?.slice(0, 10)}
-                  </TableCell>
-                  <TableCell>{item.order?.customer?.name}</TableCell>
-                  <TableCell className="font-mono text-xs">{item.product?.sku_code}</TableCell>
-                  <TableCell className="text-muted-foreground">{item.duration_days}일</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {item.allocated_amount?.toLocaleString()}원
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {item.is_addon && (
-                      <StatusBadge status="info" size="xs">1+1</StatusBadge>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      {/* Filter Bar */}
+      <FilterBar
+        search={{
+          value: searchInput,
+          onChange: handleSearchChange,
+          placeholder: '고객명 / 주문번호 검색',
+        }}
+        actions={
+          <span className="text-xs text-muted-foreground">총 {total?.toLocaleString()}건</span>
+        }
+      />
 
-      {totalPages > 1 && (
-        <div className="flex justify-center items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page === 1}
-          >
-            이전
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            {page} / {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage(p => p + 1)}
-            disabled={page >= totalPages}
-          >
-            다음
-          </Button>
-        </div>
+      {loading ? (
+        <SkeletonTable cols={7} rows={8} />
+      ) : orders.length === 0 ? (
+        <EmptyState
+          icon={ShoppingCart}
+          title="주문 내역이 없습니다"
+          description="아임웹 주문 엑셀을 업로드하여 주문을 등록하세요"
+        />
+      ) : (
+        <>
+          <div className="rounded-lg border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[100px]">주문일</TableHead>
+                  <TableHead>고객명</TableHead>
+                  <TableHead>상품</TableHead>
+                  <TableHead>상품명</TableHead>
+                  <TableHead className="w-[70px] text-center">기간</TableHead>
+                  <TableHead className="w-[100px] text-right">금액</TableHead>
+                  <TableHead className="w-[50px] text-center">1+1</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {orders.map((item: any) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-muted-foreground text-xs tabular-nums">
+                      {item.order?.ordered_at?.slice(0, 10)}
+                    </TableCell>
+                    <TableCell className="font-medium">{item.order?.customer?.name}</TableCell>
+                    <TableCell className="font-mono text-xs">{item.product?.sku_code}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground truncate max-w-[200px]">
+                      {item.product?.title || '-'}
+                    </TableCell>
+                    <TableCell className="text-center text-xs tabular-nums">{item.duration_days}일</TableCell>
+                    <TableCell className="text-right tabular-nums text-xs">
+                      {item.allocated_amount?.toLocaleString()}원
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {item.is_addon && (
+                        <StatusBadge status="info" size="xs">1+1</StatusBadge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex justify-center items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+              >
+                이전
+              </Button>
+              <span className="text-sm text-muted-foreground tabular-nums">
+                {page} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(p => p + 1)}
+                disabled={page >= totalPages}
+              >
+                다음
+              </Button>
+            </div>
+          )}
+        </>
       )}
       {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
     </div>
