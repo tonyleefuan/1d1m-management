@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { StatGroup } from '@/components/ui/stat-group'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -265,6 +266,22 @@ export function SendingTab() {
         </CardContent>
       </Card>
 
+      {/* PC별 요약 카드 */}
+      {devices.filter(d => d.is_active).length > 0 && (
+        <StatGroup
+          variant="compact"
+          cols={5}
+          stats={devices.filter(d => d.is_active).map((d) => {
+            const s = summary[d.id] || { total: 0, pending: 0, sent: 0, failed: 0 }
+            return {
+              title: d.name || d.phone_number,
+              value: String(s.total),
+              description: `대기 ${s.pending} · 성공 ${s.sent}${s.failed > 0 ? ` · 실패 ${s.failed}` : ''}`,
+            }
+          })}
+        />
+      )}
+
       {/* PC 탭 */}
       <div className="flex items-center gap-1 border-b">
         <button
@@ -366,10 +383,7 @@ export function SendingTab() {
                       </TableCell>
                       {!selectedDevice && (
                         <TableCell className="py-1 text-xs whitespace-nowrap">
-                          {(() => {
-                            const d = devices.find(d => d.id === item.device_id)
-                            return d ? (d.name || d.phone_number.slice(-4)) : item.device_id.slice(0, 6)
-                          })()}
+                          {devices.find(d => d.id === item.device_id)?.name || '-'}
                         </TableCell>
                       )}
                       <TableCell className="py-1 text-xs font-medium whitespace-nowrap">
