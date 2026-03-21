@@ -9,7 +9,7 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const page = parseInt(searchParams.get('page') || '1')
-  const limit = parseInt(searchParams.get('limit') || '50')
+  const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '50')), 200)
   const status = searchParams.get('status') || ''
   const deviceId = searchParams.get('device_id') || ''
   const productId = searchParams.get('product_id') || ''
@@ -36,10 +36,13 @@ export async function GET(req: Request) {
   if (search) {
     const s = sanitizeSearch(search)
     if (!s) return NextResponse.json({ data: [], total: 0, page, limit })
+    // ILIKE 와일드카드 이스케이프
+    const escaped = s.replace(/%/g, '\\%').replace(/_/g, '\\_')
     const { data: customers } = await supabase
       .from('customers')
       .select('id')
-      .or(`name.ilike.%${s}%,kakao_friend_name.ilike.%${s}%,phone_last4.ilike.%${s}%`)
+      .or(`name.ilike.%${escaped}%,kakao_friend_name.ilike.%${escaped}%,phone_last4.ilike.%${escaped}%`)
+      .limit(500)
 
     if (customers?.length) {
       query = query.in('customer_id', customers.map(c => c.id))

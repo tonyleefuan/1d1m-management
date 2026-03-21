@@ -360,7 +360,7 @@ function NoticesPanel({ products }: { products: Product[] }) {
 
   const handleSaveNotice = async () => {
     if (!editingNotice || !content.trim()) return
-    await fetch('/api/notices/upsert', {
+    const res = await fetch('/api/notices/upsert', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id: editingNotice.notice?.id,
@@ -369,6 +369,10 @@ function NoticesPanel({ products }: { products: Product[] }) {
         content: content.trim(),
       })
     })
+    if (!res.ok) {
+      showError('알림 템플릿 저장에 실패했습니다')
+      return
+    }
     setEditingNotice(null)
     fetchNotices()
     showSuccess('알림 템플릿이 저장되었습니다')

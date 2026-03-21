@@ -213,6 +213,11 @@ export function SubscriptionsTab() {
     fetchSubs()
   }, [fetchSubs])
 
+  // searchTimer cleanup on unmount
+  useEffect(() => {
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
+  }, [])
+
   // Debounced search
   const handleSearchChange = useCallback(
     (value: string) => {
@@ -227,23 +232,29 @@ export function SubscriptionsTab() {
 
   // ─── Optimistic update helper ───────────────────────
 
-  /** 로컬 state를 먼저 변경하고, API 실패 시 롤백 */
+  /** 로컬 state를 먼저 변경하고, API 실패 시 스냅샷에서 롤백 */
   const optimisticUpdate = useCallback(
     async (id: string, patch: Partial<SubRow>, apiUpdates: Record<string, unknown>, successMsg: string) => {
-      // 1. 즉시 로컬 반영
-      setSubs((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+      // 1. 스냅샷 저장 + 즉시 로컬 반영
+      let snapshot: SubRow | undefined
+      setSubs((prev) => {
+        snapshot = prev.find((s) => s.id === id)
+        return prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
+      })
       // 2. 백그라운드 API 호출
       const ok = await updateSubscription(id, apiUpdates)
       if (ok) {
         showSuccess(successMsg)
       } else {
-        // 3. 실패 시 롤백 — 전체 리페치
+        // 3. 실패 시 스냅샷으로 롤백 (리페치 없음)
+        if (snapshot) {
+          setSubs((prev) => prev.map((s) => (s.id === id ? snapshot! : s)))
+        }
         showError('변경에 실패했습니다. 다시 시도해주세요.')
-        fetchSubs()
       }
       return ok
     },
-    [showSuccess, showError, fetchSubs],
+    [showSuccess, showError],
   )
 
   // ─── Inline update handlers ──────────────────────────
@@ -281,7 +292,7 @@ export function SubscriptionsTab() {
     if (!startDate || startDate.length !== 10) return
     const endDate = new Date(startDate)
     const sub = subs.find((s) => s.id === id)
-    if (sub) endDate.setDate(endDate.getDate() + sub.duration_days)
+    if (sub) endDate.setDate(endDate.getDate() + sub.duration_days - 1)
     const ok = await optimisticUpdate(
       id,
       {

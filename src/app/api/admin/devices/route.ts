@@ -9,7 +9,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('send_devices')
     .select('*')
-    .order('phone_number')
+    .order('name')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
