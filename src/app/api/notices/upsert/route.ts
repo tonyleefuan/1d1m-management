@@ -19,6 +19,7 @@ export async function POST(req: Request) {
         .from('notice_templates')
         .update({ content, image_path: image_path || null, updated_at: new Date().toISOString() })
         .eq('id', id)
+        .eq('notice_type', notice_type)
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     } else {
       const { error } = await supabase

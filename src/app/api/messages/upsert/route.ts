@@ -19,6 +19,7 @@ export async function POST(req: Request) {
         .from('messages')
         .update({ content, image_path: image_path || null, updated_at: new Date().toISOString() })
         .eq('id', id)
+        .eq('product_id', product_id)
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     } else {
       const { error } = await supabase

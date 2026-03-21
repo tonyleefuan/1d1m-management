@@ -13,6 +13,7 @@ export async function POST(req: Request) {
     let savedOrders = 0
     let savedItems = 0
     let savedSubscriptions = 0
+    const errors: string[] = []
 
     // Get product map
     const skuCodes = Array.from(new Set(items.map((i: any) => i.product_sku)))
@@ -91,7 +92,7 @@ export async function POST(req: Request) {
 
       if (orderError) {
         if (orderError.code === '23505') continue // duplicate order
-        console.error('Order insert error:', orderError)
+        errors.push(`주문 ${orderNo}: ${orderError.message}`)
         continue
       }
       savedOrders++
@@ -121,7 +122,7 @@ export async function POST(req: Request) {
 
         if (itemError) {
           if (itemError.code === '23505') continue
-          console.error('Item insert error:', itemError)
+          errors.push(`품목 ${item.imweb_item_no}: ${itemError.message}`)
           continue
         }
         savedItems++
@@ -142,10 +143,11 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({
-      ok: true,
+      ok: errors.length === 0,
       saved_orders: savedOrders,
       saved_items: savedItems,
       saved_subscriptions: savedSubscriptions,
+      errors: errors.length > 0 ? errors : undefined,
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || '서버 오류가 발생했습니다' }, { status: 500 })

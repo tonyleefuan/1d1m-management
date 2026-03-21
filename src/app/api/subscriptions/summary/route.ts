@@ -6,16 +6,15 @@ export async function GET() {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const statuses = ['live', 'pending', 'pause', 'archive', 'cancel']
-  const counts: Record<string, number> = {}
+  // 1 query: status별 건수
+  const { data: statusRows } = await supabase
+    .from('subscriptions')
+    .select('status')
 
-  for (const status of statuses) {
-    const { count } = await supabase
-      .from('subscriptions')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', status)
-    counts[status] = count || 0
-  }
+  const counts: Record<string, number> = { live: 0, pending: 0, pause: 0, archive: 0, cancel: 0 }
+  statusRows?.forEach(r => {
+    if (counts[r.status] !== undefined) counts[r.status]++
+  })
 
   // 오늘 발송 수
   const today = new Date().toISOString().slice(0, 10)

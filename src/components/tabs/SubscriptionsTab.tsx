@@ -166,6 +166,7 @@ export function SubscriptionsTab() {
   }
 
   const handleStartDateChange = async (id: string, start_date: string) => {
+    if (!start_date || start_date.length !== 10) return // 완전한 YYYY-MM-DD만 허용
     if (await updateSubscription(id, { status: 'live', start_date })) {
       fetchSubs()
       fetch('/api/subscriptions/summary').then(r => r.json()).then(setSummary)

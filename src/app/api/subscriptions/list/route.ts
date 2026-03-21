@@ -60,10 +60,12 @@ export async function GET(req: Request) {
     if (sub.start_date) {
       const start = new Date(sub.start_date)
       start.setHours(0, 0, 0, 0)
-      currentDay = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
-      dDay = sub.duration_days - currentDay
+      const rawDay = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+      currentDay = Math.max(0, rawDay)
+      dDay = sub.duration_days - rawDay
     }
-    return { ...sub, current_day: currentDay, d_day: dDay }
+    const isStarted = sub.start_date ? new Date(sub.start_date) <= today : false
+    return { ...sub, current_day: currentDay, d_day: dDay, is_started: isStarted }
   })
 
   return NextResponse.json({ data: enriched, total: count, page, limit })
