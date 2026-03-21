@@ -33,18 +33,21 @@ export async function POST(req: Request) {
     for (const [orderNo, orderItems] of orderGroups) {
       const first = orderItems[0]
 
-      // 1. Find or create customer
+      // 1. Find or create customer (upsert-style to avoid race conditions)
       let customerId: string
-      const { data: existingCustomer } = await supabase
+      const phoneLast4 = first.customer_phone?.slice(-4) || ''
+
+      // Try find first
+      const { data: existingCustomers } = await supabase
         .from('customers')
         .select('id')
         .eq('phone', first.customer_phone)
-        .single()
+        .limit(1)
 
-      if (existingCustomer) {
-        customerId = existingCustomer.id
+      if (existingCustomers?.length) {
+        customerId = existingCustomers[0].id
       } else {
-        const phoneLast4 = first.customer_phone?.slice(-4) || ''
+        // Insert, handle duplicate gracefully
         const { data: newCustomer, error: custError } = await supabase
           .from('customers')
           .insert({
@@ -57,10 +60,21 @@ export async function POST(req: Request) {
           .single()
 
         if (custError) {
-          console.error('Customer insert error:', custError)
-          continue
+          // If duplicate from race condition, try to find again
+          const { data: retryCustomer } = await supabase
+            .from('customers')
+            .select('id')
+            .eq('phone', first.customer_phone)
+            .limit(1)
+          if (retryCustomer?.length) {
+            customerId = retryCustomer[0].id
+          } else {
+            console.error('Customer insert error:', custError)
+            continue
+          }
+        } else {
+          customerId = newCustomer.id
         }
-        customerId = newCustomer.id
       }
 
       // 2. Create order

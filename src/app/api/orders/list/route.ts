@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { sanitizeSearch } from '@/lib/sanitize'
 
 export async function GET(req: Request) {
   const session = await getSession()
@@ -22,8 +23,8 @@ export async function GET(req: Request) {
     .range((page - 1) * limit, page * limit - 1)
 
   if (search) {
-    // 고객 이름 또는 주문번호로 검색
-    query = query.or(`raw_option_name.ilike.%${search}%,imweb_item_no.ilike.%${search}%`)
+    const s = sanitizeSearch(search)
+    if (s) query = query.or(`raw_option_name.ilike.%${s}%,imweb_item_no.ilike.%${s}%`)
   }
 
   const { data, count, error } = await query

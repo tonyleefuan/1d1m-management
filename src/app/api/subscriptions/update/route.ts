@@ -73,20 +73,20 @@ export async function PATCH(req: Request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // 친구확인 시 customer의 phone_expires_at 업데이트
-    if (updates.friend_confirmed === true && targetIds.length === 1) {
-      const { data: sub } = await supabase
+    // 친구확인 시 customer의 phone_expires_at 업데이트 (단건 + 벌크 모두)
+    if (updates.friend_confirmed === true) {
+      const { data: subs } = await supabase
         .from('subscriptions')
         .select('customer_id')
-        .eq('id', targetIds[0])
-        .single()
-      if (sub) {
+        .in('id', targetIds)
+      if (subs?.length) {
+        const customerIds = Array.from(new Set(subs.map(s => s.customer_id)))
         const expiresAt = new Date()
         expiresAt.setDate(expiresAt.getDate() + 7)
         await supabase
           .from('customers')
           .update({ phone_expires_at: expiresAt.toISOString() })
-          .eq('id', sub.customer_id)
+          .in('id', customerIds)
       }
     }
 

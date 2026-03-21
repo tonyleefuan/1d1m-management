@@ -13,6 +13,11 @@ export async function POST(req: Request) {
     const file = formData.get('file') as File
     if (!file) return NextResponse.json({ error: '파일을 선택해주세요' }, { status: 400 })
 
+    // File validation
+    if (file.size > 10 * 1024 * 1024) {
+      return NextResponse.json({ error: '파일 크기는 10MB 이하만 가능합니다' }, { status: 400 })
+    }
+
     // Parse Excel
     const buffer = await file.arrayBuffer()
     const workbook = XLSX.read(buffer, { type: 'array' })

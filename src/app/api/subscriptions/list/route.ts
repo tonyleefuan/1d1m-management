@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { sanitizeSearch } from '@/lib/sanitize'
 
 export async function GET(req: Request) {
   const session = await getSession()
@@ -33,11 +34,12 @@ export async function GET(req: Request) {
   if (friendConfirmed === 'false') query = query.eq('friend_confirmed', false)
 
   if (search) {
-    // 고객명 또는 카톡이름으로 검색 — customers 테이블에서 검색 후 ID로 필터
+    const s = sanitizeSearch(search)
+    if (!s) return NextResponse.json({ data: [], total: 0, page, limit })
     const { data: customers } = await supabase
       .from('customers')
       .select('id')
-      .or(`name.ilike.%${search}%,kakao_friend_name.ilike.%${search}%,phone_last4.ilike.%${search}%`)
+      .or(`name.ilike.%${s}%,kakao_friend_name.ilike.%${s}%,phone_last4.ilike.%${s}%`)
 
     if (customers?.length) {
       query = query.in('customer_id', customers.map(c => c.id))
