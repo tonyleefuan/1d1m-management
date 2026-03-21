@@ -222,6 +222,7 @@ function OrderList() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const limit = 50
+  const { toast, showError, clearToast } = useToast()
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -231,11 +232,11 @@ function OrderList() {
       setOrders(data.data || [])
       setTotal(data.total || 0)
     } catch {
-      console.error('Failed to fetch orders')
+      showError('주문 목록을 불러오지 못했습니다')
     } finally {
       setLoading(false)
     }
-  }, [page])
+  }, [page, showError])
 
   useEffect(() => {
     fetchOrders()
@@ -318,6 +319,7 @@ function OrderList() {
           </Button>
         </div>
       )}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
     </div>
   )
 }

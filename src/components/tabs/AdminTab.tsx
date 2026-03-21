@@ -26,9 +26,14 @@ function UsersPanel() {
 
   const fetchUsers = useCallback(async () => {
     setLoading(true)
-    try { const res = await fetch('/api/admin/users'); setUsers(await res.json()) }
-    catch {} finally { setLoading(false) }
-  }, [])
+    try {
+      const res = await fetch('/api/admin/users')
+      if (!res.ok) throw new Error()
+      setUsers(await res.json())
+    } catch {
+      showError('사용자 목록을 불러오지 못했습니다')
+    } finally { setLoading(false) }
+  }, [showError])
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
 
@@ -190,9 +195,14 @@ function DevicesPanel() {
 
   const fetchDevices = useCallback(async () => {
     setLoading(true)
-    try { const res = await fetch('/api/admin/devices'); setDevices(await res.json()) }
-    catch {} finally { setLoading(false) }
-  }, [])
+    try {
+      const res = await fetch('/api/admin/devices')
+      if (!res.ok) throw new Error()
+      setDevices(await res.json())
+    } catch {
+      showError('장치 목록을 불러오지 못했습니다')
+    } finally { setLoading(false) }
+  }, [showError])
 
   useEffect(() => { fetchDevices() }, [fetchDevices])
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 
 export interface ToastState {
   message: string
@@ -33,6 +33,12 @@ export function useToast(duration = 4000) {
     setToast({ message, type })
     timerRef.current = setTimeout(() => setToast(null), duration)
   }, [duration])
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
 
   const showSuccess = useCallback((message: string) => showToast(message, 'success'), [showToast])
   const showError = useCallback((message: string) => showToast(message, 'error'), [showToast])

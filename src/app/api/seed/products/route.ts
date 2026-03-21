@@ -66,7 +66,10 @@ export async function POST(req: Request) {
           channel: 'kakaotalk',
           price: pr.price,
         }))
-        await supabase.from('product_prices').insert(priceRows)
+        const { error: priceError } = await supabase.from('product_prices').insert(priceRows)
+        if (priceError) {
+          errors.push(`${p.sku_code} 가격 저장 실패: ${priceError.message}`)
+        }
       }
 
       created++

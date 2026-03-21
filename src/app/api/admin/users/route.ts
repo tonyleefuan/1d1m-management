@@ -29,6 +29,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '아이디와 이름은 필수입니다' }, { status: 400 })
     }
 
+    const VALID_ROLES = ['admin', 'staff'] as const
+    if (role && !VALID_ROLES.includes(role)) {
+      return NextResponse.json({ error: '유효하지 않은 역할입니다' }, { status: 400 })
+    }
+
     if (id) {
       // Update
       const updateData: any = { name, role: role || 'staff', is_active: is_active ?? true, updated_at: new Date().toISOString() }

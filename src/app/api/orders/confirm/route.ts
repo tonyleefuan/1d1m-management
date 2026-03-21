@@ -100,7 +100,10 @@ export async function POST(req: Request) {
       // 3. Create order items + subscriptions
       for (const item of orderItems) {
         const productId = productMap.get(item.product_sku)
-        if (!productId) continue
+        if (!productId) {
+          errors.push(`품목 ${item.imweb_item_no}: SKU ${item.product_sku} 미등록`)
+          continue
+        }
 
         const { data: orderItem, error: itemError } = await supabase
           .from('order_items')
@@ -138,7 +141,11 @@ export async function POST(req: Request) {
             duration_days: item.duration_days,
           })
 
-        if (!subError) savedSubscriptions++
+        if (subError) {
+          errors.push(`구독 생성 실패 (${item.imweb_item_no}): ${subError.message}`)
+        } else {
+          savedSubscriptions++
+        }
       }
     }
 

@@ -160,6 +160,7 @@ export function SubscriptionsTab() {
   const fetchSummary = useCallback(async () => {
     try {
       const res = await fetch('/api/subscriptions/summary')
+      if (!res.ok) return
       const data = await res.json()
       setSummary(data)
     } catch {

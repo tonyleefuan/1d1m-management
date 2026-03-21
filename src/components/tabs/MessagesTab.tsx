@@ -165,6 +165,7 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
     setLoading(true)
     try {
       const res = await fetch(`/api/messages/list?product_id=${selectedProduct}`)
+      if (!res.ok) throw new Error('Failed')
       setMessages(await res.json())
     } catch {
       showError('메시지를 불러오지 못했습니다')
@@ -259,6 +260,7 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
     setLoading(true)
     try {
       const res = await fetch(`/api/daily-messages/list?product_id=${selectedProduct}`)
+      if (!res.ok) throw new Error('Failed')
       setMessages(await res.json())
     } catch {
       showError('메시지를 불러오지 못했습니다')
@@ -342,6 +344,7 @@ function NoticesPanel({ products }: { products: Product[] }) {
   const [notices, setNotices] = useState<NoticeTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [editingNotice, setEditingNotice] = useState<{ notice: NoticeTemplate | null; type: 'start' | 'end'; productId: string | null } | null>(null)
+  const [content, setContent] = useState('')
   const { toast, showSuccess, showError, clearToast } = useToast()
 
   const fetchNotices = useCallback(async () => {
@@ -355,8 +358,6 @@ function NoticesPanel({ products }: { products: Product[] }) {
   }, [showError])
 
   useEffect(() => { fetchNotices() }, [fetchNotices])
-
-  const [content, setContent] = useState('')
 
   const handleSaveNotice = async () => {
     if (!editingNotice || !content.trim()) return
@@ -489,7 +490,7 @@ export function MessagesTab() {
   const [products, setProducts] = useState<Product[]>([])
 
   useEffect(() => {
-    fetch('/api/products/list').then(r => r.json()).then(d => setProducts(d || []))
+    fetch('/api/products/list').then(r => r.json()).then(d => setProducts(d || [])).catch(() => {})
   }, [])
 
   return (

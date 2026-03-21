@@ -14,6 +14,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '상품, 날짜, 내용은 필수입니다' }, { status: 400 })
     }
 
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(send_date)) {
+      return NextResponse.json({ error: '날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)' }, { status: 400 })
+    }
+
     if (id) {
       const { error } = await supabase
         .from('daily_messages')
