@@ -12,6 +12,21 @@ const MessagesTab = dynamic(() => import('./tabs/MessagesTab').then(m => ({ defa
 const SendingTab = dynamic(() => import('./tabs/SendingTab').then(m => ({ default: m.SendingTab })))
 const AdminTab = dynamic(() => import('./tabs/AdminTab').then(m => ({ default: m.AdminTab })))
 
+const TAB_COMPONENTS: Record<string, React.ComponentType> = {
+  orders: OrdersTab,
+  subscriptions: SubscriptionsTab,
+  messages: MessagesTab,
+  products: ProductsTab,
+  sending: SendingTab,
+  admin: AdminTab,
+}
+
+function getHashTab(): string | null {
+  if (typeof window === 'undefined') return null
+  const hash = window.location.hash.slice(1)
+  return TABS.some(t => t.id === hash) ? hash : null
+}
+
 interface Props {
   userName: string
   userRole: string
@@ -20,17 +35,21 @@ interface Props {
 export function Dashboard({ userName, userRole }: Props) {
   const router = useRouter()
   const [tabs, setTabs] = useState<TabConfig[]>(TABS)
-  const [tab, setTab] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const hash = window.location.hash.slice(1)
-      if (TABS.some(t => t.id === hash)) return hash
-    }
-    return TABS[0].id
-  })
+  const [tab, setTab] = useState(() => getHashTab() || TABS[0].id)
 
+  // Sync tab state with hash changes (browser back/forward)
   useEffect(() => {
-    const hash = window.location.hash.slice(1)
-    if (TABS.some(t => t.id === hash)) setTab(hash)
+    const onHashChange = () => {
+      const hashTab = getHashTab()
+      if (hashTab) setTab(hashTab)
+    }
+    window.addEventListener('hashchange', onHashChange)
+    // Also sync on popstate for browser navigation
+    window.addEventListener('popstate', onHashChange)
+    return () => {
+      window.removeEventListener('hashchange', onHashChange)
+      window.removeEventListener('popstate', onHashChange)
+    }
   }, [])
 
   // Fetch saved tab order from DB
@@ -53,18 +72,22 @@ export function Dashboard({ userName, userRole }: Props) {
           setTabs(ordered)
           // If current tab is hidden, switch to first visible
           const visibleTabs = ordered.filter(t => t.visible)
-          if (visibleTabs.length > 0 && !visibleTabs.find(t => t.id === tab)) {
-            setTab(visibleTabs[0].id)
+          const currentHash = getHashTab()
+          const currentTab = currentHash || TABS[0].id
+          if (visibleTabs.length > 0 && !visibleTabs.find(t => t.id === currentTab)) {
+            const first = visibleTabs[0].id
+            setTab(first)
+            window.history.replaceState(null, '', `#${first}`)
           }
         }
       })
       .catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleTabChange = useCallback((id: string) => {
     setTab(id)
-    window.location.hash = id
+    // replaceState instead of setting hash to avoid creating extra history entries
+    window.history.replaceState(null, '', `#${id}`)
   }, [])
 
   const handleLogout = useCallback(async () => {
@@ -72,6 +95,8 @@ export function Dashboard({ userName, userRole }: Props) {
     router.push('/login')
     router.refresh()
   }, [router])
+
+  const ActiveTab = TAB_COMPONENTS[tab]
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -112,12 +137,7 @@ export function Dashboard({ userName, userRole }: Props) {
 
       {/* Tab Content */}
       <main className="max-w-[1400px] mx-auto px-4 py-6">
-        {tab === 'orders' && <OrdersTab />}
-        {tab === 'subscriptions' && <SubscriptionsTab />}
-        {tab === 'messages' && <MessagesTab />}
-        {tab === 'products' && <ProductsTab />}
-        {tab === 'sending' && <SendingTab />}
-        {tab === 'admin' && <AdminTab />}
+        {ActiveTab && <ActiveTab />}
       </main>
     </div>
   )
