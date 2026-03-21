@@ -46,7 +46,7 @@ export function Dashboard({ userName, userRole }: Props) {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-50">
+      <header className="bg-white sticky top-0 z-50">
         <div className="max-w-[1400px] mx-auto px-4 h-12 flex items-center justify-between">
           <img src="/logo.png" alt="1Day1Message" className="h-5" />
           <div className="flex items-center gap-3">
