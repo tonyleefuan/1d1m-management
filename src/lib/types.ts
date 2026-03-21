@@ -149,6 +149,7 @@ export interface SendDevice {
   id: string
   phone_number: string
   name: string | null
+  color: string | null
   is_active: boolean
   last_heartbeat: string | null
   total_friends: number

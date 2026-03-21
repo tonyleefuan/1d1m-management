@@ -64,3 +64,17 @@ export const TABS: TabConfig[] = [
   { id: 'sending',       label: '발송 모니터링', sort_order: 4, visible: true },
   { id: 'admin',         label: '관리자 설정',   sort_order: 5, visible: true },
 ]
+
+// PC device colors (fallback when DB color is null)
+export const PC_COLORS = [
+  '#FFD6D6', // PC 1 — 연빨강
+  '#D4EDDA', // PC 2 — 연초록
+  '#CCE5FF', // PC 3 — 연파랑
+  '#FFF3CD', // PC 4 — 연노랑
+  '#F8D7DA', // PC 5 — 핑크
+  '#E2D9F3', // PC 6 — 연보라
+  '#D1ECF1', // PC 7 — 시안
+  '#FEEBC8', // PC 8 — 연주황
+  '#C6F6D5', // PC 9 — 민트
+  '#E9D8FD', // PC 10 — 라벤더
+] as const
