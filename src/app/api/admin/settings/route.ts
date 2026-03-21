@@ -9,7 +9,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('app_settings')
     .select('key, value')
-    .in('key', ['tab_order'])
+    .in('key', ['tab_order', 'default_device_id'])
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'key와 value는 필수입니다' }, { status: 400 })
     }
 
-    const VALID_KEYS = ['tab_order'] as const
+    const VALID_KEYS = ['tab_order', 'default_device_id'] as const
     if (!VALID_KEYS.includes(key)) {
       return NextResponse.json({ error: '유효하지 않은 설정 키입니다' }, { status: 400 })
     }

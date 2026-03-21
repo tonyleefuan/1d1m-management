@@ -37,15 +37,15 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json()
-    const { id, phone_number, name, is_active } = body
+    const { id, phone_number, name, is_active, color } = body
 
     if (!phone_number) return NextResponse.json({ error: '전화번호는 필수입니다' }, { status: 400 })
 
     if (id) {
-      const { error } = await supabase.from('send_devices').update({ phone_number, name: name || null, is_active: is_active ?? true }).eq('id', id)
+      const { error } = await supabase.from('send_devices').update({ phone_number, name: name || null, is_active: is_active ?? true, color: color || null }).eq('id', id)
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     } else {
-      const { error } = await supabase.from('send_devices').insert({ phone_number, name: name || null })
+      const { error } = await supabase.from('send_devices').insert({ phone_number, name: name || null, color: color || null })
       if (error) {
         if (error.code === '23505') return NextResponse.json({ error: '이미 등록된 번호입니다' }, { status: 409 })
         return NextResponse.json({ error: error.message }, { status: 500 })
