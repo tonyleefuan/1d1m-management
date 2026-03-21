@@ -314,13 +314,13 @@ export function SendingTab() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[80px]">예상시간</TableHead>
+                  <TableHead className="w-[80px]">예약시간</TableHead>
                   {!selectedDevice && <TableHead className="w-[120px]">PC</TableHead>}
                   <TableHead className="w-[120px]">카톡이름</TableHead>
                   <TableHead className="w-[80px]">상품</TableHead>
                   <TableHead className="w-[60px] text-center">Day</TableHead>
-                  <TableHead>메시지</TableHead>
-                  <TableHead className="w-[40px] text-center">📎</TableHead>
+                  <TableHead className="w-[50px] text-center">타입</TableHead>
+                  <TableHead>내용</TableHead>
                   <TableHead className="w-[60px] text-center">상태</TableHead>
                   <TableHead className="w-[80px]">실제시간</TableHead>
                 </TableRow>
@@ -351,11 +351,17 @@ export function SendingTab() {
                       <TableCell className="py-1 text-center text-xs tabular-nums">
                         {sub?.day || '-'}
                       </TableCell>
-                      <TableCell className="py-1 text-xs max-w-[300px] truncate">
-                        {item.message_content.slice(0, 80)}
+                      <TableCell className="py-1 text-center text-xs">
+                        {item.image_path
+                          ? <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-amber-50 text-amber-700">파일</Badge>
+                          : <Badge variant="outline" className="text-[10px] px-1.5 py-0">텍스트</Badge>
+                        }
                       </TableCell>
-                      <TableCell className="py-1 text-center">
-                        {item.image_path && <ImageIcon className="inline h-3.5 w-3.5 text-muted-foreground" />}
+                      <TableCell className="py-1 text-xs max-w-[400px] truncate">
+                        {item.image_path
+                          ? item.image_path.split('/').pop()
+                          : item.message_content.slice(0, 80)
+                        }
                       </TableCell>
                       <TableCell className="py-1 text-center">
                         <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0', statusInfo.className)}>

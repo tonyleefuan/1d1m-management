@@ -20,7 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { SUBSCRIPTION_STATUSES, STATUS_LABELS, PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
-import { Users, Send, Pause, Clock, FileText, MessageSquare, Check } from 'lucide-react'
+import { Users, Send, Pause, Clock, FileText, MessageSquare, Check, RefreshCw } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -154,6 +154,7 @@ export function SubscriptionsTab() {
   const [subs, setSubs] = useState<SubRow[]>([])
   const [summary, setSummary] = useState<SummaryData | null>(null)
   const [loading, setLoading] = useState(true) // 초기 로딩 (Skeleton 표시)
+  const [dailyUpdating, setDailyUpdating] = useState(false)
   const [refreshing, setRefreshing] = useState(false) // 리프레시 (Skeleton 미표시)
   const [total, setTotal] = useState(0)
   const isFirstLoad = useRef(true)
@@ -525,6 +526,34 @@ export function SubscriptionsTab() {
     <div className="space-y-6">
       {/* 1. Page Header */}
       <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={dailyUpdating}
+          onClick={async () => {
+            setDailyUpdating(true)
+            try {
+              const res = await fetch('/api/subscriptions/daily-update', { method: 'POST' })
+              if (!res.ok) throw new Error()
+              const data = await res.json()
+              const total = data.pending_to_live + data.live_to_archive + data.pause_to_live
+              if (total > 0) {
+                showSuccess(`상태 업데이트 완료 — 발송시작 ${data.pending_to_live}, 만료 ${data.live_to_archive}, 재개 ${data.pause_to_live}`)
+                fetchSubs()
+                fetchSummary()
+              } else {
+                showSuccess('변경 대상이 없습니다')
+              }
+            } catch {
+              showError('상태 업데이트에 실패했습니다')
+            } finally {
+              setDailyUpdating(false)
+            }
+          }}
+        >
+          <RefreshCw className={cn('mr-1 h-3 w-3', dailyUpdating && 'animate-spin')} />
+          상태 업데이트
+        </Button>
         {selectedIds.size > 0 && (
           <>
             <Badge variant="secondary" className="text-xs">

@@ -91,6 +91,7 @@ export async function POST() {
       if (!messages.length) continue
 
       for (const msg of messages) {
+        // 텍스트 메시지 행
         sortOrder++
         queueRows.push({
           subscription_id: sub.id,
@@ -98,10 +99,24 @@ export async function POST() {
           send_date: today,
           kakao_friend_name: kakaoName,
           message_content: msg.content,
-          image_path: msg.image_path || null,
+          image_path: null,
           sort_order: sortOrder,
           status: 'pending',
         })
+        // 파일이 있으면 별도 행으로 추가
+        if (msg.image_path) {
+          sortOrder++
+          queueRows.push({
+            subscription_id: sub.id,
+            device_id: deviceId,
+            send_date: today,
+            kakao_friend_name: kakaoName,
+            message_content: '',
+            image_path: msg.image_path,
+            sort_order: sortOrder,
+            status: 'pending',
+          })
+        }
       }
     }
   }
