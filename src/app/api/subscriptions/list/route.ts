@@ -55,21 +55,21 @@ export async function GET(req: Request) {
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // day 계산 (start_date 기준)
+  // day: DB 저장값 사용 (발송 성공 시에만 +1)
+  // d_day: end_date - 오늘 (pause 중이면 "일시정지")
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const enriched = data?.map(sub => {
-    let day = sub.day
-    let dDay = 0
-    if (sub.start_date) {
-      const start = new Date(sub.start_date)
-      start.setHours(0, 0, 0, 0)
-      const rawDay = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
-      day = Math.max(0, rawDay)
-      dDay = sub.duration_days - rawDay
+    let dDay: number | null = null
+    if (sub.status === 'pause') {
+      dDay = null // UI에서 "일시정지" 표시
+    } else if (sub.end_date) {
+      const end = new Date(sub.end_date)
+      end.setHours(0, 0, 0, 0)
+      dDay = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     }
     const isStarted = sub.start_date ? new Date(sub.start_date) <= today : false
-    return { ...sub, day, d_day: dDay, is_started: isStarted }
+    return { ...sub, d_day: dDay, is_started: isStarted }
   })
 
   return NextResponse.json({ data: enriched, total: count, page, limit })

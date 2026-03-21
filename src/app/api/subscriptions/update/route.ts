@@ -40,12 +40,48 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'ID가 필요합니다' }, { status: 400 })
     }
 
-    // 변경 전 상태 조회 (로그용)
+    // 변경 전 상태 조회 (로그용 + 검증용)
     const { data: prevSubs } = await supabase
       .from('subscriptions')
-      .select('id, status, device_id, start_date, friend_confirmed, memo, customer_id')
+      .select('id, status, device_id, start_date, end_date, day, duration_days, friend_confirmed, memo, customer_id, paused_at')
       .in('id', targetIds)
     const prevMap = new Map(prevSubs?.map(s => [s.id, s]) || [])
+
+    // 상태 전환 유효성 검증
+    const VALID_TRANSITIONS: Record<string, string[]> = {
+      pending: ['live', 'pause', 'cancel'],
+      live: ['pending', 'pause', 'archive', 'cancel'],
+      pause: ['pending', 'live', 'cancel'],
+      archive: [],  // archive에서는 전환 불가
+      cancel: [],   // cancel에서는 전환 불가
+    }
+
+    if (updates.status !== undefined) {
+      for (const subId of targetIds) {
+        const prev = prevMap.get(subId)
+        if (!prev) continue
+        const allowed = VALID_TRANSITIONS[prev.status] || []
+        if (!allowed.includes(updates.status)) {
+          return NextResponse.json(
+            { error: `${STATUS_LABELS[prev.status] || prev.status} → ${STATUS_LABELS[updates.status] || updates.status} 전환은 허용되지 않습니다` },
+            { status: 400 }
+          )
+        }
+      }
+    }
+
+    // start_date 변경은 pending 상태에서만 허용
+    if (updates.start_date !== undefined) {
+      for (const subId of targetIds) {
+        const prev = prevMap.get(subId)
+        if (prev && prev.status !== 'pending') {
+          return NextResponse.json(
+            { error: '시작일은 대기 상태에서만 변경할 수 있습니다' },
+            { status: 400 }
+          )
+        }
+      }
+    }
 
     // 디바이스 이름 조회 (로그용)
     let deviceNames: Record<string, string> = {}
@@ -69,6 +105,22 @@ export async function PATCH(req: Request) {
         updateData.cancel_reason = updates.cancel_reason || null
       }
       if (updates.status === 'live') {
+        // pause → live: end_date를 pause 일수만큼 연장
+        for (const subId of targetIds) {
+          const prev = prevMap.get(subId)
+          if (prev?.status === 'pause' && prev.paused_at && prev.end_date) {
+            const pausedAt = new Date(prev.paused_at)
+            pausedAt.setHours(0, 0, 0, 0)
+            const now = new Date()
+            now.setHours(0, 0, 0, 0)
+            const pauseDays = Math.max(0, Math.floor((now.getTime() - pausedAt.getTime()) / (1000 * 60 * 60 * 24)))
+            if (pauseDays > 0) {
+              const newEnd = new Date(prev.end_date)
+              newEnd.setDate(newEnd.getDate() + pauseDays)
+              updateData.end_date = newEnd.toISOString().slice(0, 10)
+            }
+          }
+        }
         updateData.paused_at = null
         updateData.resume_date = null
       }
@@ -108,6 +160,27 @@ export async function PATCH(req: Request) {
     }
     if (updates.resume_date !== undefined) {
       updateData.resume_date = updates.resume_date
+    }
+    // day 수동 조정 (+1 또는 -1)
+    if (updates.day_adjust !== undefined && targetIds.length === 1) {
+      const adjust = updates.day_adjust // +1 또는 -1
+      if (adjust !== 1 && adjust !== -1) {
+        return NextResponse.json({ error: 'day 조정은 +1 또는 -1만 가능합니다' }, { status: 400 })
+      }
+      const prev = prevMap.get(targetIds[0])
+      if (prev) {
+        const newDay = prev.day + adjust
+        if (newDay < 1) {
+          return NextResponse.json({ error: 'day는 1 미만이 될 수 없습니다' }, { status: 400 })
+        }
+        updateData.day = newDay
+        // end_date도 같이 조정
+        if (prev.end_date) {
+          const newEnd = new Date(prev.end_date)
+          newEnd.setDate(newEnd.getDate() - adjust) // day +1이면 end_date -1, day -1이면 end_date +1
+          updateData.end_date = newEnd.toISOString().slice(0, 10)
+        }
+      }
     }
 
     const { error } = await supabase
@@ -165,6 +238,11 @@ export async function PATCH(req: Request) {
       if (updates.kakao_friend_name !== undefined) {
         await logChange(subId, 'kakao_name_change', 'kakao_friend_name',
           null, updates.kakao_friend_name, session.userId)
+      }
+      if (updates.day_adjust !== undefined) {
+        await logChange(subId, 'day_adjust', 'day',
+          String(prev.day), String(prev.day + updates.day_adjust),
+          session.userId)
       }
     }
 

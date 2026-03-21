@@ -392,15 +392,34 @@ export function SubscriptionsTab() {
     }
   }
 
-  // ─── Selection ───────────────────────────────────────
+  // ─── Selection (Shift+Click 범위 선택 지원) ─────────
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const lastClickedIdx = useRef<number | null>(null)
+
+  const toggleSelect = (id: string, event?: React.MouseEvent) => {
+    const currentIdx = subs.findIndex((s) => s.id === id)
+
+    if (event?.shiftKey && lastClickedIdx.current !== null && currentIdx !== -1) {
+      // Shift+Click: 범위 선택
+      const start = Math.min(lastClickedIdx.current, currentIdx)
+      const end = Math.max(lastClickedIdx.current, currentIdx)
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        for (let i = start; i <= end; i++) {
+          next.add(subs[i].id)
+        }
+        return next
+      })
+    } else {
+      // 일반 클릭: 토글
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+    }
+    lastClickedIdx.current = currentIdx
   }
 
   const toggleSelectAll = () => {
@@ -408,6 +427,20 @@ export function SubscriptionsTab() {
       setSelectedIds(new Set())
     } else {
       setSelectedIds(new Set(subs.map((s) => s.id)))
+    }
+  }
+
+  // ─── Bulk device assignment ────────────────────────
+
+  const handleBulkDevice = async (deviceId: string) => {
+    if (selectedIds.size === 0) return
+    if (await bulkUpdateSubscriptions(Array.from(selectedIds), { device_id: deviceId || null })) {
+      const device = devices.find((d) => d.id === deviceId)
+      showSuccess(`${selectedIds.size}건의 PC가 ${device ? device.phone_number : '미배정'}(으)로 변경되었습니다`)
+      setSelectedIds(new Set())
+      fetchSubs()
+    } else {
+      showError('일괄 PC 변경에 실패했습니다')
     }
   }
 
@@ -471,6 +504,19 @@ export function SubscriptionsTab() {
               <Pause className="mr-1 h-3 w-3" />
               일시정지
             </Button>
+            <Select onValueChange={(v) => handleBulkDevice(v === '__none__' ? '' : v)}>
+              <SelectTrigger className="h-8 w-[160px] text-xs">
+                <SelectValue placeholder="PC 일괄 배정" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">미배정</SelectItem>
+                {devices.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.phone_number}{d.name ? ` (${d.name})` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button size="sm" variant="destructive" onClick={() => handleBulkStatus('cancel')}>
               취소
             </Button>
