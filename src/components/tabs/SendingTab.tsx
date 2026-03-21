@@ -363,6 +363,7 @@ export function SendingTab() {
                   <TableHead className="whitespace-nowrap">카톡이름</TableHead>
                   <TableHead className="whitespace-nowrap">상품</TableHead>
                   <TableHead className="text-center whitespace-nowrap">Day</TableHead>
+                  <TableHead className="text-center whitespace-nowrap">순서</TableHead>
                   <TableHead className="text-center whitespace-nowrap">타입</TableHead>
                   <TableHead className="whitespace-nowrap">내용</TableHead>
                   <TableHead className="text-center whitespace-nowrap">상태</TableHead>
@@ -394,6 +395,9 @@ export function SendingTab() {
                       </TableCell>
                       <TableCell className="py-1 text-center text-xs tabular-nums whitespace-nowrap">
                         {sub?.day || '-'}
+                      </TableCell>
+                      <TableCell className="py-1 text-center text-xs tabular-nums whitespace-nowrap text-muted-foreground">
+                        {(item as any).message_seq || '-'}
                       </TableCell>
                       <TableCell className="py-1 text-center text-xs whitespace-nowrap">
                         {item.image_path ? '파일' : '텍스트'}

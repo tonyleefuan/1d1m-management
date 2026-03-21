@@ -90,9 +90,14 @@ export async function POST() {
 
       if (!messages.length) continue
 
+      // 총 발송 건수 계산 (텍스트 + 파일)
+      const totalItems = messages.reduce((n, m) => n + 1 + (m.image_path ? 1 : 0), 0)
+      let seqNum = 0
+
       for (const msg of messages) {
         // 텍스트 메시지 행
         sortOrder++
+        seqNum++
         queueRows.push({
           subscription_id: sub.id,
           device_id: deviceId,
@@ -101,11 +106,13 @@ export async function POST() {
           message_content: msg.content,
           image_path: null,
           sort_order: sortOrder,
+          message_seq: `${seqNum}/${totalItems}`,
           status: 'pending',
         })
         // 파일이 있으면 별도 행으로 추가
         if (msg.image_path) {
           sortOrder++
+          seqNum++
           queueRows.push({
             subscription_id: sub.id,
             device_id: deviceId,
@@ -114,6 +121,7 @@ export async function POST() {
             message_content: '',
             image_path: msg.image_path,
             sort_order: sortOrder,
+            message_seq: `${seqNum}/${totalItems}`,
             status: 'pending',
           })
         }
