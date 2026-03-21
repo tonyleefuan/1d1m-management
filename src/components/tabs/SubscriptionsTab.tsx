@@ -148,6 +148,10 @@ export function SubscriptionsTab() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [memoValue, setMemoValue] = useState('')
 
+  // Inline edit state for kakao_friend_name
+  const [editingKakaoId, setEditingKakaoId] = useState<string | null>(null)
+  const [editingKakaoValue, setEditingKakaoValue] = useState('')
+
   // Search debounce
   const [searchInput, setSearchInput] = useState('')
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -305,6 +309,20 @@ export function SubscriptionsTab() {
       '시작일이 설정되고 발송이 시작되었습니다',
     )
     if (ok) fetchSummary()
+  }
+
+  const handleKakaoNameSave = async (id: string, value: string) => {
+    setEditingKakaoId(null)
+    const sub = subs.find((s) => s.id === id)
+    if (!sub) return
+    const trimmed = value.trim()
+    if (trimmed === (sub.customer?.kakao_friend_name || '')) return
+    await optimisticUpdate(
+      id,
+      { customer: { ...sub.customer, kakao_friend_name: trimmed || null } },
+      { kakao_friend_name: trimmed },
+      '카톡이름이 변경되었습니다',
+    )
   }
 
   const handleMemoSave = async () => {
@@ -486,8 +504,8 @@ export function SubscriptionsTab() {
           <div className="text-xs text-muted-foreground">
             총 {total.toLocaleString()}건
           </div>
-          <div className="rounded-lg border bg-card">
-            <Table>
+          <div className="rounded-lg border bg-card overflow-x-auto">
+            <Table className="whitespace-nowrap">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10">
@@ -517,7 +535,7 @@ export function SubscriptionsTab() {
                   return (
                     <TableRow key={sub.id} className="group">
                       {/* 1. Checkbox */}
-                      <TableCell onClick={(e) => e.stopPropagation()}>
+                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={selectedIds.has(sub.id)}
                           onCheckedChange={() => toggleSelect(sub.id)}
@@ -526,38 +544,60 @@ export function SubscriptionsTab() {
 
                       {/* 2. 고객명 */}
                       <TableCell
-                        className="font-medium cursor-pointer"
+                        className="py-1 text-xs font-medium cursor-pointer"
                         onClick={() => openDetail(sub)}
                       >
                         {sub.customer?.name}
                       </TableCell>
 
                       {/* 3. 뒷4자리 */}
-                      <TableCell className="text-xs text-muted-foreground tabular-nums">
+                      <TableCell className="py-1 text-xs text-muted-foreground tabular-nums">
                         {sub.customer?.phone_last4 ? `••••${sub.customer.phone_last4}` : '-'}
                       </TableCell>
 
-                      {/* 4. 카톡이름 */}
-                      <TableCell className="text-xs text-muted-foreground">
-                        {sub.customer?.kakao_friend_name || '-'}
+                      {/* 4. 카톡이름 (inline editable) */}
+                      <TableCell className="py-1 text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+                        {editingKakaoId === sub.id ? (
+                          <Input
+                            autoFocus
+                            className="h-6 w-[100px] text-xs px-1"
+                            value={editingKakaoValue}
+                            onChange={(e) => setEditingKakaoValue(e.target.value)}
+                            onBlur={() => handleKakaoNameSave(sub.id, editingKakaoValue)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleKakaoNameSave(sub.id, editingKakaoValue)
+                              if (e.key === 'Escape') setEditingKakaoId(null)
+                            }}
+                          />
+                        ) : (
+                          <span
+                            className="cursor-pointer hover:text-foreground"
+                            onClick={() => {
+                              setEditingKakaoId(sub.id)
+                              setEditingKakaoValue(sub.customer?.kakao_friend_name || '')
+                            }}
+                          >
+                            {sub.customer?.kakao_friend_name || '-'}
+                          </span>
+                        )}
                       </TableCell>
 
                       {/* 5. 상품 */}
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="py-1 font-mono text-xs">
                         {sub.product?.sku_code}
                       </TableCell>
 
                       {/* 6. 기간 */}
-                      <TableCell className="text-center text-xs tabular-nums">
+                      <TableCell className="py-1 text-center text-xs tabular-nums">
                         {sub.duration_days}일
                       </TableCell>
 
                       {/* 7. 시작일 */}
-                      <TableCell className="text-xs" onClick={(e) => e.stopPropagation()}>
+                      <TableCell className="py-1 text-xs" onClick={(e) => e.stopPropagation()}>
                         {sub.status === 'pending' && !sub.start_date ? (
                           <Input
                             type="date"
-                            className="h-7 text-xs w-[120px]"
+                            className="h-6 text-xs w-[120px]"
                             onChange={(e) => handleStartDateChange(sub.id, e.target.value)}
                           />
                         ) : (
@@ -566,23 +606,23 @@ export function SubscriptionsTab() {
                       </TableCell>
 
                       {/* 8. 종료일 */}
-                      <TableCell className="text-xs tabular-nums">
+                      <TableCell className="py-1 text-xs tabular-nums">
                         {sub.end_date || '-'}
                       </TableCell>
 
                       {/* 9. Day */}
-                      <TableCell className="text-center text-xs tabular-nums">
+                      <TableCell className="py-1 text-center text-xs tabular-nums">
                         {sub.start_date ? sub.current_day : '-'}
                       </TableCell>
 
                       {/* 10. D-Day */}
                       <TableCell
                         className={cn(
-                          'text-center text-xs tabular-nums font-medium',
+                          'py-1 text-center text-xs tabular-nums font-medium',
                           sub.start_date && sub.d_day <= 0
-                            ? 'text-red-500'
+                            ? 'text-destructive'
                             : sub.start_date && sub.d_day <= 7
-                              ? 'text-orange-500'
+                              ? 'text-amber-600'
                               : '',
                         )}
                       >
@@ -590,12 +630,12 @@ export function SubscriptionsTab() {
                       </TableCell>
 
                       {/* 11. 상태 */}
-                      <TableCell onClick={(e) => e.stopPropagation()}>
+                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
                         <Select
                           value={sub.status}
                           onValueChange={(v) => handleStatusChange(sub.id, v)}
                         >
-                          <SelectTrigger className="h-7 w-[100px] border-0 bg-transparent px-0 text-xs focus:ring-0">
+                          <SelectTrigger className="h-6 w-[100px] border-0 bg-transparent px-0 text-xs focus:ring-0">
                             <StatusBadge status={sm?.status ?? 'neutral'} size="xs">
                               {sm?.label ?? sub.status}
                             </StatusBadge>
@@ -613,12 +653,12 @@ export function SubscriptionsTab() {
                       </TableCell>
 
                       {/* 12. PC */}
-                      <TableCell onClick={(e) => e.stopPropagation()}>
+                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
                         <Select
                           value={sub.device_id || '__none__'}
                           onValueChange={(v) => handleDeviceChange(sub.id, v === '__none__' ? '' : v)}
                         >
-                          <SelectTrigger className="h-7 w-[140px] text-xs">
+                          <SelectTrigger className="h-6 w-[140px] text-xs">
                             <SelectValue placeholder="미배정" />
                           </SelectTrigger>
                           <SelectContent>
@@ -633,7 +673,7 @@ export function SubscriptionsTab() {
                       </TableCell>
 
                       {/* 13. 친구확인 */}
-                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                      <TableCell className="py-1 text-center" onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={sub.friend_confirmed}
                           onCheckedChange={(checked) =>
@@ -644,7 +684,7 @@ export function SubscriptionsTab() {
 
                       {/* 14. 메모 */}
                       <TableCell
-                        className="text-xs text-muted-foreground cursor-pointer truncate max-w-[150px]"
+                        className="py-1 text-xs text-muted-foreground cursor-pointer truncate max-w-[150px]"
                         title={sub.memo || undefined}
                         onClick={() => openDetail(sub)}
                       >

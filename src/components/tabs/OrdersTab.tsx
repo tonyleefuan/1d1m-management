@@ -145,17 +145,14 @@ function UploadPreview({
         <MetricCard
           title="신규"
           value={String(result.new_count)}
-          className="border-emerald-200"
         />
         <MetricCard
           title="중복"
           value={String(result.duplicate_count)}
-          className="border-amber-200"
         />
         <MetricCard
           title="미등록 SKU"
           value={result.unknown_skus.length > 0 ? result.unknown_skus.join(', ') : '없음'}
-          className={result.unknown_skus.length > 0 ? 'border-red-200' : ''}
         />
       </div>
 

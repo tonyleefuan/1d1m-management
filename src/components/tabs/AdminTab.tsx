@@ -28,7 +28,7 @@ function UsersPanel() {
     setLoading(true)
     try {
       const res = await fetch('/api/admin/users')
-      if (!res.ok) throw new Error()
+      if (!res.ok) throw new Error('사용자 목록을 불러오지 못했습니다')
       setUsers(await res.json())
     } catch {
       showError('사용자 목록을 불러오지 못했습니다')
@@ -197,7 +197,7 @@ function DevicesPanel() {
     setLoading(true)
     try {
       const res = await fetch('/api/admin/devices')
-      if (!res.ok) throw new Error()
+      if (!res.ok) throw new Error('장치 목록을 불러오지 못했습니다')
       setDevices(await res.json())
     } catch {
       showError('장치 목록을 불러오지 못했습니다')

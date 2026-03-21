@@ -293,7 +293,7 @@ export function ProductsTab() {
                 <TableRow
                   key={p.id}
                   onClick={() => setEditingProduct(p)}
-                  className="cursor-pointer"
+                  className="cursor-pointer hover:bg-muted/50"
                 >
                   <TableCell className="font-mono text-xs">{p.sku_code}</TableCell>
                   <TableCell>{p.title}</TableCell>

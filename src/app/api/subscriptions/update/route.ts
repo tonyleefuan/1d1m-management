@@ -71,6 +71,21 @@ export async function PATCH(req: Request) {
       .update(updateData)
       .in('id', targetIds)
 
+    // customer 테이블 필드 업데이트 (kakao_friend_name 등)
+    if (updates.kakao_friend_name !== undefined && targetIds.length === 1) {
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('customer_id')
+        .eq('id', targetIds[0])
+        .single()
+      if (sub) {
+        await supabase
+          .from('customers')
+          .update({ kakao_friend_name: updates.kakao_friend_name || null })
+          .eq('id', sub.customer_id)
+      }
+    }
+
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     // 친구확인 시 customer의 phone_expires_at 업데이트 (단건 + 벌크 모두)
