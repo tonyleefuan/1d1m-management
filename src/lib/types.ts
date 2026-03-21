@@ -93,13 +93,16 @@ export interface Subscription {
   start_date: string | null
   end_date: string | null
   duration_days: number
-  current_day: number
+  day: number
+  auto_confirmed: boolean
   friend_confirmed: boolean
   friend_confirmed_at: string | null
   memo: string | null
   paused_at: string | null
   cancelled_at: string | null
   cancel_reason: string | null
+  last_send_failure: string | null
+  resume_date: string | null
   created_at: string
   updated_at: string
   // joined

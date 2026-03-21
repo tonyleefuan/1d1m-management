@@ -1171,8 +1171,8 @@ export default function DesignPreviewPage() {
                   { key: 'product', label: '상품', sortable: true },
                   { key: 'pc', label: 'PC' },
                   { key: 'days', label: '진행', align: 'right' as const,
-                    render: (_: unknown, row: { currentDay: number; totalDays: number }) => (
-                      <span className="tabular-nums text-xs">{row.currentDay}/{row.totalDays}일</span>
+                    render: (_: unknown, row: { day: number; totalDays: number }) => (
+                      <span className="tabular-nums text-xs">{row.day}/{row.totalDays}일</span>
                     ),
                   },
                   {
@@ -1272,16 +1272,16 @@ export default function DesignPreviewPage() {
 }
 
 const SAMPLE_SUBSCRIPTIONS = [
-  { id: 1, name: '김민수', product: '미드 프렌즈 영어', pc: 'PC 1', currentDay: 142, totalDays: 365, status: 'success', statusLabel: '활성', startDate: '2025-11-01', endDate: '2026-11-01' },
-  { id: 2, name: '이지은', product: '오늘의 명언', pc: 'PC 2', currentDay: 0, totalDays: 365, status: 'warning', statusLabel: '대기', startDate: '2026-03-25', endDate: '2027-03-25' },
-  { id: 3, name: '박준혁', product: 'BBC 영어 표현', pc: 'PC 1', currentDay: 0, totalDays: 365, status: 'error', statusLabel: '취소', startDate: '2025-11-20', endDate: '2026-05-20' },
-  { id: 4, name: '최서연', product: '경제 뉴스', pc: 'PC 3', currentDay: 88, totalDays: 180, status: 'success', statusLabel: '활성', startDate: '2025-12-24', endDate: '2026-06-22' },
-  { id: 5, name: '정태영', product: '토익 기출 단어', pc: 'PC 1', currentDay: 55, totalDays: 365, status: 'info', statusLabel: '일시정지', startDate: '2026-01-01', endDate: '2027-01-01' },
-  { id: 6, name: '한소희', product: '시티팝 일본어', pc: 'PC 2', currentDay: 230, totalDays: 365, status: 'success', statusLabel: '활성', startDate: '2025-08-05', endDate: '2026-08-05' },
-  { id: 7, name: '윤도현', product: '경제 뉴스', pc: 'PC 3', currentDay: 180, totalDays: 180, status: 'neutral', statusLabel: '만료', startDate: '2025-09-01', endDate: '2026-03-01' },
-  { id: 8, name: '강지원', product: '여행 영어 회화', pc: 'PC 1', currentDay: 45, totalDays: 90, status: 'success', statusLabel: '활성', startDate: '2026-02-05', endDate: '2026-05-06' },
-  { id: 9, name: '임수정', product: 'JLPT 단어', pc: 'PC 4', currentDay: 300, totalDays: 365, status: 'success', statusLabel: '활성', startDate: '2025-05-27', endDate: '2026-05-27' },
-  { id: 10, name: '조현우', product: '굿플레이스 영어', pc: 'PC 2', currentDay: 365, totalDays: 365, status: 'neutral', statusLabel: '만료', startDate: '2025-03-22', endDate: '2026-03-22' },
+  { id: 1, name: '김민수', product: '미드 프렌즈 영어', pc: 'PC 1', day: 142, totalDays: 365, status: 'success', statusLabel: '활성', startDate: '2025-11-01', endDate: '2026-11-01' },
+  { id: 2, name: '이지은', product: '오늘의 명언', pc: 'PC 2', day: 0, totalDays: 365, status: 'warning', statusLabel: '대기', startDate: '2026-03-25', endDate: '2027-03-25' },
+  { id: 3, name: '박준혁', product: 'BBC 영어 표현', pc: 'PC 1', day: 0, totalDays: 365, status: 'error', statusLabel: '취소', startDate: '2025-11-20', endDate: '2026-05-20' },
+  { id: 4, name: '최서연', product: '경제 뉴스', pc: 'PC 3', day: 88, totalDays: 180, status: 'success', statusLabel: '활성', startDate: '2025-12-24', endDate: '2026-06-22' },
+  { id: 5, name: '정태영', product: '토익 기출 단어', pc: 'PC 1', day: 55, totalDays: 365, status: 'info', statusLabel: '일시정지', startDate: '2026-01-01', endDate: '2027-01-01' },
+  { id: 6, name: '한소희', product: '시티팝 일본어', pc: 'PC 2', day: 230, totalDays: 365, status: 'success', statusLabel: '활성', startDate: '2025-08-05', endDate: '2026-08-05' },
+  { id: 7, name: '윤도현', product: '경제 뉴스', pc: 'PC 3', day: 180, totalDays: 180, status: 'neutral', statusLabel: '만료', startDate: '2025-09-01', endDate: '2026-03-01' },
+  { id: 8, name: '강지원', product: '여행 영어 회화', pc: 'PC 1', day: 45, totalDays: 90, status: 'success', statusLabel: '활성', startDate: '2026-02-05', endDate: '2026-05-06' },
+  { id: 9, name: '임수정', product: 'JLPT 단어', pc: 'PC 4', day: 300, totalDays: 365, status: 'success', statusLabel: '활성', startDate: '2025-05-27', endDate: '2026-05-27' },
+  { id: 10, name: '조현우', product: '굿플레이스 영어', pc: 'PC 2', day: 365, totalDays: 365, status: 'neutral', statusLabel: '만료', startDate: '2025-03-22', endDate: '2026-03-22' },
 ]
 
 const SAMPLE_PRODUCTS = [

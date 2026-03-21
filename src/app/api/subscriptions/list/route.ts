@@ -54,21 +54,21 @@ export async function GET(req: Request) {
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // current_day 계산 (start_date 기준)
+  // day 계산 (start_date 기준)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const enriched = data?.map(sub => {
-    let currentDay = sub.current_day
+    let day = sub.day
     let dDay = 0
     if (sub.start_date) {
       const start = new Date(sub.start_date)
       start.setHours(0, 0, 0, 0)
       const rawDay = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
-      currentDay = Math.max(0, rawDay)
+      day = Math.max(0, rawDay)
       dDay = sub.duration_days - rawDay
     }
     const isStarted = sub.start_date ? new Date(sub.start_date) <= today : false
-    return { ...sub, current_day: currentDay, d_day: dDay, is_started: isStarted }
+    return { ...sub, day, d_day: dDay, is_started: isStarted }
   })
 
   return NextResponse.json({ data: enriched, total: count, page, limit })

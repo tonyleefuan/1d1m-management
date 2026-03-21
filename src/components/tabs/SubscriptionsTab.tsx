@@ -29,7 +29,7 @@ interface SubRow {
   start_date: string | null
   end_date: string | null
   duration_days: number
-  current_day: number
+  day: number
   d_day: number
   friend_confirmed: boolean
   friend_confirmed_at: string | null
@@ -620,7 +620,7 @@ export function SubscriptionsTab() {
 
                       {/* 9. Day */}
                       <TableCell className="py-1 text-center text-xs tabular-nums">
-                        {sub.start_date ? sub.current_day : '-'}
+                        {sub.start_date ? sub.day : '-'}
                       </TableCell>
 
                       {/* 10. D-Day */}
@@ -784,7 +784,7 @@ export function SubscriptionsTab() {
                   <div className="text-muted-foreground">Day / D-Day</div>
                   <div className="tabular-nums">
                     {detailSub.start_date
-                      ? `${detailSub.current_day}일째 / D-${detailSub.d_day}`
+                      ? `${detailSub.day}일째 / D-${detailSub.d_day}`
                       : '-'}
                   </div>
                   <div className="text-muted-foreground">PC</div>
