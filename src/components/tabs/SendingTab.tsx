@@ -148,6 +148,23 @@ export function SendingTab() {
     setGenerating(false)
   }
 
+  const clearQueue = async (deviceId?: string) => {
+    const target = deviceId || selectedDevice || undefined
+    const label = target ? getDeviceName(target) : '전체'
+    if (!confirm(`${label} 대기열을 삭제하시겠습니까?`)) return
+    const res = await fetch('/api/sending/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: target || null }),
+    })
+    if (res.ok) {
+      showSuccess(`${label} 대기열 삭제 완료`)
+      fetchQueue()
+    } else {
+      showError('대기열 삭제에 실패했습니다')
+    }
+  }
+
   // ─── Helpers ───
 
   const getDeviceName = (id: string) => {
@@ -232,7 +249,12 @@ export function SendingTab() {
                 {savingSettings ? <Loader2 className="h-3 w-3 animate-spin" /> : '저장'}
               </Button>
             )}
-            <div className="ml-auto">
+            <div className="ml-auto flex gap-2">
+              {queue.length > 0 && (
+                <Button size="sm" variant="outline" onClick={() => clearQueue()} className="h-8 text-destructive hover:text-destructive">
+                  {selectedDevice ? '이 PC 대기열 삭제' : '전체 대기열 삭제'}
+                </Button>
+              )}
               <Button size="sm" onClick={generateQueue} disabled={generating} className="h-8">
                 {generating ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
                 대기열 생성
