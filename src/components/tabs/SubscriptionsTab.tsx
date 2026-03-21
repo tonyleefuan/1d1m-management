@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { SUBSCRIPTION_STATUSES, STATUS_LABELS, type SubscriptionStatus } from '@/lib/constants'
+import { SUBSCRIPTION_STATUSES, STATUS_LABELS, PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Users, Send, Pause, Clock, FileText, MessageSquare, Check } from 'lucide-react'
 
@@ -90,6 +90,7 @@ interface DeviceOption {
   id: string
   phone_number: string
   name: string | null
+  color: string | null
 }
 
 interface ProductOption {
@@ -109,6 +110,13 @@ const STATUS_MAP: Record<string, { status: StatusType; label: string; className?
 }
 
 const PAGE_SIZE = 50
+
+function getDeviceColor(device: DeviceOption | null, devices: DeviceOption[]): string | undefined {
+  if (!device) return undefined
+  if (device.color) return device.color
+  const idx = devices.findIndex(d => d.id === device.id)
+  return idx >= 0 ? PC_COLORS[idx % PC_COLORS.length] : undefined
+}
 
 // ─── API helper ──────────────────────────────────────────
 
@@ -150,6 +158,7 @@ export function SubscriptionsTab() {
   const isFirstLoad = useRef(true)
   const [devices, setDevices] = useState<DeviceOption[]>([])
   const [products, setProducts] = useState<ProductOption[]>([])
+  const [defaultDeviceId, setDefaultDeviceId] = useState<string | null>(null)
 
   // Filter state
   const [filters, setFilters] = useState({
@@ -159,6 +168,8 @@ export function SubscriptionsTab() {
     friend_confirmed: '',
     search: '',
     page: 1,
+    sort: 'created_at',
+    order: 'desc' as 'asc' | 'desc',
   })
 
   // Selection state
@@ -205,6 +216,10 @@ export function SubscriptionsTab() {
       .then((r) => r.json())
       .then((d) => setDevices(d?.data || d || []))
       .catch(() => {})
+    fetch('/api/admin/settings')
+      .then(r => r.json())
+      .then(d => setDefaultDeviceId(d.default_device_id || null))
+      .catch(() => {})
     fetchSummary()
   }, [fetchSummary])
 
@@ -223,6 +238,8 @@ export function SubscriptionsTab() {
     if (filters.product_id) params.set('product_id', filters.product_id)
     if (filters.friend_confirmed) params.set('friend_confirmed', filters.friend_confirmed)
     if (filters.search) params.set('search', filters.search)
+    params.set('sort', filters.sort)
+    params.set('order', filters.order)
 
     try {
       const res = await fetch(`/api/subscriptions/list?${params}`)
@@ -458,6 +475,40 @@ export function SubscriptionsTab() {
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
+  // ─── Sort helpers ──────────────────────────────────────
+
+  const toggleSort = (field: string) => {
+    setFilters((f) => ({
+      ...f,
+      sort: field,
+      order: f.sort === field && f.order === 'desc' ? 'asc' : 'desc',
+      page: 1,
+    }))
+  }
+
+  const SortIcon = ({ field }: { field: string }) => {
+    if (filters.sort !== field) return <span className="text-muted-foreground/30 ml-0.5">↕</span>
+    return <span className="ml-0.5">{filters.order === 'asc' ? '↑' : '↓'}</span>
+  }
+
+  // ─── Default device handler ────────────────────────────
+
+  const handleDefaultDeviceChange = async (deviceId: string) => {
+    const value = deviceId === '__none__' ? null : deviceId
+    setDefaultDeviceId(value)
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'default_device_id', value }),
+      })
+      if (res.ok) showSuccess('기본 PC가 설정되었습니다')
+      else showError('기본 PC 설정에 실패했습니다')
+    } catch {
+      showError('기본 PC 설정에 실패했습니다')
+    }
+  }
+
   // ─── Quick filter tabs ───────────────────────────────
 
   const quickFilters = [
@@ -505,7 +556,13 @@ export function SubscriptionsTab() {
                 <SelectItem value="__none__">미배정</SelectItem>
                 {devices.map((d) => (
                   <SelectItem key={d.id} value={d.id}>
-                    {d.phone_number}{d.name ? ` (${d.name})` : ''}
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: getDeviceColor(d, devices) }}
+                      />
+                      {d.phone_number}{d.name ? ` (${d.name})` : ''}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -519,6 +576,36 @@ export function SubscriptionsTab() {
 
       {/* 2. Stat Group */}
       <StatGroup stats={stats} cols={4} variant="compact" />
+
+      {/* 2.5 PC 배정 설정 */}
+      <div className="flex items-center gap-3 px-1">
+        <span className="text-xs font-medium">기본 PC</span>
+        <Select
+          value={defaultDeviceId || '__none__'}
+          onValueChange={handleDefaultDeviceChange}
+        >
+          <SelectTrigger className="h-7 w-[200px] text-xs">
+            <SelectValue placeholder="미설정" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">미설정</SelectItem>
+            {devices.map((d) => (
+              <SelectItem key={d.id} value={d.id}>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: getDeviceColor(d, devices) }}
+                  />
+                  {d.phone_number}{d.name ? ` (${d.name})` : ''}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-[10px] text-muted-foreground">
+          새 주문 확정 시 과거 배정 이력이 없으면 이 PC로 자동 배정
+        </span>
+      </div>
 
       {/* 3. Filter Bar */}
       <FilterBar
@@ -541,7 +628,13 @@ export function SubscriptionsTab() {
                 <SelectItem value="__all__">전체 PC</SelectItem>
                 {devices.map((d) => (
                   <SelectItem key={d.id} value={d.id}>
-                    {d.phone_number}{d.name ? ` (${d.name})` : ''}
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: getDeviceColor(d, devices) }}
+                      />
+                      {d.phone_number}{d.name ? ` (${d.name})` : ''}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -604,15 +697,24 @@ export function SubscriptionsTab() {
                       onCheckedChange={toggleSelectAll}
                     />
                   </TableHead>
+                  <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('created_at')}>
+                    주문일 <SortIcon field="created_at" />
+                  </TableHead>
                   <TableHead className="min-w-[80px]">고객명</TableHead>
                   <TableHead className="w-[70px]">뒷4자리</TableHead>
                   <TableHead className="min-w-[80px]">카톡이름</TableHead>
                   <TableHead className="w-[90px]">상품</TableHead>
                   <TableHead className="min-w-[120px]">상품명</TableHead>
                   <TableHead className="w-[60px] text-center">기간</TableHead>
-                  <TableHead className="w-[110px]">시작일</TableHead>
-                  <TableHead className="w-[90px]">종료일</TableHead>
-                  <TableHead className="w-[50px] text-center">Day</TableHead>
+                  <TableHead className="w-[110px] cursor-pointer select-none" onClick={() => toggleSort('start_date')}>
+                    시작일 <SortIcon field="start_date" />
+                  </TableHead>
+                  <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('end_date')}>
+                    종료일 <SortIcon field="end_date" />
+                  </TableHead>
+                  <TableHead className="w-[50px] text-center cursor-pointer select-none" onClick={() => toggleSort('day')}>
+                    Day <SortIcon field="day" />
+                  </TableHead>
                   <TableHead className="w-[60px] text-center">D-Day</TableHead>
                   <TableHead className="w-[120px]">상태</TableHead>
                   <TableHead className="w-[110px]">PC</TableHead>
@@ -640,6 +742,11 @@ export function SubscriptionsTab() {
                           checked={selectedIds.has(sub.id)}
                           className="pointer-events-none"
                         />
+                      </TableCell>
+
+                      {/* 1.5 주문일 */}
+                      <TableCell className="py-1 text-xs tabular-nums text-muted-foreground">
+                        {sub.order_item?.order?.ordered_at?.slice(0, 10) || sub.created_at?.slice(0, 10) || '-'}
                       </TableCell>
 
                       {/* 2. 고객명 */}
@@ -767,14 +874,28 @@ export function SubscriptionsTab() {
                           value={sub.device_id || '__none__'}
                           onValueChange={(v) => handleDeviceChange(sub.id, v === '__none__' ? '' : v)}
                         >
-                          <SelectTrigger className="h-6 w-[140px] text-xs">
+                          <SelectTrigger
+                            className="h-6 w-[140px] text-xs rounded-full border-0"
+                            style={sub.device_id ? {
+                              backgroundColor: getDeviceColor(
+                                devices.find(d => d.id === sub.device_id) || null,
+                                devices
+                              ),
+                            } : undefined}
+                          >
                             <SelectValue placeholder="미배정" />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__none__">미배정</SelectItem>
                             {devices.map((d) => (
                               <SelectItem key={d.id} value={d.id}>
-                                {d.phone_number}{d.name ? ` (${d.name})` : ''}
+                                <span className="flex items-center gap-1.5">
+                                  <span
+                                    className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                                    style={{ backgroundColor: getDeviceColor(d, devices) }}
+                                  />
+                                  {d.phone_number}{d.name ? ` (${d.name})` : ''}
+                                </span>
                               </SelectItem>
                             ))}
                           </SelectContent>
