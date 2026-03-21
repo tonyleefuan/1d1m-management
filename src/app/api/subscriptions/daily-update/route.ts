@@ -2,10 +2,16 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 
-export async function POST() {
-  const session = await getSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+export async function POST(req: Request) {
+  // Vercel Cron 또는 admin 세션 인증
+  const cronSecret = req.headers.get('authorization')
+  const isVercelCron = cronSecret === `Bearer ${process.env.CRON_SECRET}`
+
+  if (!isVercelCron) {
+    const session = await getSession()
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const today = new Date().toISOString().slice(0, 10)
   const results = { pending_to_live: 0, live_to_archive: 0, pause_to_live: 0 }
