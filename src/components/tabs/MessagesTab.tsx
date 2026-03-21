@@ -119,20 +119,24 @@ function ProductSidebar({
   }
 
   return (
-    <Card className="w-56 shrink-0 overflow-hidden">
-      {products.map(p => (
-        <button
-          key={p.id}
-          onClick={() => onSelect(p.id)}
-          className={cn(
-            'w-full text-left px-3 py-2 text-sm border-b last:border-b-0 hover:bg-muted/50 transition-colors',
-            selectedProduct === p.id && 'bg-accent text-accent-foreground font-medium'
-          )}
-        >
-          <div className="font-mono text-xs text-muted-foreground">{p.sku_code}</div>
-          <div className="truncate">{p.title}</div>
-        </button>
-      ))}
+    <Card className="w-72 shrink-0 overflow-hidden">
+      <div className="max-h-[calc(100vh-280px)] overflow-y-auto">
+        {products.map(p => (
+          <button
+            key={p.id}
+            onClick={() => onSelect(p.id)}
+            className={cn(
+              'w-full text-left px-4 py-3 text-sm border-b last:border-b-0 hover:bg-muted/50 transition-colors',
+              selectedProduct === p.id && 'bg-accent text-accent-foreground font-medium border-l-2 border-l-primary'
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{p.sku_code}</span>
+            </div>
+            <div className="mt-1 text-xs leading-relaxed">{p.title}</div>
+          </button>
+        ))}
+      </div>
     </Card>
   )
 }
@@ -214,18 +218,23 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
                 action={{ label: 'Day 추가', onClick: () => setEditing(null) }}
               />
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1.5 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
                 {messages.map(m => (
-                  <Card
+                  <div
                     key={m.id}
-                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                    className="flex items-start gap-3 px-4 py-3 rounded-lg border bg-card hover:bg-muted/50 cursor-pointer transition-colors"
                     onClick={() => setEditing(m)}
                   >
-                    <CardContent className="p-3 flex items-start gap-3">
-                      <span className="text-xs font-mono text-muted-foreground w-12 shrink-0 pt-0.5">D{m.day_number}</span>
-                      <p className="text-sm text-foreground line-clamp-2 flex-1">{m.content}</p>
-                    </CardContent>
-                  </Card>
+                    <div className="shrink-0 w-14 text-center">
+                      <span className="inline-block font-mono text-xs font-semibold bg-primary text-primary-foreground px-2 py-0.5 rounded">
+                        D{(m as any).day_number}
+                      </span>
+                      {(m as any).sort_order > 1 && (
+                        <span className="block text-[10px] text-muted-foreground mt-0.5">#{(m as any).sort_order}</span>
+                      )}
+                    </div>
+                    <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                  </div>
                 ))}
               </div>
             )}
@@ -307,18 +316,18 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
                 action={{ label: '새 메시지', onClick: () => setEditing(null) }}
               />
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1.5 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
                 {messages.map(m => (
-                  <Card
+                  <div
                     key={m.id}
-                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                    className="flex items-start gap-3 px-4 py-3 rounded-lg border bg-card hover:bg-muted/50 cursor-pointer transition-colors"
                     onClick={() => setEditing(m)}
                   >
-                    <CardContent className="p-3 flex items-start gap-3">
-                      <span className="text-xs text-muted-foreground w-20 shrink-0 pt-0.5">{m.send_date}</span>
-                      <p className="text-sm text-foreground line-clamp-2 flex-1">{m.content}</p>
-                    </CardContent>
-                  </Card>
+                    <span className="shrink-0 font-mono text-xs font-semibold bg-primary text-primary-foreground px-2 py-0.5 rounded">
+                      {m.send_date?.slice(5)}
+                    </span>
+                    <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                  </div>
                 ))}
               </div>
             )}
