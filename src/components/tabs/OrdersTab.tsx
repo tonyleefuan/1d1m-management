@@ -298,19 +298,19 @@ function OrderList() {
               <TableBody>
                 {orders.map((item: any) => (
                   <TableRow key={item.id}>
-                    <TableCell className="text-muted-foreground text-xs tabular-nums">
+                    <TableCell className="text-muted-foreground text-xs tabular-nums py-1.5 whitespace-nowrap">
                       {item.order?.ordered_at?.slice(0, 10)}
                     </TableCell>
-                    <TableCell className="font-medium">{item.order?.customer?.name}</TableCell>
-                    <TableCell className="font-mono text-xs">{item.product?.sku_code}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground truncate max-w-[200px]">
+                    <TableCell className="font-medium text-sm py-1.5">{item.order?.customer?.name}</TableCell>
+                    <TableCell className="font-mono text-xs py-1.5">{item.product?.sku_code}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground truncate max-w-[200px] py-1.5">
                       {item.product?.title || '-'}
                     </TableCell>
-                    <TableCell className="text-center text-xs tabular-nums">{item.duration_days}일</TableCell>
-                    <TableCell className="text-right tabular-nums text-xs">
+                    <TableCell className="text-center text-xs tabular-nums py-1.5 whitespace-nowrap">{item.duration_days}일</TableCell>
+                    <TableCell className="text-right tabular-nums text-xs py-1.5 whitespace-nowrap">
                       {item.allocated_amount?.toLocaleString()}원
                     </TableCell>
-                    <TableCell className="text-center">
+                    <TableCell className="text-center py-1.5">
                       {item.is_addon && (
                         <StatusBadge status="info" size="xs">1+1</StatusBadge>
                       )}
