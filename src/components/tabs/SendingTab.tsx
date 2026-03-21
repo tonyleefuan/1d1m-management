@@ -28,6 +28,7 @@ interface QueueItem {
   message_content: string
   image_path: string | null
   sort_order: number
+  message_seq: string | null
   status: 'pending' | 'sent' | 'failed'
   sent_at: string | null
   error_message: string | null
@@ -99,17 +100,23 @@ export function SendingTab() {
 
   const fetchQueue = useCallback(async () => {
     setLoading(true)
-    const params = new URLSearchParams()
-    if (selectedDevice) params.set('device_id', selectedDevice)
-    if (statusFilter) params.set('status', statusFilter)
-    const res = await fetch(`/api/sending/queue?${params}`)
-    if (res.ok) {
-      const json = await res.json()
-      setQueue(json.data || [])
-      setSummary(json.summary || {})
+    try {
+      const params = new URLSearchParams()
+      if (selectedDevice) params.set('device_id', selectedDevice)
+      if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
+      const res = await fetch(`/api/sending/queue?${params}`)
+      if (res.ok) {
+        const json = await res.json()
+        setQueue(json.data || [])
+        setSummary(json.summary || {})
+      } else {
+        showError('발송 대기열을 불러오는데 실패했습니다')
+      }
+    } catch {
+      showError('발송 대기열을 불러오는데 실패했습니다')
     }
     setLoading(false)
-  }, [selectedDevice, statusFilter])
+  }, [selectedDevice, statusFilter, showError])
 
   useEffect(() => { fetchDevices(); fetchSettings() }, [fetchDevices, fetchSettings])
   useEffect(() => { fetchQueue() }, [fetchQueue])
@@ -401,7 +408,7 @@ export function SendingTab() {
                         {sub?.day || '-'}
                       </TableCell>
                       <TableCell className="py-1 text-center text-xs tabular-nums whitespace-nowrap text-muted-foreground">
-                        {(item as any).message_seq || '-'}
+                        {item.message_seq || '-'}
                       </TableCell>
                       <TableCell className="py-1 text-center text-xs whitespace-nowrap">
                         {item.image_path ? '파일' : '텍스트'}

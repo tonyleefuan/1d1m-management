@@ -168,6 +168,7 @@ export interface SendQueueItem {
   message_content: string
   image_path: string | null
   sort_order: number
+  message_seq: string | null
   status: 'pending' | 'sent' | 'failed'
   sent_at: string | null
   error_message: string | null
