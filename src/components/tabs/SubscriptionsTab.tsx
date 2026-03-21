@@ -170,7 +170,7 @@ export function SubscriptionsTab() {
     product_id: '',
     search: '',
     page: 1,
-    sort: 'created_at',
+    sort: 'start_date',
     order: 'desc' as 'asc' | 'desc',
   })
 
