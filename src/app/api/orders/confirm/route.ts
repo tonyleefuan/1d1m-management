@@ -10,12 +10,7 @@ export async function POST(req: Request) {
     const { items } = await req.json()
     if (!items?.length) return NextResponse.json({ error: '저장할 주문이 없습니다' }, { status: 400 })
 
-    let savedOrders = 0
-    let savedItems = 0
-    let savedSubscriptions = 0
-    const errors: string[] = []
-
-    // Get product map
+    // 1. Product map (한 번만 조회)
     const skuCodes = Array.from(new Set(items.map((i: any) => i.product_sku)))
     const { data: products } = await supabase
       .from('products')
@@ -23,7 +18,47 @@ export async function POST(req: Request) {
       .in('sku_code', skuCodes)
     const productMap = new Map(products?.map(p => [p.sku_code, p.id]) || [])
 
-    // Group by order_no
+    // 2. 고객 일괄 처리 — 전화번호 기준 dedup
+    const phoneToItem = new Map<string, any>()
+    for (const item of items) {
+      if (item.customer_phone && !phoneToItem.has(item.customer_phone)) {
+        phoneToItem.set(item.customer_phone, item)
+      }
+    }
+
+    // 기존 고객 조회
+    const phones = Array.from(phoneToItem.keys())
+    const { data: existingCustomers } = await supabase
+      .from('customers')
+      .select('id, phone')
+      .in('phone', phones)
+    const phoneToId = new Map(existingCustomers?.map(c => [c.phone, c.id]) || [])
+
+    // 새 고객 일괄 생성
+    const newCustomerRows = phones
+      .filter(phone => !phoneToId.has(phone))
+      .map(phone => {
+        const item = phoneToItem.get(phone)!
+        return {
+          name: item.customer_name,
+          phone,
+          phone_last4: phone.slice(-4),
+          email: item.customer_email || null,
+        }
+      })
+
+    if (newCustomerRows.length > 0) {
+      const { data: newCustomers, error: custErr } = await supabase
+        .from('customers')
+        .insert(newCustomerRows)
+        .select('id, phone')
+      if (custErr) {
+        return NextResponse.json({ error: `고객 생성 실패: ${custErr.message}` }, { status: 500 })
+      }
+      newCustomers?.forEach(c => phoneToId.set(c.phone, c.id))
+    }
+
+    // 3. 주문 일괄 생성 — 주문번호 기준 그룹
     const orderGroups = new Map<string, any[]>()
     for (const item of items) {
       const group = orderGroups.get(item.imweb_order_no) || []
@@ -31,130 +66,89 @@ export async function POST(req: Request) {
       orderGroups.set(item.imweb_order_no, group)
     }
 
-    for (const [orderNo, orderItems] of orderGroups) {
+    const orderRows = Array.from(orderGroups.entries()).map(([orderNo, orderItems]) => {
       const first = orderItems[0]
-
-      // 1. Find or create customer (upsert-style to avoid race conditions)
-      let customerId: string
-      const phoneLast4 = first.customer_phone?.slice(-4) || ''
-
-      // Try find first
-      const { data: existingCustomers } = await supabase
-        .from('customers')
-        .select('id')
-        .eq('phone', first.customer_phone)
-        .limit(1)
-
-      if (existingCustomers?.length) {
-        customerId = existingCustomers[0].id
-      } else {
-        // Insert, handle duplicate gracefully
-        const { data: newCustomer, error: custError } = await supabase
-          .from('customers')
-          .insert({
-            name: first.customer_name,
-            phone: first.customer_phone,
-            phone_last4: phoneLast4,
-            email: first.customer_email || null,
-          })
-          .select('id')
-          .single()
-
-        if (custError) {
-          // If duplicate from race condition, try to find again
-          const { data: retryCustomer } = await supabase
-            .from('customers')
-            .select('id')
-            .eq('phone', first.customer_phone)
-            .limit(1)
-          if (retryCustomer?.length) {
-            customerId = retryCustomer[0].id
-          } else {
-            console.error('Customer insert error:', custError)
-            continue
-          }
-        } else {
-          customerId = newCustomer.id
-        }
+      return {
+        imweb_order_no: orderNo,
+        customer_id: phoneToId.get(first.customer_phone),
+        total_amount: first.total_amount,
+        ordered_at: first.ordered_at,
       }
+    }).filter(o => o.customer_id)
 
-      // 2. Create order
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          imweb_order_no: orderNo,
-          customer_id: customerId,
-          total_amount: first.total_amount,
-          ordered_at: first.ordered_at,
-        })
-        .select('id')
-        .single()
+    const { data: orders, error: orderErr } = await supabase
+      .from('orders')
+      .upsert(orderRows, { onConflict: 'imweb_order_no', ignoreDuplicates: true })
+      .select('id, imweb_order_no')
 
-      if (orderError) {
-        if (orderError.code === '23505') continue // duplicate order
-        errors.push(`주문 ${orderNo}: ${orderError.message}`)
-        continue
-      }
-      savedOrders++
+    if (orderErr) {
+      return NextResponse.json({ error: `주문 생성 실패: ${orderErr.message}` }, { status: 500 })
+    }
 
-      // 3. Create order items + subscriptions
-      for (const item of orderItems) {
-        const productId = productMap.get(item.product_sku)
-        if (!productId) {
-          errors.push(`품목 ${item.imweb_item_no}: SKU ${item.product_sku} 미등록`)
-          continue
-        }
+    // 기존 주문도 가져오기 (upsert에서 ignored된 것들)
+    const orderNos = Array.from(orderGroups.keys())
+    const { data: allOrders } = await supabase
+      .from('orders')
+      .select('id, imweb_order_no')
+      .in('imweb_order_no', orderNos)
+    const orderNoToId = new Map(allOrders?.map(o => [o.imweb_order_no, o.id]) || [])
 
-        const { data: orderItem, error: itemError } = await supabase
-          .from('order_items')
-          .insert({
-            order_id: order.id,
-            imweb_item_no: item.imweb_item_no,
-            product_id: productId,
-            duration_days: item.duration_days,
-            channel: item.channel,
-            list_price: item.list_price || 0,
-            allocated_amount: item.allocated_amount || 0,
-            is_addon: item.is_addon,
-            raw_product_sku: item.raw_product_sku,
-            raw_option_sku: item.raw_option_sku,
-            raw_option_name: item.raw_option_name,
-          })
-          .select('id')
-          .single()
+    // 4. 품목 일괄 생성
+    const itemRows = items
+      .filter((item: any) => productMap.has(item.product_sku) && orderNoToId.has(item.imweb_order_no))
+      .map((item: any) => ({
+        order_id: orderNoToId.get(item.imweb_order_no),
+        imweb_item_no: item.imweb_item_no,
+        product_id: productMap.get(item.product_sku),
+        duration_days: item.duration_days,
+        channel: item.channel,
+        list_price: item.list_price || 0,
+        allocated_amount: item.allocated_amount || 0,
+        is_addon: item.is_addon,
+        raw_product_sku: item.raw_product_sku,
+        raw_option_sku: item.raw_option_sku,
+        raw_option_name: item.raw_option_name,
+      }))
 
-        if (itemError) {
-          if (itemError.code === '23505') continue
-          errors.push(`품목 ${item.imweb_item_no}: ${itemError.message}`)
-          continue
-        }
-        savedItems++
+    const { data: savedItems, error: itemErr } = await supabase
+      .from('order_items')
+      .upsert(itemRows, { onConflict: 'imweb_item_no', ignoreDuplicates: true })
+      .select('id, product_id, imweb_item_no')
 
-        // 4. Create subscription (pending status)
-        const { error: subError } = await supabase
-          .from('subscriptions')
-          .insert({
-            order_item_id: orderItem.id,
-            customer_id: customerId,
-            product_id: productId,
-            status: 'pending',
-            duration_days: item.duration_days,
-          })
+    if (itemErr) {
+      return NextResponse.json({ error: `품목 생성 실패: ${itemErr.message}` }, { status: 500 })
+    }
 
-        if (subError) {
-          errors.push(`구독 생성 실패 (${item.imweb_item_no}): ${subError.message}`)
-        } else {
-          savedSubscriptions++
-        }
+    // 5. 구독 일괄 생성
+    const itemNoToSaved = new Map(savedItems?.map(si => [si.imweb_item_no, si]) || [])
+    const subRows = items
+      .filter((item: any) => {
+        const saved = itemNoToSaved.get(item.imweb_item_no)
+        return saved && productMap.has(item.product_sku) && phoneToId.has(item.customer_phone)
+      })
+      .map((item: any) => ({
+        order_item_id: itemNoToSaved.get(item.imweb_item_no)!.id,
+        customer_id: phoneToId.get(item.customer_phone),
+        product_id: productMap.get(item.product_sku),
+        status: 'pending',
+        duration_days: item.duration_days,
+      }))
+
+    if (subRows.length > 0) {
+      const { error: subErr } = await supabase
+        .from('subscriptions')
+        .insert(subRows)
+
+      if (subErr) {
+        return NextResponse.json({ error: `구독 생성 실패: ${subErr.message}` }, { status: 500 })
       }
     }
 
     return NextResponse.json({
-      ok: errors.length === 0,
-      saved_orders: savedOrders,
-      saved_items: savedItems,
-      saved_subscriptions: savedSubscriptions,
-      errors: errors.length > 0 ? errors : undefined,
+      ok: true,
+      saved_orders: orders?.length || 0,
+      saved_items: savedItems?.length || 0,
+      saved_subscriptions: subRows.length,
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || '서버 오류가 발생했습니다' }, { status: 500 })
