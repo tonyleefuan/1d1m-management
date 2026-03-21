@@ -279,7 +279,7 @@ export function SendingTab() {
                   <div className="flex items-baseline gap-2">
                     <span className="text-xs">대기 <span className="font-semibold">{s.pending}</span></span>
                     <span className="text-xs text-emerald-600">성공 <span className="font-semibold">{s.sent}</span>{s.total > 0 && <span className="text-[10px] ml-0.5">({Math.round((s.sent / s.total) * 100)}%)</span>}</span>
-                    {s.failed > 0 && <span className="text-xs text-destructive">실패 <span className="font-semibold">{s.failed}</span><span className="text-[10px] ml-0.5">({Math.round((s.failed / s.total) * 100)}%)</span></span>}
+                    <span className="text-xs text-destructive">실패 <span className="font-semibold">{s.failed}</span>{s.total > 0 && <span className="text-[10px] ml-0.5">({Math.round((s.failed / s.total) * 100)}%)</span>}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -289,7 +289,7 @@ export function SendingTab() {
       )}
 
       {/* PC 탭 */}
-      <div className="flex items-center gap-1 border-b">
+      <div className="flex items-center gap-1 border-b overflow-x-auto">
         <button
           onClick={() => setSelectedDevice('')}
           className={cn(
@@ -306,14 +306,14 @@ export function SendingTab() {
               key={d.id}
               onClick={() => setSelectedDevice(d.id)}
               className={cn(
-                'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors',
+                'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
                 selectedDevice === d.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
-              {d.phone_number}
+              {d.name || d.phone_number.slice(-4)}
               <span className="ml-1 text-muted-foreground">
-                {s.total > 0 ? `${s.sent}/${s.total}` : '0'}
-                {s.failed > 0 && <span className="text-destructive ml-0.5">({s.failed}실패)</span>}
+                {s.sent}/{s.total}
+                {s.failed > 0 && <span className="text-destructive ml-0.5">({s.failed})</span>}
               </span>
             </button>
           )
@@ -326,9 +326,7 @@ export function SendingTab() {
           <span className="text-sm font-medium">전체 {displaySummary.total}</span>
           <Badge variant="secondary" className="text-xs">대기 {displaySummary.pending}</Badge>
           <Badge variant="default" className="text-xs bg-emerald-500">성공 {displaySummary.sent}</Badge>
-          {displaySummary.failed > 0 && (
-            <Badge variant="destructive" className="text-xs">실패 {displaySummary.failed}</Badge>
-          )}
+          <Badge variant="destructive" className="text-xs">실패 {displaySummary.failed}</Badge>
         </div>
         <div className="ml-auto">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
