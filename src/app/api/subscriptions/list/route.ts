@@ -16,6 +16,20 @@ export async function GET(req: Request) {
   const search = searchParams.get('search') || ''
   const friendConfirmed = searchParams.get('friend_confirmed')
 
+  const sortBy = searchParams.get('sort') || 'created_at'
+  const sortOrder = searchParams.get('order') || 'desc'
+  const ascending = sortOrder === 'asc'
+
+  // 허용된 정렬 필드
+  const SORTABLE_FIELDS: Record<string, string> = {
+    created_at: 'created_at',
+    start_date: 'start_date',
+    end_date: 'end_date',
+    day: 'day',
+    status: 'status',
+  }
+  const sortField = SORTABLE_FIELDS[sortBy] || 'created_at'
+
   let query = supabase
     .from('subscriptions')
     .select(`
@@ -25,7 +39,7 @@ export async function GET(req: Request) {
       device:send_devices(id, phone_number, name),
       order_item:order_items(order:orders(ordered_at))
     `, { count: 'exact' })
-    .order('start_date', { ascending: false, nullsFirst: true })
+    .order(sortField, { ascending, nullsFirst: !ascending })
     .range((page - 1) * limit, page * limit - 1)
 
   if (status) query = query.eq('status', status)
