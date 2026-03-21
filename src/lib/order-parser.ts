@@ -105,12 +105,37 @@ export function parseOrderRows(rows: RawOrderRow[]): ParsedOrderItem[] {
       // 패턴 A: 일반 구매 — 옵션SKU가 기간
       finalSku = productSku
       durationDays = parseInt(optionSku)
+    } else if (optionSku.includes(',')) {
+      // 패턴 E: 세트 상품 — 옵션SKU에 콤마로 여러 상품
+      // productSku(SUB-27 등)는 세트 코드일 뿐, 무시
+      const setSKUs = optionSku.split(',').map(s => s.trim()).filter(s => s.startsWith('SUB-'))
+      const baseInfo = {
+        imweb_order_no: row['주문번호']?.trim() || '',
+        imweb_item_no: row['주문섹션품목번호']?.trim() || '',
+        customer_name: row['주문자 이름']?.trim() || '',
+        customer_email: row['주문자 이메일']?.trim() || '',
+        customer_phone: row['주문자 번호']?.trim() || '',
+        channel,
+        raw_product_sku: productSku,
+        raw_option_sku: optionSku,
+        raw_option_name: optionName,
+        ordered_at: row['주문일']?.trim() || '',
+        total_amount: parseInt(String(row['최종주문금액'] || '0').replace(/[₩,]/g, '')) || 0,
+      }
+      for (const sku of setSKUs) {
+        items.push({
+          ...baseInfo,
+          product_sku: sku,
+          duration_days: null, // 각 상품의 최대 기간으로 나중에 설정
+          is_addon: true,
+        })
+      }
+      continue
     } else if (optionSku.startsWith('SUB-')) {
       if (!productSku) {
         // 패턴 C: 상품 선택형 — 상품SKU 비어있음
         finalSku = optionSku
         durationDays = parseDurationFromOptionName(optionName)
-        // durationDays가 null이면 나중에 해당 상품의 최대 기간으로 설정
       } else {
         // 패턴 B: 1+1 추가 상품
         finalSku = optionSku
