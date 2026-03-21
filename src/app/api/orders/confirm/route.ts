@@ -122,6 +122,33 @@ export async function POST(req: Request) {
 
     // 5. 구독 일괄 생성
     const itemNoToSaved = new Map(savedItems?.map(si => [si.imweb_item_no, si]) || [])
+
+    // 디폴트 PC 조회
+    const { data: defaultSetting } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'default_device_id')
+      .single()
+    const defaultDeviceId = defaultSetting?.value || null
+
+    // customer_id → 과거 배정 PC 매핑
+    const customerIds = Array.from(phoneToId.values()).filter(Boolean) as string[]
+    let customerDeviceMap = new Map<string, string>()
+    if (customerIds.length > 0) {
+      const { data: pastSubs } = await supabase
+        .from('subscriptions')
+        .select('customer_id, device_id')
+        .in('customer_id', customerIds)
+        .not('device_id', 'is', null)
+        .order('created_at', { ascending: false })
+
+      pastSubs?.forEach(s => {
+        if (!customerDeviceMap.has(s.customer_id)) {
+          customerDeviceMap.set(s.customer_id, s.device_id)
+        }
+      })
+    }
+
     const subRows = items
       .filter((item: any) => {
         const saved = itemNoToSaved.get(item.imweb_item_no)
@@ -146,6 +173,8 @@ export async function POST(req: Request) {
           duration_days: item.duration_days,
           start_date: startStr,
           end_date: endStr,
+          // PC 자동 배정: 1순위 과거 PC, 2순위 디폴트
+          device_id: customerDeviceMap.get(phoneToId.get(item.customer_phone)!) || defaultDeviceId,
         }
       })
 
