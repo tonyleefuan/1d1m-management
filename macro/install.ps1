@@ -152,6 +152,20 @@ for /f "skip=1 tokens=3" %%s in ('query user %USERNAME%') do (
 "@ | Set-Content -Path $disconnectBat -Encoding ASCII
 Write-Host "       RDP 세션 유지 스크립트 (disconnect.bat)" -ForegroundColor Gray
 
+# 재부팅 후 자동 로그인 (데스크톱 세션 자동 생성)
+$winLogonPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$existingAutoLogon = (Get-ItemProperty -Path $winLogonPath -Name "AutoAdminLogon" -ErrorAction SilentlyContinue).AutoAdminLogon
+if ($existingAutoLogon -ne "1") {
+    $loginPw = Read-Host "       윈도우 로그인 비밀번호 (자동 로그인용)"
+    Set-ItemProperty -Path $winLogonPath -Name "AutoAdminLogon" -Value "1" -Force
+    Set-ItemProperty -Path $winLogonPath -Name "DefaultUserName" -Value $currentUser -Force
+    Set-ItemProperty -Path $winLogonPath -Name "DefaultPassword" -Value $loginPw -Force
+    Write-Host "       자동 로그인 설정 완료" -ForegroundColor Gray
+} else {
+    Write-Host "       자동 로그인 이미 설정됨" -ForegroundColor Gray
+}
+
 # ─── 카카오톡 시작프로그램 ───
 $kakaoExe = "C:\Program Files (x86)\Kakao\KakaoTalk\KakaoTalk.exe"
 $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
