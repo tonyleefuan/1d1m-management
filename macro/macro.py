@@ -448,12 +448,33 @@ class KakaoController:
         self.set_clipboard_text(text)
         time.sleep(0.2)
 
-        # 포그라운드로 가져오기 + Ctrl+V 붙여넣기
-        self.send_ctrl_key(self.chat_hwnd, 'V')
+        # ★ 핵심: RichEdit 입력창에 직접 포커스 (debug.py 방법B와 동일)
+        _user32 = ctypes.windll.user32
+        _user32.ShowWindow(self.chat_hwnd, win32con.SW_RESTORE)
+        _user32.keybd_event(0x12, 0, 0, 0)  # Alt down
+        _user32.keybd_event(0x12, 0, win32con.KEYEVENTF_KEYUP, 0)  # Alt up
+        _user32.SetForegroundWindow(self.chat_hwnd)
+        time.sleep(0.15)
+
+        # AttachThreadInput으로 RichEdit에 SetFocus
+        tid_self = ctypes.windll.kernel32.GetCurrentThreadId()
+        tid_target = _user32.GetWindowThreadProcessId(self.chat_hwnd, None)
+        _user32.AttachThreadInput(tid_self, tid_target, True)
+        _user32.SetFocus(chat_edit)
+        _user32.AttachThreadInput(tid_self, tid_target, False)
+        time.sleep(0.2)
+
+        # Ctrl+V 붙여넣기
+        _user32.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
+        time.sleep(0.02)
+        _user32.keybd_event(0x56, 0, 0, 0)  # V
+        time.sleep(0.02)
+        _user32.keybd_event(0x56, 0, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.02)
+        _user32.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.5)
 
-        # keybd_event로 Enter
-        _user32 = ctypes.windll.user32
+        # Enter 전송
         _user32.keybd_event(win32con.VK_RETURN, 0, 0, 0)
         time.sleep(0.05)
         _user32.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
@@ -588,6 +609,11 @@ class KakaoController:
         except Exception:
             pass
         self.chat_hwnd = None
+
+        # 채팅방 닫은 후 메인 창 복원 (다음 검색을 위해)
+        time.sleep(0.5)
+        self.go_to_friend_tab()
+        time.sleep(1.0)
 
 
 # ─── 카카오톡 프로세스 관리 ───
