@@ -318,8 +318,45 @@ def close_chat():
     time.sleep(0.5)
 
 
+def is_kakao_running() -> bool:
+    """카카오톡이 실행 중인지 확인"""
+    result = subprocess.run(
+        ["tasklist", "/FI", "IMAGENAME eq KakaoTalk.exe"],
+        capture_output=True, text=True
+    )
+    return "KakaoTalk.exe" in result.stdout
+
+
+def ensure_kakao_running(config: dict) -> bool:
+    """카카오톡이 꺼져있으면 실행, 이미 실행 중이면 스킵
+
+    Returns: True면 카카오톡 준비 완료
+    """
+    if is_kakao_running():
+        log.info("카카오톡 실행 중 확인 ✅")
+        return True
+
+    log.warning("카카오톡이 꺼져있습니다. 실행합니다...")
+    kakao_path = config.get("kakao_path", r"C:\Program Files (x86)\Kakao\KakaoTalk\KakaoTalk.exe")
+
+    try:
+        subprocess.Popen([kakao_path])
+        log.info("카카오톡 실행됨, 90초 대기 (로그인 + 로딩)...")
+        time.sleep(90)
+
+        if is_kakao_running():
+            log.info("카카오톡 실행 확인 ✅")
+            return True
+        else:
+            log.error("카카오톡 실행 실패")
+            return False
+    except Exception as e:
+        log.error(f"카카오톡 실행 실패: {e}")
+        return False
+
+
 def restart_kakao(config: dict) -> bool:
-    """카카오톡 재시작"""
+    """카카오톡 재시작 (먹통 시 사용)"""
     log.info("카카오톡 재시작 중...")
 
     # 강제 종료 (static command — no user input)
@@ -345,6 +382,12 @@ def run_macro():
     api = ServerAPI(config)
 
     log.info(f"=== 매크로 시작 — {config['device_id']} ===")
+
+    # 0. 카카오톡 실행 확인 (꺼져있으면 자동 실행)
+    if not ensure_kakao_running(config):
+        log.error("카카오톡을 실행할 수 없습니다. 매크로를 종료합니다.")
+        api.send_heartbeat(0, 0, 0, 0)
+        return
 
     # 1. 대기열 + 설정 + 이미지 목록 수신 (한 번의 API 호출)
     response = api.get_queue()
