@@ -876,15 +876,30 @@ export function SubscriptionsTab() {
                           onValueChange={(v) => handleDeviceChange(sub.id, v === '__none__' ? '' : v)}
                         >
                           <SelectTrigger
-                            className="h-6 w-[140px] text-xs rounded-full border-0"
-                            style={sub.device_id ? {
-                              backgroundColor: getDeviceColor(
-                                devices.find(d => d.id === sub.device_id) || null,
-                                devices
-                              ),
-                            } : undefined}
+                            className="h-6 w-[140px] text-xs border-0 bg-transparent px-1"
                           >
-                            <SelectValue placeholder="미배정" />
+                            <SelectValue placeholder="미배정">
+                              <span className="flex items-center gap-1.5">
+                                {sub.device_id && (() => {
+                                  const color = getDeviceColor(
+                                    devices.find(d => d.id === sub.device_id) || null,
+                                    devices
+                                  )
+                                  return color ? (
+                                    <span
+                                      className="inline-block w-2 h-2 rounded-full shrink-0"
+                                      style={{ backgroundColor: color }}
+                                    />
+                                  ) : null
+                                })()}
+                                <span className="truncate">
+                                  {(() => {
+                                    const dev = devices.find(d => d.id === sub.device_id)
+                                    return dev ? dev.phone_number : '미배정'
+                                  })()}
+                                </span>
+                              </span>
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__none__">미배정</SelectItem>
@@ -937,14 +952,27 @@ export function SubscriptionsTab() {
                             }
                           }
                         >
-                          <SelectTrigger className="h-6 w-[70px] text-xs border-0 bg-transparent px-1">
-                            <SelectValue />
+                          <SelectTrigger className="h-6 w-[80px] text-xs border-0 bg-transparent px-1">
+                            <SelectValue>
+                              <span className="flex items-center gap-1.5">
+                                <span className={cn(
+                                  "inline-block w-2 h-2 rounded-full shrink-0",
+                                  {
+                                    'bg-red-500': (sub.send_priority || 3) === 1,
+                                    'bg-orange-400': (sub.send_priority || 3) === 2,
+                                    'bg-gray-400': (sub.send_priority || 3) === 3,
+                                    'bg-blue-400': (sub.send_priority || 3) === 4,
+                                  }
+                                )} />
+                                {({ 1: '아주빨리', 2: '빨리', 3: '보통', 4: '늦게' } as Record<number, string>)[(sub.send_priority || 3)]}
+                              </span>
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="1">아주빨리</SelectItem>
-                            <SelectItem value="2">빨리</SelectItem>
-                            <SelectItem value="3">보통</SelectItem>
-                            <SelectItem value="4">늦게</SelectItem>
+                            <SelectItem value="1"><span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-red-500" />아주빨리</span></SelectItem>
+                            <SelectItem value="2"><span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-orange-400" />빨리</span></SelectItem>
+                            <SelectItem value="3"><span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-gray-400" />보통</span></SelectItem>
+                            <SelectItem value="4"><span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-blue-400" />늦게</span></SelectItem>
                           </SelectContent>
                         </Select>
                       </TableCell>
