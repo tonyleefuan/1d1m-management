@@ -43,6 +43,16 @@ export async function searchNews(
 }
 
 /**
+ * YYYY-MM-DD → "YYYY.MM.DD 요일" 변환
+ */
+function formatDateWithDay(dateStr: string): string {
+  const days = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일']
+  const dt = new Date(dateStr + 'T00:00:00+09:00')
+  const dayName = days[dt.getDay()]
+  return `${dateStr.replace(/-/g, '.')} ${dayName}`
+}
+
+/**
  * 검색된 뉴스를 바탕으로 메시지 생성
  */
 export async function generateMessage(
@@ -52,7 +62,8 @@ export async function generateMessage(
   targetDate: string,
   formatReference?: string
 ): Promise<string> {
-  let userContent = `아래 뉴스를 바탕으로 메시지를 작성하세요.\n\n대상 날짜: ${targetDate}\n날짜 표기는 반드시 "${targetDate}"을 사용하세요. 직접 계산하지 마세요.\n\n## 뉴스 내용\n${newsContext}`
+  const formattedDate = formatDateWithDay(targetDate)
+  let userContent = `아래 뉴스를 바탕으로 메시지를 작성하세요.\n\n대상 날짜: ${formattedDate}\n날짜 표기는 반드시 "${formattedDate}"을 사용하세요. 직접 계산하지 마세요.\n\n## 뉴스 내용\n${newsContext}`
 
   if (formatReference) {
     userContent += `\n\n## 포맷 참조 (아래 메시지와 동일한 포맷/톤/구조로 작성하세요)\n${formatReference}`
