@@ -272,38 +272,83 @@ def focus_kakao():
         time.sleep(1)
 
 
+def get_kakao_main_window():
+    """카카오톡 메인 창의 위치와 크기 반환"""
+    try:
+        import win32gui
+        result = {"hwnd": None, "rect": None}
+
+        def find_main(hwnd, _):
+            title = win32gui.GetWindowText(hwnd)
+            if title == "카카오톡" and win32gui.IsWindowVisible(hwnd):
+                result["hwnd"] = hwnd
+                result["rect"] = win32gui.GetWindowRect(hwnd)
+                return False
+            return True
+
+        try:
+            win32gui.EnumWindows(find_main, None)
+        except Exception:
+            pass
+        return result
+    except ImportError:
+        return {"hwnd": None, "rect": None}
+
+
 def go_to_friend_tab():
-    """카카오톡 친구 탭으로 이동 — 단축키 우선, 실패 시 이미지 매칭"""
-    # 방법 1: Ctrl+1 단축키 (친구 탭)
+    """카카오톡 친구 탭으로 이동 — 3단계 시도"""
+    # 방법 1: Ctrl+1 단축키
     pyautogui.hotkey("ctrl", "1")
     time.sleep(0.5)
 
-    # 방법 2: 이미지 매칭 (친구 탭 아이콘)
+    # 방법 2: 이미지 매칭
     if FRIEND_TAB_ICON.exists():
         try:
             location = pyautogui.locateOnScreen(str(FRIEND_TAB_ICON), confidence=0.8)
             if location:
                 pyautogui.click(pyautogui.center(location))
                 time.sleep(0.5)
+                return
         except Exception:
             pass
 
+    # 방법 3: 카카오톡 창 좌표 기반 클릭
+    # 친구 탭은 메인 창 하단 왼쪽 첫 번째 아이콘 (하단바 약 25% 지점)
+    kakao = get_kakao_main_window()
+    if kakao["rect"]:
+        left, top, right, bottom = kakao["rect"]
+        tab_x = left + int((right - left) * 0.15)  # 좌측 15% 지점
+        tab_y = bottom - 30  # 하단에서 30px 위
+        pyautogui.click(tab_x, tab_y)
+        time.sleep(0.5)
+
 
 def open_search() -> bool:
-    """카카오톡 검색창 열기 — 단축키 우선, 실패 시 이미지 매칭"""
+    """카카오톡 검색창 열기 — 3단계 시도"""
     # 방법 1: Ctrl+F 단축키
     pyautogui.hotkey("ctrl", "f")
     time.sleep(0.5)
 
-    # 방법 2: 이미지 매칭 (검색 아이콘)
+    # 방법 2: 이미지 매칭
     if SEARCH_ICON.exists():
         try:
             location = pyautogui.locateOnScreen(str(SEARCH_ICON), confidence=0.8)
             if location:
                 pyautogui.click(pyautogui.center(location))
                 time.sleep(0.5)
+                return True
         except Exception:
             pass
+
+    # 방법 3: 카카오톡 창 좌표 기반 클릭
+    # 검색 아이콘은 메인 창 상단 좌측 (상단바 약 15% 지점)
+    kakao = get_kakao_main_window()
+    if kakao["rect"]:
+        left, top, right, bottom = kakao["rect"]
+        search_x = left + int((right - left) * 0.85)  # 우측 85% 지점
+        search_y = top + 55  # 상단에서 55px 아래
+        pyautogui.click(search_x, search_y)
+        time.sleep(0.5)
 
     return True
 
@@ -433,21 +478,55 @@ def send_image_file(image_path: str, config: dict):
     time.sleep(float(config.get("file_delay", 6)))
 
 
+def force_close_chat_window(friend_name: str):
+    """ESC가 안 먹힐 때 pywin32로 채팅방 창을 직접 닫기"""
+    try:
+        import win32gui
+        import win32con
+
+        def close_matching(hwnd, _):
+            title = win32gui.GetWindowText(hwnd)
+            if friend_name in title and title != "카카오톡":
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+            return True
+
+        win32gui.EnumWindows(close_matching, None)
+        time.sleep(0.5)
+    except Exception as e:
+        log.warning(f"  강제 닫기 실패: {e}")
+
+
 def close_chat(friend_name: str = ""):
-    """채팅방 닫기 + 창 제목으로 닫혔는지 확인"""
+    """채팅방 닫기 — ESC → 검증 → 안 되면 강제 닫기"""
+    # 1차: ESC
     pyautogui.press("escape")
     time.sleep(0.3)
     pyautogui.press("escape")
     time.sleep(0.5)
 
-    # 창 제목으로 확인 (이름이 주어진 경우)
-    if friend_name:
-        if not verify_chat_closed(friend_name):
-            log.warning(f"  채팅방 안 닫힘, ESC 재시도: {friend_name}")
-            pyautogui.press("escape")
-            time.sleep(0.5)
-            pyautogui.press("escape")
-            time.sleep(0.5)
+    if not friend_name:
+        return
+
+    # 2차: 확인
+    if verify_chat_closed(friend_name):
+        return
+
+    # 3차: ESC 재시도
+    log.warning(f"  채팅방 안 닫힘, ESC 재시도: {friend_name}")
+    pyautogui.press("escape")
+    time.sleep(0.5)
+    pyautogui.press("escape")
+    time.sleep(0.5)
+
+    if verify_chat_closed(friend_name):
+        return
+
+    # 4차: pywin32로 강제 닫기
+    log.warning(f"  ESC 실패, 창 강제 닫기: {friend_name}")
+    force_close_chat_window(friend_name)
+
+    if not verify_chat_closed(friend_name):
+        log.error(f"  채팅방 닫기 완전 실패: {friend_name}")
 
 
 def is_kakao_running() -> bool:
@@ -639,6 +718,19 @@ def _run_macro_inner(config: dict, api: ServerAPI):
                 continue
 
             try:
+                # ⭐ 발송 전 확인: 채팅방이 아직 열려있는지
+                if not verify_chat_opened(person_name):
+                    log.warning(f"  채팅방이 닫혔음 — 나머지 메시지 실패 처리: {person_name}")
+                    results.append({
+                        "queue_id": item["id"],
+                        "status": "failed",
+                        "error_type": "device_error",
+                    })
+                    failed_count += 1
+                    person_failed = True
+                    save_progress(global_index, results)
+                    break  # 이 사람의 나머지 메시지도 아래에서 실패 처리
+
                 if item.get("image_path") and (not item.get("message_content") or item["message_content"] == "파일"):
                     # 이미지만 전송
                     send_image_file(item["image_path"], config)
