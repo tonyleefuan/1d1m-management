@@ -15,9 +15,284 @@ import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
-import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck, Sparkles, RotateCcw, Check, Wand2 } from 'lucide-react'
+import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck, Sparkles, RotateCcw, Check, Wand2, Paperclip, X, Image as ImageIcon } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
 import type { Product, Message, DailyMessage, NoticeTemplate } from '@/lib/types'
+
+// --- 소스 기반 메시지 생성 다이얼로그 ---
+function SourceGenerateDialog({
+  productId, productSku, productTitle, date, existingContent, existingStatus, existingId,
+  onClose, onSaved,
+}: {
+  productId: string
+  productSku: string
+  productTitle: string
+  date: string
+  existingContent?: string
+  existingStatus?: string
+  existingId?: string
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [sourceText, setSourceText] = useState('')
+  const [images, setImages] = useState<{ data: string; media_type: string; name: string }[]>([])
+  const [generating, setGenerating] = useState(false)
+  const [content, setContent] = useState(existingContent || '')
+  const [saving, setSaving] = useState(false)
+  const [approving, setApproving] = useState(false)
+  const { showSuccess, showError } = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const days = ['일', '월', '화', '수', '목', '금', '토']
+  const dt = new Date(date + 'T00:00:00+09:00')
+  const dayName = days[dt.getDay()]
+
+  const handleImageAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    Array.from(files).forEach(file => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        // data:image/png;base64,xxxx → extract base64 + media_type
+        const match = result.match(/^data:(image\/[^;]+);base64,(.+)$/)
+        if (match) {
+          setImages(prev => [...prev, { data: match[2], media_type: match[1], name: file.name }])
+        }
+      }
+      reader.readAsDataURL(file)
+    })
+    e.target.value = ''
+  }
+
+  const handleGenerate = async () => {
+    if (!sourceText.trim() && images.length === 0) {
+      showError('기사 링크, 검색어, 이미지 등 소스를 입력해주세요')
+      return
+    }
+    setGenerating(true)
+    try {
+      const sources: { type: string; content: string; media_type?: string }[] = []
+      if (sourceText.trim()) {
+        sources.push({ type: 'text', content: sourceText.trim() })
+      }
+      for (const img of images) {
+        sources.push({ type: 'image', content: img.data, media_type: img.media_type })
+      }
+
+      const res = await fetch('/api/ai/generate-with-source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: productId, date, sources }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || '생성 실패')
+      }
+      const data = await res.json()
+      if (data.content) {
+        setContent(data.content)
+        showSuccess('메시지가 생성되었습니다')
+      }
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '생성에 실패했습니다')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const handleSave = async () => {
+    if (!content.trim()) return
+    setSaving(true)
+    try {
+      const body: Record<string, unknown> = { product_id: productId, send_date: date, content: content.trim() }
+      if (existingId) body.id = existingId
+      const res = await fetch('/api/daily-messages/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error('저장 실패')
+      showSuccess('저장되었습니다')
+      onSaved()
+    } catch {
+      showError('저장에 실패했습니다')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleApprove = async () => {
+    if (!content.trim()) return
+    setApproving(true)
+    try {
+      // 먼저 저장
+      const saveBody: Record<string, unknown> = { product_id: productId, send_date: date, content: content.trim() }
+      if (existingId) saveBody.id = existingId
+      const saveRes = await fetch('/api/daily-messages/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(saveBody),
+      })
+      if (!saveRes.ok) throw new Error('저장 실패')
+
+      // 저장된 ID를 찾아서 승인
+      const { data: msg } = await fetch(`/api/daily-messages/list?product_id=${productId}`).then(r => r.json()).then((msgs: any[]) => ({
+        data: msgs.find((m: any) => m.send_date === date)
+      }))
+      if (msg?.id) {
+        const res = await fetch('/api/daily-messages/status', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: msg.id, status: 'approved' }),
+        })
+        if (!res.ok) throw new Error('승인 실패')
+      }
+      showSuccess('메시지가 승인되었습니다')
+      onSaved()
+    } catch {
+      showError('승인에 실패했습니다')
+    } finally {
+      setApproving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={() => onClose()}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <span className="font-mono text-sm bg-primary text-primary-foreground px-2 py-0.5 rounded">{productSku}</span>
+            <span>{date.slice(5)} ({dayName})</span>
+            <span className="text-muted-foreground font-normal text-sm">메시지 생성</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* 기존 메시지 미리보기 */}
+          {existingContent && (
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="text-[11px] text-muted-foreground">현재 메시지</span>
+                {existingStatus === 'approved' ? (
+                  <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">승인됨</Badge>
+                ) : (
+                  <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">초안</Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-6">{existingContent}</p>
+            </div>
+          )}
+
+          {/* 소스 입력 영역 */}
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">소스 입력</Label>
+            <Textarea
+              value={sourceText}
+              onChange={e => setSourceText(e.target.value)}
+              placeholder={`기사 링크, 검색어, 주제, 메모 등 자유롭게 입력\n\n예시:\nhttps://www.bbc.com/news/article-123\nhttps://www.reuters.com/world/...\n\n또는: 트럼프 관세, 이란 핵시설, BTS 복귀`}
+              className="font-mono text-sm min-h-[120px]"
+            />
+
+            {/* 첨부된 이미지 미리보기 */}
+            {images.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {images.map((img, i) => (
+                  <div key={i} className="relative group">
+                    <img
+                      src={`data:${img.media_type};base64,${img.data}`}
+                      alt={img.name}
+                      className="h-16 w-16 object-cover rounded border"
+                    />
+                    <button
+                      onClick={() => setImages(prev => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                    <span className="text-[9px] text-muted-foreground block text-center mt-0.5 truncate max-w-[64px]">{img.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleImageAdd}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <ImageIcon className="h-3.5 w-3.5 mr-1.5" />
+                이미지 첨부
+              </Button>
+              <div className="flex-1" />
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleGenerate}
+                disabled={generating || (!sourceText.trim() && images.length === 0)}
+              >
+                {generating ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                {generating ? 'AI 생성 중...' : 'AI 생성'}
+              </Button>
+            </div>
+          </div>
+
+          {/* 생성 결과 / 편집 영역 */}
+          {content && (
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">생성 결과</Label>
+              <Textarea
+                value={content}
+                onChange={e => setContent(e.target.value)}
+                className="font-mono text-sm min-h-[300px]"
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-muted-foreground tabular-nums">{content.length}자</span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleSave}
+                    disabled={saving || !content.trim()}
+                  >
+                    {saving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+                    초안 저장
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleApprove}
+                    disabled={approving || !content.trim()}
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    {approving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1.5" />}
+                    승인
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 // --- 메시지 편집 모달 ---
 function MessageEditModal({
@@ -60,6 +335,16 @@ function MessageEditModal({
     if (!msg?.id) return
     setApproving(true)
     try {
+      // 수정된 내용이 있으면 먼저 저장
+      if (content.trim() !== (msg.content as string)) {
+        const saveRes = await fetch('/api/daily-messages/upsert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: msg.id, product_id: productId, send_date: msg.send_date, content: content.trim() }),
+        })
+        if (!saveRes.ok) throw new Error('저장 실패')
+      }
+      // 그 다음 승인
       const res = await fetch('/api/daily-messages/status', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -497,7 +782,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [generating, setGenerating] = useState(false)
   const [genProgress, setGenProgress] = useState<{ current: number; total: number; sku: string; title: string; done: string[] } | null>(null)
-  const [editingCell, setEditingCell] = useState<{ productId: string; date: string; cell: GridCell } | null>(null)
+  const [editingCell, setEditingCell] = useState<{ productId: string; sku: string; title: string; date: string; cell?: GridCell } | null>(null)
 
   const refresh = useCallback(() => {
     fetch('/api/daily-messages/today-status')
@@ -722,7 +1007,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                         {content ? (
                           <div
                             className={cn('cursor-pointer hover:bg-muted/50 rounded p-1 -m-1 transition-colors', editable && 'hover:ring-1 hover:ring-border')}
-                            onClick={() => editable && setEditingCell({ productId: p.id, date: d, cell })}
+                            onClick={() => editable && setEditingCell({ productId: p.id, sku: p.sku_code, title: p.title, date: d, cell })}
                           >
                             <div className="flex items-center gap-1.5 mb-1">
                               {status === 'approved' ? (
@@ -739,7 +1024,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                         ) : editable ? (
                           <div className="space-y-1.5">
                             <Textarea
-                              placeholder={`${formatDate(d).short} 메시지...`}
+                              placeholder={`${formatDate(d).short} 메시지 직접 입력...`}
                               className={cn('text-[12px] leading-relaxed', isToday ? 'min-h-[100px]' : 'min-h-[60px]')}
                               value={drafts[key] || ''}
                               onChange={(e) => setDrafts(dr => ({ ...dr, [key]: e.target.value }))}
@@ -748,19 +1033,30 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                               <span className="text-[11px] text-muted-foreground tabular-nums">
                                 {(drafts[key] || '').length}자
                               </span>
-                              <Button
-                                size="sm"
-                                className="h-7"
-                                onClick={() => handleSave(p.id, d)}
-                                disabled={!drafts[key]?.trim() || saving[key]}
-                              >
-                                {saving[key] ? (
-                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                ) : (
-                                  <Save className="h-3 w-3 mr-1" />
-                                )}
-                                저장
-                              </Button>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7"
+                                  onClick={() => setEditingCell({ productId: p.id, sku: p.sku_code, title: p.title, date: d })}
+                                >
+                                  <Sparkles className="h-3 w-3 mr-1" />
+                                  AI
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="h-7"
+                                  onClick={() => handleSave(p.id, d)}
+                                  disabled={!drafts[key]?.trim() || saving[key]}
+                                >
+                                  {saving[key] ? (
+                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                  ) : (
+                                    <Save className="h-3 w-3 mr-1" />
+                                  )}
+                                  저장
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         ) : (
@@ -776,12 +1072,16 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
         </table>
       </div>
 
-      {/* Cell edit modal */}
+      {/* 소스 기반 생성 다이얼로그 */}
       {editingCell && (
-        <MessageEditModal
-          message={{ id: editingCell.cell.id, send_date: editingCell.date, content: editingCell.cell.content, product_id: editingCell.productId } as unknown as DailyMessage}
+        <SourceGenerateDialog
           productId={editingCell.productId}
-          type="realtime"
+          productSku={editingCell.sku}
+          productTitle={editingCell.title}
+          date={editingCell.date}
+          existingContent={editingCell.cell?.content}
+          existingStatus={editingCell.cell?.status}
+          existingId={editingCell.cell?.id}
           onClose={() => setEditingCell(null)}
           onSaved={handleCellSaved}
         />

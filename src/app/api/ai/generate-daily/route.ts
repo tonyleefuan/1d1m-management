@@ -3,7 +3,7 @@ import { getSession } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { searchNews, generateMessage } from '@/lib/ai/claude'
 import { shortenUrlsInText } from '@/lib/ai/url-shortener'
-import { fetchNewsForProduct } from '@/lib/ai/news-fetcher'
+import { fetchNewsForProduct, fetchArticleContent } from '@/lib/ai/news-fetcher'
 
 export const maxDuration = 300
 
@@ -37,11 +37,18 @@ async function generateForProduct(
       .map(h => `[${h.send_date}] ${h.content.slice(0, 200)}...`)
       .join('\n\n')
 
+    // 기사 URL이 제공되면 서버에서 직접 fetch하여 본문 추출
+    let articleContent = ''
+    if (articleUrl) {
+      articleContent = await fetchArticleContent(articleUrl)
+    }
     const sourceContent = articleUrl ? '' : await fetchNewsForProduct(sku)
     const searchContext = sourceContent
       ? `${searchPrompt}\n\n## 소스 페이지에서 가져온 헤드라인/기사 목록\n${sourceContent}`
       : searchPrompt
-    const newsContext = await searchNews(searchContext, recentHistory, targetDate, articleUrl)
+    const newsContext = articleContent
+      ? articleContent
+      : await searchNews(searchContext, recentHistory, targetDate)
     let message = await generateMessage(generationPrompt, newsContext, recentHistory, targetDate)
     message = await shortenUrlsInText(message)
 
@@ -94,8 +101,11 @@ export async function POST(request: NextRequest) {
 
   let targetDate = searchParams.get('date')
   if (!targetDate) {
-    const tomorrow = new Date()
-    tomorrow.setHours(tomorrow.getHours() + 9)
+    // KST 기준 내일 날짜 계산 (Intl API로 정확한 타임존 처리)
+    const now = new Date()
+    const kstFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' })
+    const todayKST = kstFormatter.format(now)
+    const tomorrow = new Date(todayKST + 'T00:00:00+09:00')
     tomorrow.setDate(tomorrow.getDate() + 1)
     targetDate = tomorrow.toISOString().slice(0, 10)
   }

@@ -84,6 +84,69 @@ export async function generateMessage(
     .join('\n')
 }
 
+export type SourceItem = { type: 'text'; content: string } | { type: 'image'; content: string; media_type: string }
+
+/**
+ * 사용자가 제공한 소스(텍스트+이미지)를 기반으로 웹 검색 + 메시지 생성
+ * - 이미지: Claude vision으로 내용 파악 (검색어 스크린샷 등)
+ * - 텍스트: 기사 본문, 검색어, 메모 등
+ * - web_search: 항상 활성화하여 최신 기사 검색 가능
+ */
+export async function generateFromSource(
+  searchPrompt: string,
+  generationPrompt: string,
+  sourceContext: string,
+  images: { data: string; media_type: string }[],
+  recentHistory: string,
+  targetDate: string,
+): Promise<string> {
+  const formattedDate = formatDateWithDay(targetDate)
+
+  // Step 1: 소스 분석 + 웹 검색 (필요시)
+  const searchBlocks: Anthropic.ContentBlockParam[] = []
+
+  // 이미지 추가
+  for (const img of images) {
+    searchBlocks.push({
+      type: 'image',
+      source: { type: 'base64', media_type: img.media_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: img.data },
+    })
+  }
+
+  const hasArticleContent = sourceContext.includes('## 기사 원문')
+
+  searchBlocks.push({
+    type: 'text',
+    text: [
+      `대상 날짜: ${formattedDate}`,
+      '',
+      images.length > 0 ? '위 이미지에서 관련 정보(검색어, 키워드 등)를 파악하세요.' : '',
+      '',
+      sourceContext ? `## 사용자 제공 소스\n${sourceContext}` : '(소스 없음 — 웹 검색으로 최신 뉴스를 찾으세요)',
+      '',
+      `## 최근 7일간 이미 다룬 주제 (중복 회피)\n${recentHistory}`,
+    ].filter(Boolean).join('\n'),
+  })
+
+  const searchResponse = await anthropic.messages.create({
+    model: MODEL,
+    max_tokens: 8192,
+    system: searchPrompt + SYSTEM_RULES,
+    tools: hasArticleContent ? [] : [
+      { type: 'web_search_20250305' as const, name: 'web_search', max_uses: 5 }
+    ],
+    messages: [{ role: 'user', content: searchBlocks }],
+  })
+
+  const newsContext = searchResponse.content
+    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+
+  // Step 2: 메시지 생성
+  return generateMessage(generationPrompt, newsContext, recentHistory, targetDate)
+}
+
 /**
  * 기존 메시지를 지시에 따라 수정
  */
