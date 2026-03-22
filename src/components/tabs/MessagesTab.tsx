@@ -171,7 +171,7 @@ function MessageEditModal({
             value={content}
             onChange={e => setContent(e.target.value)}
             className="font-mono"
-            rows={12}
+            rows={24}
             placeholder="메시지 내용을 입력하세요"
           />
         </div>
@@ -1114,7 +1114,7 @@ function PromptManagementPanel() {
               <Textarea
                 value={searchPrompt}
                 onChange={e => setSearchPrompt(e.target.value)}
-                rows={6}
+                rows={16}
                 className="font-mono text-sm"
                 placeholder="검색 프롬프트를 입력하세요..."
               />
@@ -1126,7 +1126,7 @@ function PromptManagementPanel() {
               <Textarea
                 value={generationPrompt}
                 onChange={e => setGenerationPrompt(e.target.value)}
-                rows={10}
+                rows={20}
                 className="font-mono text-sm"
                 placeholder="생성 프롬프트를 입력하세요..."
               />
