@@ -12,7 +12,7 @@ export async function shortenUrl(url: string): Promise<string> {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ long_url: url }),
+      body: JSON.stringify({ long_url: url, domain: 'bit.ly' }),
       signal: AbortSignal.timeout(5000),
     })
     if (!res.ok) return url
@@ -30,7 +30,7 @@ export async function shortenUrl(url: string): Promise<string> {
 export async function shortenUrlsInText(text: string): Promise<string> {
   const urlRegex = /https?:\/\/[^\s\]\)]+/g
   const urls = text.match(urlRegex) || []
-  const skipDomains = ['bit.ly', 'bitly.com', 'tinyurl.com', 't.co']
+  const skipDomains = ['bit.ly', 'bitly.com', 'tinyurl.com', 't.co', 'havehad.info']
 
   let result = text
   for (const url of urls) {

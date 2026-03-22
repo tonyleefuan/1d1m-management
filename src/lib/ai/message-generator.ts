@@ -34,10 +34,10 @@ async function generateForProduct(
       .join('\n\n')
 
     // 2. Search news
-    const newsContext = await searchNews(searchPrompt, recentHistory, articleUrl)
+    const newsContext = await searchNews(searchPrompt, recentHistory, targetDate, articleUrl)
 
     // 3. Generate message
-    let message = await generateMessage(generationPrompt, newsContext, recentHistory)
+    let message = await generateMessage(generationPrompt, newsContext, recentHistory, targetDate)
 
     // 4. Shorten URLs inline
     message = await shortenUrlsInText(message)
