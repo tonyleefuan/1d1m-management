@@ -14,7 +14,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { cn } from '@/lib/utils'
-import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck, Sparkles, RotateCcw, Check, Wand2 } from 'lucide-react'
 import type { Product, Message, DailyMessage, NoticeTemplate } from '@/lib/types'
 
 // --- 메시지 편집 모달 ---
@@ -32,6 +33,14 @@ function MessageEditModal({
   const [dayNumber, setDayNumber] = useState(msg?.day_number?.toString() || '')
   const [sendDate, setSendDate] = useState((msg?.send_date as string) || new Date().toISOString().slice(0, 10))
   const [content, setContent] = useState((msg?.content as string) || '')
+  const { showSuccess, showError } = useToast()
+
+  // AI features state (daily messages only)
+  const isDailyMessage = !isFixed && !!msg?.send_date
+  const [approving, setApproving] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
+  const [aiInstruction, setAiInstruction] = useState('')
+  const [aiModifying, setAiModifying] = useState(false)
 
   const handleSave = async () => {
     const endpoint = isFixed ? '/api/messages/upsert' : '/api/daily-messages/upsert'
@@ -44,6 +53,78 @@ function MessageEditModal({
       throw new Error(d.error || '저장 실패')
     }
     onSaved()
+  }
+
+  const handleApprove = async () => {
+    if (!msg?.id) return
+    setApproving(true)
+    try {
+      const res = await fetch('/api/daily-messages/status', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: msg.id, status: 'approved' }),
+      })
+      if (!res.ok) throw new Error('승인 실패')
+      showSuccess('메시지가 승인되었습니다')
+      onSaved()
+    } catch {
+      showError('승인에 실패했습니다')
+    } finally {
+      setApproving(false)
+    }
+  }
+
+  const handleRegenerate = async () => {
+    if (!msg?.send_date) return
+    setRegenerating(true)
+    try {
+      // Find sku_code from productId - we use the product_id param
+      const params = new URLSearchParams({ date: msg.send_date as string })
+      // We need to get the sku_code - fetch product info
+      const prodRes = await fetch(`/api/products/list`)
+      const products = await prodRes.json()
+      const product = products?.find((p: any) => p.id === productId)
+      if (product?.sku_code) params.set('sku', product.sku_code)
+
+      const res = await fetch(`/api/ai/generate-daily?${params}`, { method: 'POST' })
+      if (!res.ok) throw new Error('재생성 실패')
+      const data = await res.json()
+      const result = data.results?.find((r: any) => r.status === 'success')
+      if (result) {
+        setContent(result.content || content)
+        showSuccess('메시지가 재생성되었습니다')
+      } else {
+        showError('재생성 결과가 없습니다')
+      }
+      onSaved()
+    } catch {
+      showError('메시지 재생성에 실패했습니다')
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
+  const handleAiModify = async () => {
+    if (!msg?.id || !aiInstruction.trim()) return
+    setAiModifying(true)
+    try {
+      const res = await fetch('/api/ai/modify-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_id: msg.id, instruction: aiInstruction.trim() }),
+      })
+      if (!res.ok) throw new Error('수정 실패')
+      const data = await res.json()
+      if (data.content) {
+        setContent(data.content)
+        showSuccess('AI 수정이 적용되었습니다')
+        setAiInstruction('')
+      }
+    } catch {
+      showError('AI 수정에 실패했습니다')
+    } finally {
+      setAiModifying(false)
+    }
   }
 
   return (
@@ -93,6 +174,60 @@ function MessageEditModal({
             placeholder="메시지 내용을 입력하세요"
           />
         </div>
+
+        {/* AI features for daily messages */}
+        {isDailyMessage && !!(msg?.id) && (
+          <div className="space-y-3 border-t pt-3">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleApprove}
+                disabled={approving}
+                className="text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+              >
+                {approving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1" />}
+                승인
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleRegenerate}
+                disabled={regenerating}
+              >
+                {regenerating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5 mr-1" />}
+                재생성
+              </Button>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                <Wand2 className="h-3 w-3" />
+                AI 수정 지시
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  value={aiInstruction}
+                  onChange={e => setAiInstruction(e.target.value)}
+                  placeholder="예: 좀 더 친근하게 바꿔줘, 이모지 추가해줘"
+                  className="flex-1 text-sm"
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAiModify() } }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleAiModify}
+                  disabled={aiModifying || !aiInstruction.trim()}
+                >
+                  {aiModifying ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
+                  수정
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </FormDialog>
   )
@@ -326,13 +461,18 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
 }
 
 // --- 오늘의 메시지 패널 (7일 그리드) ---
+type GridCell = { content: string; status: string; id: string }
+type GridData = { dates: string[]; today: string; grid: Record<string, Record<string, GridCell>> }
+
 function TodayMessagesPanel({ products }: { products: Product[] }) {
   const rtProducts = products.filter(p => p.message_type === 'realtime')
   const { toast, showSuccess, showError, clearToast } = useToast()
-  const [gridData, setGridData] = useState<{ dates: string[]; today: string; grid: Record<string, Record<string, string>> } | null>(null)
+  const [gridData, setGridData] = useState<GridData | null>(null)
   // drafts keyed by `${productId}:${date}`
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
+  const [generating, setGenerating] = useState(false)
+  const [editingCell, setEditingCell] = useState<{ productId: string; date: string; cell: GridCell } | null>(null)
 
   const refresh = useCallback(() => {
     fetch('/api/daily-messages/today-status')
@@ -346,7 +486,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   if (!gridData) return <Skeleton className="h-60 w-full" />
 
   const { dates, today, grid } = gridData
-  const doneCount = rtProducts.filter(p => grid[p.id]?.[today]).length
+  const doneCount = rtProducts.filter(p => grid[p.id]?.[today]?.content).length
 
   const handleSave = async (productId: string, date: string) => {
     const key = `${productId}:${date}`
@@ -370,6 +510,22 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
     }
   }
 
+  const handleGenerate = async () => {
+    setGenerating(true)
+    try {
+      const res = await fetch('/api/ai/generate-daily', { method: 'POST' })
+      if (!res.ok) throw new Error('생성 실패')
+      const data = await res.json()
+      const successCount = data.results.filter((r: any) => r.status === 'success').length
+      showSuccess(`${successCount}개 메시지 생성 완료`)
+      refresh()
+    } catch {
+      showError('메시지 자동 생성 실패')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   const formatDate = (d: string) => {
     const dt = new Date(d + 'T00:00:00+09:00')
     const day = ['일','월','화','수','목','금','토'][dt.getDay()]
@@ -386,6 +542,12 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   // 편집 가능: 오늘 + 미래
   const isEditable = (d: string) => d >= today
 
+  const handleCellSaved = () => {
+    setEditingCell(null)
+    refresh()
+    showSuccess('메시지가 저장되었습니다')
+  }
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
@@ -399,6 +561,20 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
         )}>
           {doneCount}/{rtProducts.length}
         </span>
+        <div className="flex-1" />
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleGenerate}
+          disabled={generating}
+        >
+          {generating ? (
+            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+          )}
+          내일 메시지 자동 생성
+        </Button>
       </div>
 
       <div className="overflow-auto max-h-[calc(100vh-300px)]">
@@ -427,7 +603,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
           </thead>
           <tbody>
             {rtProducts.map(p => {
-              const hasTodayMsg = !!grid[p.id]?.[today]
+              const hasTodayMsg = !!grid[p.id]?.[today]?.content
               return (
                 <tr key={p.id} className={cn(!hasTodayMsg && 'bg-destructive/5')}>
                   {/* 상품명 */}
@@ -444,7 +620,9 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                   </td>
                   {/* 날짜별 셀 */}
                   {dates.map(d => {
-                    const content = grid[p.id]?.[d]
+                    const cell = grid[p.id]?.[d]
+                    const content = cell?.content
+                    const status = cell?.status
                     const editable = isEditable(d)
                     const isToday = d === today
                     const key = `${p.id}:${d}`
@@ -454,10 +632,22 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                         isToday ? 'bg-primary/5' : editable ? 'bg-emerald-50/50' : '',
                       )}>
                         {content ? (
-                          <p className={cn(
-                            'whitespace-pre-wrap leading-relaxed',
-                            isToday ? 'text-[12px]' : 'text-[11px] text-muted-foreground'
-                          )}>{content}</p>
+                          <div
+                            className={cn('cursor-pointer hover:bg-muted/50 rounded p-1 -m-1 transition-colors', editable && 'hover:ring-1 hover:ring-border')}
+                            onClick={() => editable && setEditingCell({ productId: p.id, date: d, cell })}
+                          >
+                            <div className="flex items-center gap-1.5 mb-1">
+                              {status === 'approved' ? (
+                                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">승인됨</Badge>
+                              ) : status === 'draft' ? (
+                                <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">초안</Badge>
+                              ) : null}
+                            </div>
+                            <p className={cn(
+                              'whitespace-pre-wrap leading-relaxed',
+                              isToday ? 'text-[12px]' : 'text-[11px] text-muted-foreground'
+                            )}>{content}</p>
+                          </div>
                         ) : editable ? (
                           <div className="space-y-1.5">
                             <Textarea
@@ -497,6 +687,17 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
           </tbody>
         </table>
       </div>
+
+      {/* Cell edit modal */}
+      {editingCell && (
+        <MessageEditModal
+          message={{ id: editingCell.cell.id, send_date: editingCell.date, content: editingCell.cell.content, product_id: editingCell.productId } as unknown as DailyMessage}
+          productId={editingCell.productId}
+          type="realtime"
+          onClose={() => setEditingCell(null)}
+          onSaved={handleCellSaved}
+        />
+      )}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
     </div>
