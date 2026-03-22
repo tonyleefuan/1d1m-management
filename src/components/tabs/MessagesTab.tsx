@@ -405,7 +405,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
         <table className="w-full border-collapse">
           <thead className="sticky top-0 z-10 bg-background">
             <tr>
-              <th className="text-left text-xs font-medium text-muted-foreground p-2 border-b w-[100px] sticky left-0 bg-background z-20">상품</th>
+              <th className="text-left text-xs font-medium text-muted-foreground p-2 border-b min-w-[180px] sticky left-0 bg-background z-20">상품</th>
               {dates.map(d => {
                 const label = getDateLabel(d)
                 const isToday = d === today
