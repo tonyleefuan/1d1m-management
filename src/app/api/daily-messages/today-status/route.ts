@@ -20,16 +20,20 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('daily_messages')
-    .select('product_id, send_date, content')
+    .select('id, product_id, send_date, content, status')
     .gte('send_date', dates[dates.length - 1])
     .lte('send_date', dates[0])
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const grid: Record<string, Record<string, string>> = {}
+  const grid: Record<string, Record<string, { content: string; status: string; id: string }>> = {}
   for (const row of data || []) {
     if (!grid[row.product_id]) grid[row.product_id] = {}
-    grid[row.product_id][row.send_date] = row.content || ''
+    grid[row.product_id][row.send_date] = {
+      content: row.content || '',
+      status: row.status || 'draft',
+      id: row.id,
+    }
   }
 
   return NextResponse.json({ dates, today, grid })
