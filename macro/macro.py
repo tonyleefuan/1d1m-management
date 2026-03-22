@@ -301,19 +301,36 @@ class KakaoController:
 
     # ─── 키 입력 ───
 
+    def _is_valid_hwnd(self, hwnd: int) -> bool:
+        """윈도우 핸들이 유효한지 확인"""
+        try:
+            return hwnd and win32gui.IsWindow(hwnd)
+        except Exception:
+            return False
+
     def send_return(self, hwnd: int):
         """엔터키 전송 (PostMessage — 포그라운드 불필요)"""
-        win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
-        time.sleep(0.01)
-        win32api.PostMessage(hwnd, win32con.WM_KEYUP, win32con.VK_RETURN, 0)
-        time.sleep(0.1)
+        if not self._is_valid_hwnd(hwnd):
+            return
+        try:
+            win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
+            time.sleep(0.01)
+            win32api.PostMessage(hwnd, win32con.WM_KEYUP, win32con.VK_RETURN, 0)
+            time.sleep(0.1)
+        except Exception:
+            pass
 
     def send_escape_msg(self, hwnd: int):
         """ESC키 전송"""
-        win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0)
-        time.sleep(0.01)
-        win32api.PostMessage(hwnd, win32con.WM_KEYUP, win32con.VK_ESCAPE, 0)
-        time.sleep(0.1)
+        if not self._is_valid_hwnd(hwnd):
+            return
+        try:
+            win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0)
+            time.sleep(0.01)
+            win32api.PostMessage(hwnd, win32con.WM_KEYUP, win32con.VK_ESCAPE, 0)
+            time.sleep(0.1)
+        except Exception:
+            pass
 
     def set_text(self, hwnd: int, text: str):
         """윈도우 컨트롤에 텍스트 직접 설정 (WM_SETTEXT)"""
@@ -408,7 +425,9 @@ class KakaoController:
     def send_text_message(self, text: str):
         """현재 열린 채팅방에 텍스트 전송
 
-        RichEdit50W에 WM_SETTEXT로 직접 설정 → Enter
+        3단계 시도:
+        1. WM_SETTEXT + PostMessage Enter (가장 빠름, 포그라운드 불필요)
+        2. 실패 시 → 클립보드 + Ctrl+V + keybd_event Enter (kakaotalk-mcp 방식)
         """
         if not self.chat_hwnd:
             raise Exception("채팅방 창이 없습니다")
@@ -417,9 +436,40 @@ class KakaoController:
         if not chat_edit:
             raise Exception("메시지 입력창(RichEdit50W)을 찾을 수 없습니다")
 
+        # 방법 1: WM_SETTEXT + PostMessage Enter
         self.set_text(chat_edit, text)
         time.sleep(0.2)
         self.send_return(chat_edit)
+        time.sleep(0.3)
+
+        # 전송 확인: 입력창이 비었으면 성공
+        import ctypes
+        buf = ctypes.create_unicode_buffer(1024)
+        ctypes.windll.user32.SendMessageW(chat_edit, win32con.WM_GETTEXT, 1024, buf)
+        if not buf.value or buf.value.strip() == "":
+            return  # 성공 — 입력창이 비었음
+
+        # 방법 2: 아직 텍스트가 남아있음 → 클립보드 방식으로 재시도
+        log.warning("  WM_SETTEXT+Enter 실패 — 클립보드 방식으로 재시도")
+
+        # 입력창 초기화
+        self.set_text(chat_edit, "")
+        time.sleep(0.1)
+
+        # 클립보드에 텍스트 복사 → Ctrl+V
+        self.set_clipboard_text(text)
+        time.sleep(0.1)
+
+        # 포그라운드로 가져오기 + Ctrl+V
+        self.send_ctrl_key(self.chat_hwnd, 'V')
+        time.sleep(0.3)
+
+        # keybd_event로 Enter (포그라운드 상태에서)
+        _user32 = ctypes.windll.user32
+        _user32.keybd_event(win32con.VK_RETURN, 0, 0, 0)
+        time.sleep(0.05)
+        _user32.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.2)
 
     def send_image_file(self, image_path: str, file_delay: int = 6):
         """이미지를 클립보드에 복사(CF_DIB) → Ctrl+V로 붙여넣기 → Enter 확인
