@@ -104,12 +104,30 @@ export interface Subscription {
   last_send_failure: string | null
   resume_date: string | null
   send_priority: 1 | 2 | 3 | 4
+  // --- Day 시스템 새 필드 ---
+  last_sent_day: number
+  paused_days: number
+  is_cancelled: boolean
+  failure_type: 'friend_not_found' | 'device_error' | 'not_sent' | 'other' | null
+  failure_date: string | null
+  recovery_mode: 'bulk' | 'sequential' | null
   created_at: string
   updated_at: string
   // joined
   customer?: Customer
   product?: Product
   device?: SendDevice
+}
+
+// --- Day 시스템 계산 결과 ---
+export type ComputedStatus = 'active' | 'pending' | 'completed' | 'paused' | 'cancelled'
+
+export interface ComputedSubscription {
+  current_day: number
+  computed_status: ComputedStatus
+  computed_end_date: string
+  pending_days: number[]
+  missed_days: number
 }
 
 // --- Messages ---
