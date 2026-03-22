@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { todayKST } from '@/lib/day'
+import { notifySendingComplete } from '@/lib/slack'
 
 export async function POST(req: Request) {
   const body = await req.json()
@@ -171,6 +172,41 @@ export async function POST(req: Request) {
       .eq('customer_id', sub.customer_id)
       .eq('device_id', sub.device_id)
       .is('failure_type', null)
+    }
+  }
+
+  // 발송 완료 확인: 오늘 남은 pending 건수 확인
+  const { count: remainingPending } = await supabase
+    .from('send_queues')
+    .select('id', { count: 'exact', head: true })
+    .eq('send_date', reportDate)
+    .eq('status', 'pending')
+
+  if (remainingPending === 0) {
+    // 모든 PC 발송 완료 → 요약 알림
+    const { data: allQueues } = await supabase
+      .from('send_queues')
+      .select('device_id, status')
+      .eq('send_date', reportDate)
+
+    if (allQueues) {
+      const deviceStats: Record<string, { sent: number; failed: number; total: number }> = {}
+      for (const q of allQueues) {
+        if (!deviceStats[q.device_id]) deviceStats[q.device_id] = { sent: 0, failed: 0, total: 0 }
+        deviceStats[q.device_id].total++
+        if (q.status === 'sent') deviceStats[q.device_id].sent++
+        if (q.status === 'failed') deviceStats[q.device_id].failed++
+      }
+
+      const totalSent = Object.values(deviceStats).reduce((s, d) => s + d.sent, 0)
+      const totalFailed = Object.values(deviceStats).reduce((s, d) => s + d.failed, 0)
+
+      await notifySendingComplete(reportDate, {
+        total: allQueues.length,
+        sent: totalSent,
+        failed: totalFailed,
+        devices: deviceStats,
+      })
     }
   }
 
