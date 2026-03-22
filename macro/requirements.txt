@@ -1,4 +1,2 @@
 pywin32==308
-pyperclip==1.9.0
-Pillow==11.1.0
 requests==2.32.3

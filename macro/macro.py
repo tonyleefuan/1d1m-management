@@ -181,17 +181,18 @@ def load_progress() -> dict:
                     return data
         except Exception as e:
             log.warning(f"progress.json 읽기 실패 (초기화): {e}")
-    return {"date": date.today().isoformat(), "last_index": -1, "results": []}
+    return {"date": date.today().isoformat(), "completed_ids": [], "results": []}
 
 
-def save_progress(last_index: int, results: list):
+def save_progress(completed_ids, results: list):
     tmp_path = PROGRESS_PATH.with_suffix(".tmp")
     try:
         with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {"date": date.today().isoformat(), "last_index": last_index, "results": results},
-                f, ensure_ascii=False,
-            )
+            json.dump({
+                "date": date.today().isoformat(),
+                "completed_ids": list(completed_ids),
+                "results": results
+            }, f, ensure_ascii=False)
         if PROGRESS_PATH.exists():
             PROGRESS_PATH.unlink()
         tmp_path.rename(PROGRESS_PATH)
@@ -474,43 +475,44 @@ class KakaoController:
                     win32clipboard.CloseClipboard()
                 break
             except Exception:
+                if attempt == 2:
+                    raise Exception("이미지 클립보드 설정 실패 (3회 시도)")
                 time.sleep(0.1)
 
-        # 2. 채팅방을 포그라운드로 + 입력창에 포커스
-        self._bring_to_front_and_focus(self.chat_hwnd)
-        time.sleep(0.2)
+        # 2. WM_PASTE를 채팅 입력창에 직접 전송 (포그라운드 불필요)
+        chat_edit = self.find_chat_edit()
+        if chat_edit:
+            win32api.SendMessage(chat_edit, win32con.WM_PASTE, 0, 0)
+        else:
+            raise Exception("이미지 붙여넣기 실패: 입력창을 찾을 수 없습니다")
 
-        # 3. Ctrl+V로 이미지 붙여넣기 (전송 확인 대화상자 뜸)
-        self.send_ctrl_key(self.chat_hwnd, 'V')
+        # 3. 전송 확인 대화상자에 Enter 전송 (PostMessage — 포그라운드 불필요)
         time.sleep(1.0)
+        confirm_dialog = None
+        for _ in range(20):
+            time.sleep(0.3)
+            def find_dialog(hwnd, results):
+                if win32gui.IsWindowVisible(hwnd):
+                    cls = win32gui.GetClassName(hwnd)
+                    title = win32gui.GetWindowText(hwnd)
+                    if cls == "#32770" or "전송" in title or "확인" in title:
+                        results.append(hwnd)
+                return True
+            dialogs = []
+            win32gui.EnumWindows(find_dialog, dialogs)
+            if dialogs:
+                confirm_dialog = dialogs[0]
+                break
 
-        # 4. Enter로 전송 확인
-        _user32 = ctypes.windll.user32
-        _user32.keybd_event(win32con.VK_RETURN, 0, 0, 0)
-        time.sleep(0.05)
-        _user32.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
+        if confirm_dialog:
+            win32api.PostMessage(confirm_dialog, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
+            time.sleep(0.05)
+            win32api.PostMessage(confirm_dialog, win32con.WM_KEYUP, win32con.VK_RETURN, 0)
+        else:
+            # 대화상자가 안 뜨면 채팅창에 직접 Enter
+            self.send_return(self.chat_hwnd)
 
         time.sleep(file_delay)
-
-    def _bring_to_front_and_focus(self, hwnd: int):
-        """창을 포그라운드로 + Alt 키 트릭으로 제한 우회"""
-        _user32 = ctypes.windll.user32
-        _user32.ShowWindow(hwnd, win32con.SW_RESTORE)
-        # Alt 키로 SetForegroundWindow 제한 우회
-        _user32.keybd_event(0x12, 0, 0, 0)  # VK_MENU (Alt)
-        _user32.keybd_event(0x12, 0, win32con.KEYEVENTF_KEYUP, 0)
-        _user32.SetForegroundWindow(hwnd)
-        time.sleep(0.15)
-
-        # 입력창에 포커스 (AttachThreadInput으로 크로스프로세스 SetFocus)
-        edit_hwnd = self.find_chat_edit()
-        if edit_hwnd:
-            my_tid = ctypes.windll.kernel32.GetCurrentThreadId()
-            target_tid = _user32.GetWindowThreadProcessId(hwnd, None)
-            _user32.AttachThreadInput(my_tid, target_tid, True)
-            _user32.SetFocus(edit_hwnd)
-            _user32.AttachThreadInput(my_tid, target_tid, False)
-            time.sleep(0.1)
 
     def go_to_friend_tab(self):
         """카카오톡 메인 창에서 친구 탭(Ctrl+1)으로 전환"""
@@ -658,11 +660,11 @@ def _run_macro_inner(config: dict, api: ServerAPI):
 
     # 3. 진행 상황 복원
     progress = load_progress()
-    start_index = progress["last_index"] + 1
+    completed_ids = set(progress.get("completed_ids", []))
     results = progress["results"]
 
-    if start_index > 0:
-        log.info(f"이전 진행 복원: {start_index}번부터 이어서")
+    if completed_ids:
+        log.info(f"이전 진행 복원: {len(completed_ids)}건 완료됨")
 
     sent_count = sum(1 for r in results if r["status"] == "sent")
     failed_count = sum(1 for r in results if r["status"] == "failed")
@@ -695,13 +697,11 @@ def _run_macro_inner(config: dict, api: ServerAPI):
         person_groups.append((current_person, current_items))
 
     # 6. 발송
-    global_index = -1
     kakao_restart_attempted = False
 
     for person_name, items in person_groups:
-        # 이미 처리한 사람 스킵
-        if global_index + len(items) < start_index:
-            global_index += len(items)
+        # 이미 처리한 사람 스킵 (모든 항목이 완료된 경우)
+        if all(item["id"] in completed_ids for item in items):
             continue
 
         log.info(f"발송: {person_name} ({len(items)}건)")
@@ -716,30 +716,30 @@ def _run_macro_inner(config: dict, api: ServerAPI):
         if not friend_found:
             log.warning(f"친구 못 찾음: {person_name}")
             for item in items:
-                global_index += 1
-                if global_index < start_index:
+                if item["id"] in completed_ids:
                     continue
+                completed_ids.add(item["id"])
                 results.append({
                     "queue_id": item["id"],
                     "status": "failed",
                     "error_type": "friend_not_found",
                 })
                 failed_count += 1
-                save_progress(global_index, results)
+                save_progress(completed_ids, results)
             maybe_heartbeat()
             continue
 
         # 메시지 발송
         person_failed = False
         for item in items:
-            global_index += 1
-            if global_index < start_index:
-                continue
+            if item["id"] in completed_ids:
+                continue  # 이전 실행에서 이미 처리됨
 
             try:
                 # ⭐ 매 메시지 전 채팅방 열림 확인
                 if not kakao.verify_chat_still_open(person_name):
                     log.warning(f"  채팅방 닫힘 — 나머지 실패: {person_name}")
+                    completed_ids.add(item["id"])
                     results.append({
                         "queue_id": item["id"],
                         "status": "failed",
@@ -747,7 +747,7 @@ def _run_macro_inner(config: dict, api: ServerAPI):
                     })
                     failed_count += 1
                     person_failed = True
-                    save_progress(global_index, results)
+                    save_progress(completed_ids, results)
                     break
 
                 if item.get("image_path") and (not item.get("message_content") or item["message_content"] == "파일"):
@@ -759,6 +759,7 @@ def _run_macro_inner(config: dict, api: ServerAPI):
                 else:
                     kakao.send_text_message(item["message_content"])
 
+                completed_ids.add(item["id"])
                 results.append({"queue_id": item["id"], "status": "sent"})
                 sent_count += 1
 
@@ -772,6 +773,15 @@ def _run_macro_inner(config: dict, api: ServerAPI):
                 log.error(f"발송 오류: {e}")
                 person_failed = True
 
+                completed_ids.add(item["id"])
+                results.append({
+                    "queue_id": item["id"],
+                    "status": "failed",
+                    "error_type": "device_error",
+                })
+                failed_count += 1
+                save_progress(completed_ids, results)
+
                 if not kakao_restart_attempted:
                     log.info("카카오톡 재시작 시도...")
                     kakao_restart_attempted = True
@@ -780,53 +790,31 @@ def _run_macro_inner(config: dict, api: ServerAPI):
                     if restart_kakao(config):
                         kakao.find_main_window()
                         kakao.go_to_friend_tab()
-                        results.append({
-                            "queue_id": item["id"],
-                            "status": "failed",
-                            "error_type": "device_error",
-                        })
-                        failed_count += 1
-                        save_progress(global_index, results)
                         break
                     else:
                         log.error("카카오톡 재시작 실패. 중단합니다.")
-                        results.append({
-                            "queue_id": item["id"],
-                            "status": "failed",
-                            "error_type": "device_error",
-                        })
-                        failed_count += 1
-                        save_progress(global_index, results)
                         api.send_report(results, date.today().isoformat())
                         return
                 else:
                     log.error("카카오톡 이미 재시작 시도함. 중단합니다.")
-                    results.append({
-                        "queue_id": item["id"],
-                        "status": "failed",
-                        "error_type": "device_error",
-                    })
-                    failed_count += 1
-                    save_progress(global_index, results)
                     api.send_report(results, date.today().isoformat())
                     return
 
-            save_progress(global_index, results)
+            save_progress(completed_ids, results)
             maybe_heartbeat()
 
         # 실패 시 남은 메시지도 실패 처리 (서버에 빈 건이 없도록)
         if person_failed:
             for remaining in items:
-                already = any(r["queue_id"] == remaining["id"] for r in results)
-                if not already:
-                    global_index += 1
+                if remaining["id"] not in completed_ids:
+                    completed_ids.add(remaining["id"])
                     results.append({
                         "queue_id": remaining["id"],
                         "status": "failed",
                         "error_type": "device_error",
                     })
                     failed_count += 1
-            save_progress(global_index, results)
+            save_progress(completed_ids, results)
 
         # ⭐ 채팅방 닫기 + 검증
         if not person_failed:
