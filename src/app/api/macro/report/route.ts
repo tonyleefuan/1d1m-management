@@ -41,14 +41,23 @@ export async function POST(req: Request) {
     }
   }
 
+  // 실패 건을 error_type별로 그룹화하여 배치 업데이트
+  const failedByType = new Map<string, string[]>()
   for (const r of failedResults) {
-    await supabase
-      .from('send_queues')
-      .update({
-        status: 'failed',
-        error_message: r.error_type || 'unknown',
-      })
-      .eq('id', r.queue_id)
+    const errorType = r.error_type || 'unknown'
+    const ids = failedByType.get(errorType) || []
+    ids.push(r.queue_id)
+    failedByType.set(errorType, ids)
+  }
+
+  for (const [errorType, ids] of failedByType) {
+    for (let i = 0; i < ids.length; i += 500) {
+      const batch = ids.slice(i, i + 500)
+      await supabase
+        .from('send_queues')
+        .update({ status: 'failed', error_message: errorType })
+        .in('id', batch)
+    }
   }
 
   // 2. 구독별 성공/실패 집계
@@ -88,15 +97,20 @@ export async function POST(req: Request) {
     }
   }
 
-  // 3. 구독별 last_sent_day 업데이트
-  for (const [subId, info] of subMap) {
-    // 기존 last_sent_day 조회
-    const { data: existingSub } = await supabase
-      .from('subscriptions')
-      .select('last_sent_day, recovery_mode')
-      .eq('id', subId)
-      .single()
+  // 3. 관련 구독 일괄 조회
+  const subIds = [...subMap.keys()]
+  const { data: existingSubs } = await supabase
+    .from('subscriptions')
+    .select('id, last_sent_day, recovery_mode, customer_id, device_id')
+    .in('id', subIds)
 
+  const existingSubMap = new Map(
+    (existingSubs || []).map(s => [s.id, s])
+  )
+
+  // 구독별 last_sent_day 업데이트
+  for (const [subId, info] of subMap) {
+    const existingSub = existingSubMap.get(subId)
     const existingLastSent = existingSub?.last_sent_day ?? 0
 
     // Day별로 연속 성공 확인 (기존 last_sent_day부터 연속이어야 함)
@@ -147,12 +161,7 @@ export async function POST(req: Request) {
     .map(([subId]) => subId)
 
   for (const subId of friendNotFoundSubIds) {
-    const { data: sub } = await supabase
-      .from('subscriptions')
-      .select('customer_id, device_id')
-      .eq('id', subId)
-      .single()
-
+    const sub = existingSubMap.get(subId)
     if (sub) {
       await supabase.from('subscriptions').update({
         failure_type: 'friend_not_found',
