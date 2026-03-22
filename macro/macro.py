@@ -313,12 +313,12 @@ def go_to_friend_tab():
             pass
 
     # 방법 3: 카카오톡 창 좌표 기반 클릭
-    # 친구 탭은 메인 창 하단 왼쪽 첫 번째 아이콘 (하단바 약 25% 지점)
+    # 친구 탭은 왼쪽 세로 사이드바 최상단 아이콘
     kakao = get_kakao_main_window()
     if kakao["rect"]:
         left, top, right, bottom = kakao["rect"]
-        tab_x = left + int((right - left) * 0.15)  # 좌측 15% 지점
-        tab_y = bottom - 30  # 하단에서 30px 위
+        tab_x = left + 40  # 사이드바 중앙 (약 40px)
+        tab_y = top + 60   # 상단에서 약 60px (첫 번째 아이콘)
         pyautogui.click(tab_x, tab_y)
         time.sleep(0.5)
 
@@ -341,12 +341,12 @@ def open_search() -> bool:
             pass
 
     # 방법 3: 카카오톡 창 좌표 기반 클릭
-    # 검색 아이콘은 메인 창 상단 좌측 (상단바 약 15% 지점)
+    # 검색 아이콘은 "친구" 타이틀 오른쪽의 🔍 아이콘
     kakao = get_kakao_main_window()
     if kakao["rect"]:
         left, top, right, bottom = kakao["rect"]
-        search_x = left + int((right - left) * 0.85)  # 우측 85% 지점
-        search_y = top + 55  # 상단에서 55px 아래
+        search_x = right - 70  # 오른쪽에서 약 70px 안쪽 (🔍 위치)
+        search_y = top + 45    # 상단에서 약 45px (타이틀바 아래)
         pyautogui.click(search_x, search_y)
         time.sleep(0.5)
 
