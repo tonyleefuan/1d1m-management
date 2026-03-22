@@ -377,38 +377,47 @@ class KakaoController:
     def search_friend(self, name: str) -> bool:
         """친구 검색 → 채팅방 열기 → 창 제목으로 검증
 
-        WM_SETTEXT로 검색 입력창에 직접 텍스트 설정 (키보드 시뮬레이션 없음)
+        WM_SETTEXT로 검색 입력창에 직접 텍스트 설정
         """
         if not self.main_hwnd:
             log.error("  카카오톡 메인 창 없음")
             return False
+
+        # 0. 메인 창 포그라운드로 (검색이 동작하려면 필요)
+        self.send_ctrl_key(self.main_hwnd, '1')  # 친구 탭
+        time.sleep(0.5)
 
         # 1. 검색 입력창 핸들 찾기
         search_edit = self.find_search_edit()
         if not search_edit:
             log.warning("  검색 입력창을 찾을 수 없음 — Ctrl+F로 시도")
             self.send_ctrl_key(self.main_hwnd, 'F')
-            time.sleep(0.5)
+            time.sleep(1.0)
             search_edit = self.find_search_edit()
 
         if not search_edit:
             log.error("  검색 입력창을 찾을 수 없습니다")
             return False
 
-        # 2. 검색어 직접 설정 (WM_SETTEXT — 가장 안정적)
+        # 2. 기존 검색어 초기화
+        self.set_text(search_edit, "")
+        time.sleep(0.3)
+
+        # 3. 새 검색어 설정
         self.set_text(search_edit, name)
-        time.sleep(random.uniform(1.5, 2.0))
+        time.sleep(random.uniform(2.0, 2.5))  # 검색 결과 로딩 충분히 대기
 
-        # 3. 엔터로 첫 번째 결과 열기
+        # 4. 엔터로 첫 번째 결과 열기
         self.send_return(search_edit)
-        time.sleep(random.uniform(1.0, 1.5))
+        time.sleep(random.uniform(1.5, 2.0))  # 채팅방 열리는 시간 충분히 대기
 
-        # ⭐ 4. 검증: 채팅방 창이 열렸는지 확인
+        # ⭐ 5. 검증: 채팅방 창이 열렸는지 확인
         if self.find_chat_window(name):
             log.info(f"  채팅방 확인 ✅: {name}")
             return True
 
-        time.sleep(1.0)
+        # 한번 더 대기
+        time.sleep(1.5)
         if self.find_chat_window(name):
             log.info(f"  채팅방 확인 ✅ (2차): {name}")
             return True
@@ -425,9 +434,8 @@ class KakaoController:
     def send_text_message(self, text: str):
         """현재 열린 채팅방에 텍스트 전송
 
-        3단계 시도:
-        1. WM_SETTEXT + PostMessage Enter (가장 빠름, 포그라운드 불필요)
-        2. 실패 시 → 클립보드 + Ctrl+V + keybd_event Enter (kakaotalk-mcp 방식)
+        클립보드 + Ctrl+V + keybd_event Enter 방식 사용
+        (WM_SETTEXT+PostMessage Enter는 카카오톡에서 동작하지 않음 확인됨)
         """
         if not self.chat_hwnd:
             raise Exception("채팅방 창이 없습니다")
@@ -436,40 +444,20 @@ class KakaoController:
         if not chat_edit:
             raise Exception("메시지 입력창(RichEdit50W)을 찾을 수 없습니다")
 
-        # 방법 1: WM_SETTEXT + PostMessage Enter
-        self.set_text(chat_edit, text)
-        time.sleep(0.2)
-        self.send_return(chat_edit)
-        time.sleep(0.3)
-
-        # 전송 확인: 입력창이 비었으면 성공
-        import ctypes
-        buf = ctypes.create_unicode_buffer(1024)
-        ctypes.windll.user32.SendMessageW(chat_edit, win32con.WM_GETTEXT, 1024, buf)
-        if not buf.value or buf.value.strip() == "":
-            return  # 성공 — 입력창이 비었음
-
-        # 방법 2: 아직 텍스트가 남아있음 → 클립보드 방식으로 재시도
-        log.warning("  WM_SETTEXT+Enter 실패 — 클립보드 방식으로 재시도")
-
-        # 입력창 초기화
-        self.set_text(chat_edit, "")
-        time.sleep(0.1)
-
-        # 클립보드에 텍스트 복사 → Ctrl+V
+        # 클립보드에 텍스트 복사
         self.set_clipboard_text(text)
-        time.sleep(0.1)
+        time.sleep(0.2)
 
-        # 포그라운드로 가져오기 + Ctrl+V
+        # 포그라운드로 가져오기 + Ctrl+V 붙여넣기
         self.send_ctrl_key(self.chat_hwnd, 'V')
-        time.sleep(0.3)
+        time.sleep(0.5)
 
-        # keybd_event로 Enter (포그라운드 상태에서)
+        # keybd_event로 Enter
         _user32 = ctypes.windll.user32
         _user32.keybd_event(win32con.VK_RETURN, 0, 0, 0)
         time.sleep(0.05)
         _user32.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
-        time.sleep(0.2)
+        time.sleep(0.3)
 
     def send_image_file(self, image_path: str, file_delay: int = 6):
         """이미지를 클립보드에 복사(CF_DIB) → Ctrl+V로 붙여넣기 → Enter 확인
@@ -565,13 +553,24 @@ class KakaoController:
             time.sleep(0.5)
 
     def close_chat(self, friend_name: str = ""):
-        """채팅방 닫기 — ESC → 검증 → 강제 닫기"""
+        """채팅방 닫기 — WM_CLOSE → ESC 폴백 → 검증"""
         if not self.chat_hwnd:
             return
 
-        # 1차: ESC
+        # 1차: WM_CLOSE로 직접 닫기 (가장 확실)
+        try:
+            win32gui.PostMessage(self.chat_hwnd, win32con.WM_CLOSE, 0, 0)
+            time.sleep(1.0)
+        except Exception:
+            pass
+
+        if friend_name and not self.find_chat_window(friend_name):
+            self.chat_hwnd = None
+            return
+
+        # 2차: ESC
         self.send_escape_msg(self.chat_hwnd)
-        time.sleep(0.3)
+        time.sleep(0.5)
         self.send_escape_msg(self.chat_hwnd)
         time.sleep(0.5)
 
@@ -579,16 +578,10 @@ class KakaoController:
             self.chat_hwnd = None
             return
 
-        # 2차: ESC 재시도
+        # 3차: ESC + WM_CLOSE 재시도
+        log.warning(f"  채팅방 닫기 재시도: {friend_name}")
         self.send_escape_msg(self.chat_hwnd)
         time.sleep(0.5)
-
-        if friend_name and not self.find_chat_window(friend_name):
-            self.chat_hwnd = None
-            return
-
-        # 3차: WM_CLOSE 강제 닫기
-        log.warning(f"  ESC 실패, 창 강제 닫기: {friend_name}")
         try:
             win32gui.PostMessage(self.chat_hwnd, win32con.WM_CLOSE, 0, 0)
             time.sleep(0.5)
