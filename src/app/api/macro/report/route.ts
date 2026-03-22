@@ -61,7 +61,9 @@ export async function POST(req: Request) {
   if (!queueItems?.length) return NextResponse.json({ ok: true, processed: 0 })
 
   // results를 Map으로 변환 (queue_id → result)
-  const resultMap = new Map(results.map((r: any) => [r.queue_id, r]))
+  const resultMap = new Map<string, { queue_id: string; status: string; error_type?: string }>(
+    results.map((r: any) => [r.queue_id, r])
+  )
 
   // 구독별 Day별 그룹화
   const subMap = new Map<string, {
