@@ -412,7 +412,7 @@ function TabOrderPanel() {
     <div>
       <div className="space-y-1 mb-4">
         {tabList.map((tab, i) => (
-          <div key={tab.id} className="flex items-center gap-3 px-3 py-2 bg-white border rounded-lg">
+          <div key={tab.id} className="flex items-center gap-3 px-3 py-2 bg-background border rounded-lg">
             <div className="flex gap-1">
               <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === 0} onClick={() => moveTab(i, 'up')}>
                 <ArrowUp className="h-4 w-4" />

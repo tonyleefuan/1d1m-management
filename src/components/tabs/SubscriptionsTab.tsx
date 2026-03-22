@@ -958,8 +958,10 @@ export function SubscriptionsTab() {
                       {/* 13. 발송상태 */}
                       <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
                         {sub.failure_type ? (
-                          <button
-                            className="cursor-pointer"
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto p-0 cursor-pointer"
                             title={`${sub.failure_date || ''} ${sub.failure_type === 'friend_not_found' ? '친구 못 찾음' : sub.failure_type === 'device_error' ? 'PC오류' : sub.failure_type === 'not_sent' ? '미발송' : sub.failure_type}`}
                             onClick={() => {
                               setResolvingSub(sub)
@@ -973,7 +975,7 @@ export function SubscriptionsTab() {
                             >
                               {FAILURE_BADGE_MAP[sub.failure_type]?.label ?? sub.failure_type}
                             </StatusBadge>
-                          </button>
+                          </Button>
                         ) : (
                           <StatusBadge status="success" size="xs">✅ 정상</StatusBadge>
                         )}
@@ -1362,37 +1364,48 @@ export function SubscriptionsTab() {
             </div>
 
             <div className="space-y-2">
-              <button
-                className="w-full text-left px-3 py-2.5 rounded-md hover:bg-muted transition-colors"
+              <Button
+                variant="ghost"
+                className="w-full justify-start text-left h-auto px-3 py-2.5"
                 onClick={() => handleResolveFailure(resolvingSub, 'manual_sent')}
               >
-                <div className="text-sm font-medium">✅ 직접 보냈어요</div>
-                <div className="text-xs text-muted-foreground">Day {resolvingSub.current_day + 1}부터 정상 진행</div>
-              </button>
+                <div>
+                  <div className="text-sm font-medium">✅ 직접 보냈어요</div>
+                  <div className="text-xs text-muted-foreground">Day {resolvingSub.current_day + 1}부터 정상 진행</div>
+                </div>
+              </Button>
 
-              <button
-                className="w-full text-left px-3 py-2.5 rounded-md hover:bg-muted transition-colors"
+              <Button
+                variant="ghost"
+                className="w-full justify-start text-left h-auto px-3 py-2.5"
                 onClick={() => handleResolveFailure(resolvingSub, 'bulk')}
               >
-                <div className="text-sm font-medium">🔄 밀린 것 몰아서 보내기</div>
-                <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}~{resolvingSub.current_day + 1} 한번에 발송</div>
-              </button>
+                <div>
+                  <div className="text-sm font-medium">🔄 밀린 것 몰아서 보내기</div>
+                  <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}~{resolvingSub.current_day + 1} 한번에 발송</div>
+                </div>
+              </Button>
 
-              <button
-                className="w-full text-left px-3 py-2.5 rounded-md hover:bg-muted transition-colors"
+              <Button
+                variant="ghost"
+                className="w-full justify-start text-left h-auto px-3 py-2.5"
                 onClick={() => handleResolveFailure(resolvingSub, 'sequential')}
               >
-                <div className="text-sm font-medium">▶️ 밀린 것부터 하루씩 보내기</div>
-                <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}, 모레 Day{resolvingSub.last_sent_day + 2}, ... 종료일 연장</div>
-              </button>
+                <div>
+                  <div className="text-sm font-medium">▶️ 밀린 것부터 하루씩 보내기</div>
+                  <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}, 모레 Day{resolvingSub.last_sent_day + 2}, ... 종료일 연장</div>
+                </div>
+              </Button>
             </div>
 
-            <button
-              className="w-full text-center text-xs text-muted-foreground hover:text-foreground py-2"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full text-xs text-muted-foreground hover:text-foreground"
               onClick={() => setResolveDialogOpen(false)}
             >
               닫기
-            </button>
+            </Button>
           </div>
         </div>
       )}
