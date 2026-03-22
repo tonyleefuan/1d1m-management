@@ -54,6 +54,7 @@ interface SendDevice {
   phone_number: string
   name: string | null
   is_active: boolean
+  color: string | null
 }
 
 // ─── Component ──────────────────────────────────────────
@@ -278,7 +279,7 @@ export function SendingTab() {
           {devices.filter(d => d.is_active).map((d) => {
             const s = summary[d.id] || { total: 0, pending: 0, sent: 0, failed: 0 }
             return (
-              <Card key={d.id} className="cursor-pointer hover:border-foreground/30 transition-colors" onClick={() => setSelectedDevice(d.id)}>
+              <Card key={d.id} className="cursor-pointer hover:border-foreground/30 transition-colors border-l-4" style={{ borderLeftColor: d.color || undefined }} onClick={() => setSelectedDevice(d.id)}>
                 <CardContent className="p-3">
                   <div className="text-xs text-muted-foreground mb-1 flex items-center justify-between">
                     <span>{d.phone_number}</span>
@@ -317,7 +318,10 @@ export function SendingTab() {
                 selectedDevice === d.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
-              <span className="block">{d.phone_number}</span>
+              <span className="flex items-center gap-1">
+                {d.color && <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />}
+                {d.phone_number}
+              </span>
               <span className="block text-muted-foreground">
                 {s.sent}/{s.total}
                 {s.failed > 0 && <span className="text-destructive ml-0.5">({s.failed})</span>}
