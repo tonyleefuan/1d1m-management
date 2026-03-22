@@ -90,6 +90,6 @@ select:hover {
 }
 
 ::selection {
-  background-color: hsla(var(--1d1m-yellow), 0.55);
-  color: hsl(var(--foreground));
+  background-color: #3b82f6;
+  color: #fff;
 }
