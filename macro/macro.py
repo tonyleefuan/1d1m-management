@@ -50,7 +50,7 @@ def load_config() -> dict:
     if not CONFIG_PATH.exists():
         log.error("config.json이 없습니다.")
         sys.exit(1)
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(CONFIG_PATH, "r", encoding="utf-8-sig") as f:
         return json.load(f)
 
 

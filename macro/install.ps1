@@ -104,7 +104,7 @@ if (-not (Test-Path "$installDir\config.json")) {
         file_delay = 6
         kakao_path = "C:\Program Files (x86)\Kakao\KakaoTalk\KakaoTalk.exe"
     } | ConvertTo-Json
-    $config | Out-File -FilePath "$installDir\config.json" -Encoding UTF8
+    [System.IO.File]::WriteAllText("$installDir\config.json", $config, [System.Text.UTF8Encoding]::new($false))
     Write-Host "       config.json 생성 완료!" -ForegroundColor Green
 } else {
     Write-Host "[5/8] config.json 이미 존재 — 스킵" -ForegroundColor Green
