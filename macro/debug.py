@@ -1,7 +1,9 @@
 """1D1M 매크로 디버그 — Enter 전송 방법 자동 테스트
+
+사용법: python debug.py 010-8932-8692
 터미널 건드리지 않고 5가지 Enter 방법을 자동 실행합니다.
-카카오톡에서 어떤 메시지가 도착했는지만 확인하세요.
 """
+import sys
 import ctypes
 import time
 import win32gui
@@ -10,9 +12,18 @@ import win32con
 import win32clipboard
 import win32process
 
+if len(sys.argv) < 2:
+    print("사용법: python debug.py <친구이름 또는 전화번호>")
+    print("예: python debug.py 010-8932-8692")
+    exit(1)
+
+name = sys.argv[1]
+
 print("=" * 50)
-print("  1D1M Enter 방법 자동 테스트")
+print(f"  1D1M Enter 방법 자동 테스트: {name}")
+print("  ★ 5초 후 시작 — 터미널 건드리지 마세요 ★")
 print("=" * 50)
+time.sleep(5)
 print()
 
 # 1. 카카오톡 메인 창
@@ -29,8 +40,27 @@ eva2 = win32gui.FindWindowEx(child, eva1, "EVA_Window", None)
 search_edit = win32gui.FindWindowEx(eva2, None, "Edit", None)
 print(f"✅ 검색 입력창: {search_edit}")
 
-# 3. 검색
-name = input("\n  테스트할 친구 이름 또는 전화번호: ").strip()
+# 3. 검색 (친구 탭 전환 후)
+# 먼저 친구 탭으로 전환 (PostMessage 방식 — 포그라운드 불필요)
+_user32 = ctypes.windll.user32
+_kernel32 = ctypes.windll.kernel32
+tid_self = _kernel32.GetCurrentThreadId()
+tid_target = _user32.GetWindowThreadProcessId(hwnd, None)
+win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+_user32.AttachThreadInput(tid_self, tid_target, True)
+key_state = (ctypes.c_ubyte * 256)()
+_user32.GetKeyboardState(ctypes.byref(key_state))
+key_state[win32con.VK_CONTROL] = 0x80
+_user32.SetKeyboardState(ctypes.byref(key_state))
+win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, ord('1'), 0)
+time.sleep(0.01)
+win32api.PostMessage(hwnd, win32con.WM_KEYUP, ord('1'), 0)
+key_state[win32con.VK_CONTROL] = 0x00
+_user32.SetKeyboardState(ctypes.byref(key_state))
+_user32.AttachThreadInput(tid_self, tid_target, False)
+time.sleep(1)
+print("✅ 친구 탭 전환")
+
 win32api.SendMessage(search_edit, win32con.WM_SETTEXT, 0, name)
 time.sleep(2)
 win32api.PostMessage(search_edit, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
