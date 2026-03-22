@@ -837,7 +837,7 @@ def _run_macro_inner(config: dict, api: ServerAPI):
 
 
 def run_test():
-    """설치 후 자동 테스트 — 실제 메시지 발송 없이 연결 상태만 확인"""
+    """설치 후 자동 테스트 — 서버 연결 + 카카오톡 조작까지 전체 검증"""
     config = load_config()
     print("")
     print("=" * 50)
@@ -845,8 +845,10 @@ def run_test():
     print("=" * 50)
     print("")
 
+    all_ok = True
+
     # 1. 서버 연결 테스트
-    print("[1/5] 서버 연결 테스트...")
+    print("[1/7] 서버 연결 테스트...")
     api = ServerAPI(config)
     try:
         res = requests.get(
@@ -858,68 +860,116 @@ def run_test():
             data = res.json()
             print(f"  ✅ 서버 연결 성공 (대기열 {data.get('total', 0)}건)")
         elif res.status_code == 401:
-            print(f"  ❌ API 키가 잘못되었습니다")
-            return False
-        elif res.status_code == 404:
-            print(f"  ❌ device_id '{config['device_id']}'가 서버에 등록되지 않았습니다")
-            return False
+            print("  ❌ API 키가 잘못되었습니다")
+            all_ok = False
         else:
             print(f"  ❌ 서버 응답 오류: {res.status_code}")
-            return False
-    except requests.ConnectionError:
-        print(f"  ❌ 서버에 연결할 수 없습니다: {api.base_url}")
-        return False
+            all_ok = False
     except Exception as e:
         print(f"  ❌ 서버 연결 실패: {e}")
-        return False
+        all_ok = False
 
     # 2. 카카오톡 실행 확인
-    print("[2/5] 카카오톡 실행 확인...")
+    print("[2/7] 카카오톡 실행 확인...")
     if is_kakao_running():
         print("  ✅ 카카오톡 실행 중")
     else:
-        print("  ⚠️ 카카오톡이 꺼져있습니다 (매크로 실행 시 자동 실행됩니다)")
+        print("  ❌ 카카오톡이 꺼져있습니다. 먼저 카카오톡을 실행하세요.")
+        all_ok = False
+        print("")
+        print("  카카오톡을 실행한 후 다시 테스트하세요:")
+        print("  python macro.py --test")
+        return False
 
-    # 3. 카카오톡 창 찾기
-    print("[3/5] 카카오톡 창 탐색...")
+    # 3. 카카오톡 메인 창 찾기
+    print("[3/7] 카카오톡 메인 창 탐색...")
     kakao = KakaoController()
     if kakao.find_main_window():
         print(f"  ✅ 카카오톡 메인 창 발견 (hwnd: {kakao.main_hwnd})")
     else:
-        if not is_kakao_running():
-            print("  ⚠️ 카카오톡이 꺼져있어 창을 찾을 수 없음 (정상)")
-        else:
-            print("  ❌ 카카오톡은 실행 중인데 창을 찾을 수 없습니다")
-            return False
+        print("  ❌ 카카오톡 메인 창을 찾을 수 없습니다")
+        all_ok = False
+        return False
 
-    # 4. 검색 입력창 찾기
-    print("[4/5] 검색 입력창 탐색...")
-    if kakao.main_hwnd:
+    # 4. 검색 입력창 찾기 (EVA 구조 탐색)
+    print("[4/7] 검색 입력창 탐색 (EVA 구조)...")
+    search_edit = kakao.find_search_edit()
+    if search_edit:
+        print(f"  ✅ 검색 입력창 발견 (hwnd: {search_edit})")
+    else:
+        print("  ⚠️ EVA 구조로 못 찾음 — Ctrl+F 폴백 테스트...")
+        kakao.send_ctrl_key(kakao.main_hwnd, 'F')
+        time.sleep(0.5)
         search_edit = kakao.find_search_edit()
         if search_edit:
-            print(f"  ✅ 검색 입력창 발견 (hwnd: {search_edit})")
+            print(f"  ✅ Ctrl+F 후 검색 입력창 발견 (hwnd: {search_edit})")
         else:
-            print("  ⚠️ 검색 입력창을 찾을 수 없음 (Ctrl+F 폴백 사용)")
-    else:
-        print("  ⏭️ 카카오톡 창 없어서 스킵")
+            print("  ❌ 검색 입력창을 찾을 수 없습니다")
+            all_ok = False
 
-    # 5. 이미지 폴더 확인
-    print("[5/5] 이미지 폴더 확인...")
-    if IMAGES_DIR.exists():
-        count = len(list(IMAGES_DIR.glob("*")))
-        print(f"  ✅ images/ 폴더 존재 ({count}개 파일)")
-    else:
-        print("  ⚠️ images/ 폴더 없음 (자동 생성됩니다)")
+    # 5. 친구 검색 테스트 (실제 검색 + 채팅방 열기 + 닫기)
+    print("[5/7] 친구 검색 테스트...")
+    print("")
+    test_name = input("  테스트할 카카오톡 친구 이름을 입력하세요 (본인 이름 추천): ").strip()
 
+    if not test_name:
+        print("  ⏭️ 이름 미입력 — 검색 테스트 스킵")
+    else:
+        print(f"  '{test_name}' 검색 중...")
+        found = kakao.search_friend(test_name)
+        if found:
+            print(f"  ✅ 채팅방 열림 확인: {test_name}")
+
+            # 6. 메시지 입력창 찾기
+            print("[6/7] 메시지 입력창 탐색 (RichEdit50W)...")
+            chat_edit = kakao.find_chat_edit()
+            if chat_edit:
+                print(f"  ✅ 메시지 입력창 발견 (hwnd: {chat_edit})")
+
+                # 7. 테스트 메시지 전송
+                print("[7/7] 테스트 메시지 전송...")
+                send_yn = input("  이 친구에게 테스트 메시지를 보낼까요? (y/n): ").strip().lower()
+                if send_yn == 'y':
+                    try:
+                        kakao.send_text_message("[1D1M 매크로 테스트] 이 메시지가 보이면 설치 성공입니다!")
+                        time.sleep(1)
+                        print("  ✅ 메시지 전송 완료!")
+                        print("     카카오톡에서 메시지가 도착했는지 확인하세요.")
+                    except Exception as e:
+                        print(f"  ❌ 메시지 전송 실패: {e}")
+                        all_ok = False
+                else:
+                    print("  ⏭️ 메시지 전송 스킵")
+            else:
+                print("  ❌ 메시지 입력창을 찾을 수 없습니다")
+                all_ok = False
+
+            # 채팅방 닫기
+            print("  채팅방 닫는 중...")
+            kakao.close_chat(test_name)
+            time.sleep(0.5)
+            if not kakao.find_chat_window(test_name):
+                print("  ✅ 채팅방 닫힘 확인")
+            else:
+                print("  ⚠️ 채팅방이 안 닫혔을 수 있음 (수동으로 닫아주세요)")
+        else:
+            print(f"  ❌ 친구 '{test_name}'을 찾을 수 없습니다")
+            print("     카카오톡 친구 목록에 이 이름이 정확히 있는지 확인하세요.")
+            all_ok = False
+
+    # 결과
     print("")
     print("=" * 50)
-    print("  테스트 완료!")
+    if all_ok:
+        print("  ✅ 모든 테스트 통과! 매크로 사용 준비 완료")
+    else:
+        print("  ⚠️ 일부 테스트 실패 — 위 ❌ 항목을 확인하세요")
     print("=" * 50)
     print("")
-    print("  매크로 실행: python macro.py")
-    print("  (대시보드에서 대기열 생성 후 실행하세요)")
+    print("  실제 발송: 대시보드에서 대기열 생성 후")
+    print("  python macro.py")
     print("")
-    return True
+    return all_ok
 
 
 if __name__ == "__main__":
