@@ -16,8 +16,12 @@ import { SkeletonTable } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
 import { TABS } from '@/lib/constants'
-import { Users, Monitor, Plus, Palette, LayoutGrid, ArrowUp, ArrowDown } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
+import { Card, CardContent } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Users, Monitor, Plus, Palette, LayoutGrid, ArrowUp, ArrowDown, Sparkles, Save, Loader2 } from 'lucide-react'
 
 // --- 사용자 관리 ---
 function UsersPanel() {
@@ -435,6 +439,180 @@ function TabOrderPanel() {
   )
 }
 
+// --- AI 프롬프트 관리 ---
+function PromptManagementPanel() {
+  const [products, setProducts] = useState<any[]>([])
+  const [prompts, setPrompts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedProduct, setSelectedProduct] = useState<string>('')
+  const [searchPrompt, setSearchPrompt] = useState('')
+  const [generationPrompt, setGenerationPrompt] = useState('')
+  const [saving, setSaving] = useState(false)
+  const { toast, showSuccess, showError, clearToast } = useToast()
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [prodRes, promptRes] = await Promise.all([
+        fetch('/api/products/list'),
+        fetch('/api/ai/prompts'),
+      ])
+      if (!prodRes.ok) throw new Error('상품 목록 로드 실패')
+      if (!promptRes.ok) throw new Error('프롬프트 로드 실패')
+      const prodData = await prodRes.json()
+      const promptData = await promptRes.json()
+      const rtProducts = (prodData || []).filter((p: any) => p.message_type === 'realtime')
+      setProducts(rtProducts)
+      setPrompts(promptData.prompts || [])
+      if (rtProducts.length > 0 && !selectedProduct) {
+        setSelectedProduct(rtProducts[0].id)
+      }
+    } catch {
+      showError('데이터를 불러오지 못했습니다')
+    } finally {
+      setLoading(false)
+    }
+  }, [showError, selectedProduct])
+
+  useEffect(() => { fetchData() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update textareas when product selection changes
+  useEffect(() => {
+    if (!selectedProduct) return
+    const prompt = prompts.find((p: any) => p.product_id === selectedProduct)
+    setSearchPrompt(prompt?.search_prompt || '')
+    setGenerationPrompt(prompt?.generation_prompt || '')
+  }, [selectedProduct, prompts])
+
+  const handleSave = async () => {
+    if (!selectedProduct) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/ai/prompts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: selectedProduct,
+          search_prompt: searchPrompt,
+          generation_prompt: generationPrompt,
+        }),
+      })
+      if (!res.ok) throw new Error('저장 실패')
+      showSuccess('프롬프트가 저장되었습니다')
+      // Update local state
+      setPrompts(prev => {
+        const existing = prev.findIndex((p: any) => p.product_id === selectedProduct)
+        const updated = { product_id: selectedProduct, search_prompt: searchPrompt, generation_prompt: generationPrompt }
+        if (existing >= 0) {
+          const next = [...prev]
+          next[existing] = { ...next[existing], ...updated }
+          return next
+        }
+        return [...prev, updated]
+      })
+    } catch {
+      showError('프롬프트 저장에 실패했습니다')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    )
+  }
+
+  if (products.length === 0) {
+    return (
+      <EmptyState
+        icon={Sparkles}
+        title="실시간 상품이 없습니다"
+        description="프롬프트를 설정할 실시간(realtime) 상품이 없습니다"
+      />
+    )
+  }
+
+  return (
+    <div className="flex gap-4">
+      {/* Product list */}
+      <Card className="w-64 shrink-0 overflow-hidden">
+        <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
+          {products.map((p: any) => {
+            const hasPrompt = prompts.some((pr: any) => pr.product_id === p.id)
+            return (
+              <button
+                key={p.id}
+                onClick={() => setSelectedProduct(p.id)}
+                className={cn(
+                  'w-full text-left px-4 py-3 text-sm border-b last:border-b-0 hover:bg-muted/50 transition-colors',
+                  selectedProduct === p.id && 'bg-accent text-accent-foreground font-medium border-l-2 border-l-primary'
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{p.sku_code}</span>
+                  {hasPrompt && (
+                    <StatusBadge status="success" className="text-[10px]">설정됨</StatusBadge>
+                  )}
+                </div>
+                <div className="mt-1 text-xs leading-relaxed">{p.title}</div>
+              </button>
+            )
+          })}
+        </div>
+      </Card>
+
+      {/* Prompt editor */}
+      <div className="flex-1 space-y-4">
+        <Card>
+          <CardContent className="p-4 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">검색 프롬프트 (Search Prompt)</Label>
+              <p className="text-xs text-muted-foreground">뉴스/기사 검색 시 사용되는 프롬프트입니다.</p>
+              <Textarea
+                value={searchPrompt}
+                onChange={e => setSearchPrompt(e.target.value)}
+                rows={6}
+                className="font-mono text-sm"
+                placeholder="검색 프롬프트를 입력하세요..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">생성 프롬프트 (Generation Prompt)</Label>
+              <p className="text-xs text-muted-foreground">메시지 생성 시 Claude에게 전달되는 프롬프트입니다.</p>
+              <Textarea
+                value={generationPrompt}
+                onChange={e => setGenerationPrompt(e.target.value)}
+                rows={10}
+                className="font-mono text-sm"
+                placeholder="생성 프롬프트를 입력하세요..."
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-1.5" />
+                )}
+                저장
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
+    </div>
+  )
+}
+
 // --- 메인 탭 ---
 export function AdminTab() {
   return (
@@ -467,6 +645,10 @@ export function AdminTab() {
             <LayoutGrid className="h-4 w-4" />
             탭 관리
           </TabsTrigger>
+          <TabsTrigger value="prompts" className="gap-1.5">
+            <Sparkles className="h-4 w-4" />
+            AI 프롬프트
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="users">
           <UsersPanel />
@@ -476,6 +658,9 @@ export function AdminTab() {
         </TabsContent>
         <TabsContent value="tabs">
           <TabOrderPanel />
+        </TabsContent>
+        <TabsContent value="prompts">
+          <PromptManagementPanel />
         </TabsContent>
       </Tabs>
     </div>
