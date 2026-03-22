@@ -2,7 +2,7 @@
 # 실행: PowerShell 관리자 권한으로 열고 아래 한 줄 실행
 # irm https://raw.githubusercontent.com/tonyleefuan/1d1m-management/main/macro/install.ps1 | iex
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 Write-Host ""
@@ -85,9 +85,7 @@ foreach ($file in $files) {
 Write-Host "[4/8] Python 패키지 설치 중..."
 # python -m pip 사용 (pip.exe 직접 호출 시 stderr 경고가 에러로 처리되는 문제 방지)
 $pyRun = if ($script:pythonExe) { $script:pythonExe } else { "python" }
-$ErrorActionPreference = "Continue"
 & $pyRun -m pip install -r requirements.txt --quiet 2>$null
-$ErrorActionPreference = "Stop"
 Write-Host "       완료!" -ForegroundColor Green
 
 # ─── config.json 설정 ───
@@ -155,25 +153,18 @@ if (-not (Get-ItemProperty -Path $regPath -Name "KakaoTalk" -ErrorAction Silentl
 Write-Host "[7/8] 작업 스케줄러 등록..."
 
 # 매일 22:00 재부팅
-$ErrorActionPreference = "Continue"
 schtasks /create /tn "1D1M_Reboot" /tr "shutdown /r /f /t 60" /sc daily /st 22:00 /f 2>$null
-$ErrorActionPreference = "Stop"
 Write-Host "       매일 22:00 재부팅" -ForegroundColor Gray
 
-# 매일 04:00 매크로 실행
-$macroPath = "$installDir\macro.py"
-$pyForTask = if ($script:pythonExe) { $script:pythonExe } else { "python" }
-$taskCmd = """$pyForTask"" ""$macroPath"""
-$ErrorActionPreference = "Continue"
-schtasks /create /tn "1D1M_Macro" /tr $taskCmd /sc daily /st 04:00 /f 2>$null
-$ErrorActionPreference = "Stop"
+# 매일 04:00 매크로 실행 — bat 파일로 감싸서 경로 공백 문제 회피
+$batContent = "@echo off`r`ncd /d `"$installDir`"`r`npython macro.py"
+$batContent | Out-File -FilePath "$installDir\run_macro.bat" -Encoding ASCII
+schtasks /create /tn "1D1M_Macro" /tr "`"$installDir\run_macro.bat`"" /sc daily /st 04:00 /f 2>$null
 Write-Host "       매일 04:00 매크로 실행" -ForegroundColor Gray
 
 # ─── 방화벽 ───
 Write-Host "[8/8] 방화벽 설정..."
-$ErrorActionPreference = "Continue"
 netsh advfirewall firewall add rule name="1D1M_Python" dir=out action=allow program="python.exe" 2>$null
-$ErrorActionPreference = "Stop"
 Write-Host "       Python 방화벽 허용" -ForegroundColor Gray
 
 # ─── 완료 ───
