@@ -170,9 +170,10 @@ function MessageEditModal({
           <Textarea
             value={content}
             onChange={e => setContent(e.target.value)}
-            className="font-mono"
+            className="font-mono select-text"
             rows={24}
             placeholder="메시지 내용을 입력하세요"
+            style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
           />
         </div>
 
