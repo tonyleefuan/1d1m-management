@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { cn } from '@/lib/utils'
-import { FileText, Zap, Bell, Plus, MessageSquare } from 'lucide-react'
+import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle } from 'lucide-react'
 import type { Product, Message, DailyMessage, NoticeTemplate } from '@/lib/types'
 
 // --- 메시지 편집 모달 ---
@@ -332,7 +332,16 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
   const [messages, setMessages] = useState<DailyMessage[]>([])
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<DailyMessage | null | undefined>(undefined)
+  const [todayStatus, setTodayStatus] = useState<{ date: string; status: Record<string, string> } | null>(null)
   const { toast, showSuccess, showError, clearToast } = useToast()
+
+  // 오늘자 메시지 현황
+  useEffect(() => {
+    fetch('/api/daily-messages/today-status')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setTodayStatus(d))
+      .catch(() => {})
+  }, [])
 
   const fetchMessages = useCallback(async () => {
     if (!selectedProduct) return
@@ -348,8 +357,16 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
 
   useEffect(() => { fetchMessages() }, [fetchMessages])
 
+  const refreshTodayStatus = () => {
+    fetch('/api/daily-messages/today-status')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setTodayStatus(d))
+      .catch(() => {})
+  }
+
   const handleSaved = () => {
     fetchMessages()
+    refreshTodayStatus()
     showSuccess('메시지가 저장되었습니다')
   }
 
@@ -362,11 +379,56 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
       />
       <div className="flex-1">
         {!selectedProduct ? (
-          <EmptyState
-            icon={Zap}
-            title="상품을 선택하세요"
-            description="좌측에서 상품을 선택하면 메시지 목록이 표시됩니다"
-          />
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-medium">오늘의 메시지 현황</span>
+              {todayStatus && (
+                <span className="text-xs text-muted-foreground font-mono">{todayStatus.date}</span>
+              )}
+            </div>
+            {todayStatus ? (
+              <div className="space-y-2">
+                {rtProducts.map(p => {
+                  const hasMessage = !!todayStatus.status[p.id]
+                  const preview = todayStatus.status[p.id]
+                  return (
+                    <div
+                      key={p.id}
+                      className={cn(
+                        'flex items-start gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors',
+                        hasMessage
+                          ? 'bg-card hover:bg-muted/50'
+                          : 'bg-destructive/5 border-destructive/20 hover:bg-destructive/10'
+                      )}
+                      onClick={() => setSelectedProduct(p.id)}
+                    >
+                      {hasMessage ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-muted-foreground">{p.sku_code}</span>
+                          <span className="text-sm font-medium">{p.title}</span>
+                        </div>
+                        {hasMessage ? (
+                          <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{preview}</p>
+                        ) : (
+                          <p className="text-xs text-destructive mt-0.5">미작성</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+                <p className="text-xs text-muted-foreground pt-2">
+                  {rtProducts.filter(p => todayStatus.status[p.id]).length}/{rtProducts.length}개 작성 완료
+                </p>
+              </div>
+            ) : (
+              <Skeleton className="h-40 w-full" />
+            )}
+          </div>
         ) : loading ? (
           <MessageListSkeleton />
         ) : (
