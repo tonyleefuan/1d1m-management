@@ -4,10 +4,21 @@ import { jwtVerify } from 'jose'
 
 const SECRET = new TextEncoder().encode(process.env.AUTH_SECRET!)
 
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/macro/']
+const PUBLIC_PATHS = ['/login', '/api/auth/login']
+const MACRO_PATHS = ['/api/macro/']
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
+
+  // Macro API authentication (api_key based)
+  if (MACRO_PATHS.some(p => pathname.startsWith(p))) {
+    const auth = req.headers.get('authorization')
+    const macroKey = process.env.MACRO_API_KEY
+    if (!macroKey || auth !== `Bearer ${macroKey}`) {
+      return NextResponse.json({ error: 'Invalid API key' }, { status: 401 })
+    }
+    return NextResponse.next()
+  }
 
   // Public paths
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) {
