@@ -93,6 +93,109 @@ async function fetchPage(url: string): Promise<string> {
 }
 
 /**
+ * 텍스트에서 URL을 추출
+ */
+function extractUrls(text: string): string[] {
+  const urlRegex = /https?:\/\/[^\s,\n<>"']+/g
+  return [...new Set(text.match(urlRegex) || [])]
+}
+
+/**
+ * 사용자가 입력한 소스 컨텍스트(링크들 + 메모)를 처리
+ * - URL은 자동 추출하여 각각 fetch
+ * - URL이 아닌 텍스트는 그대로 컨텍스트로 전달
+ */
+export async function fetchSourceContext(sourceText: string): Promise<string> {
+  const urls = extractUrls(sourceText)
+  // URL이 아닌 텍스트 추출 (사용자 메모/주제/키워드)
+  let userNotes = sourceText
+  for (const url of urls) {
+    userNotes = userNotes.replace(url, '').trim()
+  }
+  userNotes = userNotes.replace(/\n{3,}/g, '\n\n').trim()
+
+  const parts: string[] = []
+
+  if (userNotes) {
+    parts.push(`## 사용자 지시/메모\n${userNotes}`)
+  }
+
+  if (urls.length > 0) {
+    const fetched = await Promise.all(
+      urls.map(url => fetchArticleContent(url))
+    )
+    parts.push(...fetched)
+  }
+
+  return parts.join('\n\n---\n\n')
+}
+
+/**
+ * 단일 기사 URL에서 본문 텍스트를 추출 (사용자가 직접 제공한 URL용)
+ */
+export async function fetchArticleContent(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+      },
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) return `[기사 접속 실패: ${res.status}]`
+    const html = await res.text()
+
+    // script, style, nav, footer, aside 등 불필요한 태그 제거
+    let cleaned = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+      .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+      .replace(/<aside[\s\S]*?<\/aside>/gi, '')
+      .replace(/<header[\s\S]*?<\/header>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+
+    // article 태그가 있으면 그 안의 내용만 사용
+    const articleMatch = cleaned.match(/<article[\s\S]*?>([\s\S]*?)<\/article>/i)
+    if (articleMatch) cleaned = articleMatch[1]
+
+    // 제목 추출
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+    const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : ''
+
+    // h1 추출
+    const h1Match = cleaned.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)
+    const h1 = h1Match ? h1Match[1].replace(/<[^>]+>/g, '').trim() : ''
+
+    // p 태그에서 본문 추출
+    const paragraphs: string[] = []
+    const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi
+    let match
+    while ((match = pRegex.exec(cleaned)) !== null) {
+      const text = match[1].replace(/<[^>]+>/g, '').trim()
+      if (text.length > 20) paragraphs.push(text)
+    }
+
+    const result: string[] = []
+    result.push(`## 기사 원문 (${url})`)
+    if (title || h1) result.push(`제목: ${h1 || title}`)
+    result.push('')
+    if (paragraphs.length > 0) {
+      result.push(paragraphs.slice(0, 50).join('\n\n'))
+    } else {
+      // p 태그가 없으면 전체 텍스트에서 추출
+      const allText = cleaned.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      result.push(allText.slice(0, 5000))
+    }
+
+    return result.join('\n')
+  } catch (err) {
+    return `[기사 접속 실패: ${err instanceof Error ? err.message : String(err)}]`
+  }
+}
+
+/**
  * 상품별 소스 페이지들을 가져와 통합 콘텐츠 반환
  */
 export async function fetchNewsForProduct(sku: string): Promise<string> {
