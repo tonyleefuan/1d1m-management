@@ -155,18 +155,25 @@ if (-not (Get-ItemProperty -Path $regPath -Name "KakaoTalk" -ErrorAction Silentl
 Write-Host "[7/8] 작업 스케줄러 등록..."
 
 # 매일 22:00 재부팅
-schtasks /create /tn "1D1M_Reboot" /tr "shutdown /r /f /t 60" /sc daily /st 22:00 /f 2>&1 | Out-Null
+$ErrorActionPreference = "Continue"
+schtasks /create /tn "1D1M_Reboot" /tr "shutdown /r /f /t 60" /sc daily /st 22:00 /f 2>$null
+$ErrorActionPreference = "Stop"
 Write-Host "       매일 22:00 재부팅" -ForegroundColor Gray
 
 # 매일 04:00 매크로 실행
 $macroPath = "$installDir\macro.py"
-$pyForTask = if ($script:pythonExe) { "`"$script:pythonExe`"" } else { "python" }
-schtasks /create /tn "1D1M_Macro" /tr "$pyForTask `"$macroPath`"" /sc daily /st 04:00 /f 2>&1 | Out-Null
+$pyForTask = if ($script:pythonExe) { $script:pythonExe } else { "python" }
+$taskCmd = """$pyForTask"" ""$macroPath"""
+$ErrorActionPreference = "Continue"
+schtasks /create /tn "1D1M_Macro" /tr $taskCmd /sc daily /st 04:00 /f 2>$null
+$ErrorActionPreference = "Stop"
 Write-Host "       매일 04:00 매크로 실행" -ForegroundColor Gray
 
 # ─── 방화벽 ───
 Write-Host "[8/8] 방화벽 설정..."
-netsh advfirewall firewall add rule name="1D1M_Python" dir=out action=allow program="python.exe" 2>&1 | Out-Null
+$ErrorActionPreference = "Continue"
+netsh advfirewall firewall add rule name="1D1M_Python" dir=out action=allow program="python.exe" 2>$null
+$ErrorActionPreference = "Stop"
 Write-Host "       Python 방화벽 허용" -ForegroundColor Gray
 
 # ─── 완료 ───
