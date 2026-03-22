@@ -67,14 +67,14 @@ export const TABS: TabConfig[] = [
 
 // PC device colors (fallback when DB color is null)
 export const PC_COLORS = [
-  '#FFD6D6', // PC 1 — 연빨강
-  '#D4EDDA', // PC 2 — 연초록
-  '#CCE5FF', // PC 3 — 연파랑
-  '#FFF3CD', // PC 4 — 연노랑
-  '#F8D7DA', // PC 5 — 핑크
-  '#E2D9F3', // PC 6 — 연보라
-  '#D1ECF1', // PC 7 — 시안
-  '#FEEBC8', // PC 8 — 연주황
-  '#C6F6D5', // PC 9 — 민트
-  '#E9D8FD', // PC 10 — 라벤더
+  '#EF4444', // PC 1 — 빨강
+  '#22C55E', // PC 2 — 초록
+  '#3B82F6', // PC 3 — 파랑
+  '#EAB308', // PC 4 — 노랑
+  '#EC4899', // PC 5 — 핑크
+  '#8B5CF6', // PC 6 — 보라
+  '#06B6D4', // PC 7 — 시안
+  '#F97316', // PC 8 — 주황
+  '#10B981', // PC 9 — 에메랄드
+  '#A855F7', // PC 10 — 퍼플
 ] as const
