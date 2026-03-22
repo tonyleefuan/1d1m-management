@@ -1,6 +1,8 @@
 """
-1D1M KakaoTalk Macro — 카카오톡 자동 발송 프로그램
+1D1M KakaoTalk Macro — 카카오톡 자동 발송 프로그램 (Win32 API)
+
 서버에서 대기열을 받아 카카오톡으로 메시지를 순차 발송합니다.
+Win32 API 기반으로 모니터 없이도 동작합니다.
 """
 
 import json
@@ -10,13 +12,16 @@ import time
 import logging
 import random
 import requests
-import pyautogui
-import pyperclip
 import subprocess
-import tempfile
+import ctypes
 from datetime import datetime, date
 from pathlib import Path
-from typing import Optional
+
+import win32gui
+import win32con
+import win32api
+import win32clipboard
+import win32process
 
 # ─── 설정 ───
 
@@ -27,7 +32,6 @@ LOCK_PATH = BASE_DIR / "macro.lock"
 IMAGES_DIR = BASE_DIR / "images"
 LOG_DIR = BASE_DIR / "logs"
 
-# 로깅 설정
 LOG_DIR.mkdir(exist_ok=True)
 IMAGES_DIR.mkdir(exist_ok=True)
 log_file = LOG_DIR / f"{date.today().isoformat()}.log"
@@ -41,14 +45,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("macro")
 
-# pyautogui 안전 설정
-pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0.5
-
 
 def load_config() -> dict:
     if not CONFIG_PATH.exists():
-        log.error("config.json이 없습니다. config.example.json을 복사하세요.")
+        log.error("config.json이 없습니다.")
         sys.exit(1)
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -57,28 +57,23 @@ def load_config() -> dict:
 # ─── 중복 실행 방지 ───
 
 def acquire_lock() -> bool:
-    """매크로 중복 실행 방지 — 락 파일 생성"""
     if LOCK_PATH.exists():
-        # 락 파일이 있으면 PID 확인
         try:
             pid = int(LOCK_PATH.read_text().strip())
-            # 해당 PID가 아직 실행 중인지 확인
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}"],
                 capture_output=True, text=True
             )
             if f"{pid}" in result.stdout and "python" in result.stdout.lower():
-                log.error(f"매크로가 이미 실행 중입니다 (PID: {pid}). 종료합니다.")
+                log.error(f"매크로가 이미 실행 중입니다 (PID: {pid})")
                 return False
-        except (ValueError, Exception):
-            pass  # 락 파일 깨졌으면 무시하고 새로 만듦
-
+        except Exception:
+            pass
     LOCK_PATH.write_text(str(os.getpid()))
     return True
 
 
 def release_lock():
-    """락 파일 제거"""
     if LOCK_PATH.exists():
         LOCK_PATH.unlink()
 
@@ -96,13 +91,11 @@ class ServerAPI:
         }
 
     def get_queue(self) -> dict:
-        """오늘 발송 대기열 + 발송 설정 + 이미지 목록 조회"""
         try:
             res = requests.get(
                 f"{self.base_url}/api/macro/queue",
                 params={"device_id": self.device_id},
-                headers=self.headers,
-                timeout=60,
+                headers=self.headers, timeout=60,
             )
             res.raise_for_status()
             return res.json()
@@ -111,36 +104,23 @@ class ServerAPI:
             return {"data": [], "settings": {}, "images": []}
 
     def send_heartbeat(self, pending: int, sent: int, failed: int, total: int):
-        """진행 상황 보고 (1분마다)"""
         try:
             requests.post(
                 f"{self.base_url}/api/macro/heartbeat",
-                headers=self.headers,
-                json={
-                    "device_id": self.device_id,
-                    "pending": pending,
-                    "sent": sent,
-                    "failed": failed,
-                    "total": total,
-                },
-                timeout=10,
+                headers=self.headers, timeout=10,
+                json={"device_id": self.device_id,
+                      "pending": pending, "sent": sent, "failed": failed, "total": total},
             )
         except Exception as e:
             log.warning(f"Heartbeat 실패 (무시): {e}")
 
     def send_report(self, results: list, report_date: str) -> bool:
-        """발송 결과 보고"""
         for attempt in range(3):
             try:
                 res = requests.post(
                     f"{self.base_url}/api/macro/report",
-                    headers=self.headers,
-                    json={
-                        "device_id": self.device_id,
-                        "date": report_date,
-                        "results": results,
-                    },
-                    timeout=120,
+                    headers=self.headers, timeout=120,
+                    json={"device_id": self.device_id, "date": report_date, "results": results},
                 )
                 res.raise_for_status()
                 log.info(f"결과 보고 성공: {len(results)}건")
@@ -155,7 +135,6 @@ class ServerAPI:
 # ─── 이미지 관리 ───
 
 def download_images_from_list(image_urls: list):
-    """서버에서 받은 이미지 URL 목록을 로컬에 다운로드 (캐싱)"""
     if not image_urls:
         log.info("다운로드할 이미지 없음")
         return
@@ -174,8 +153,7 @@ def download_images_from_list(image_urls: list):
                 if server_modified:
                     from email.utils import parsedate_to_datetime
                     server_time = parsedate_to_datetime(server_modified).timestamp()
-                    local_time = local_path.stat().st_mtime
-                    if server_time <= local_time:
+                    if server_time <= local_path.stat().st_mtime:
                         continue
             except Exception:
                 continue
@@ -189,7 +167,7 @@ def download_images_from_list(image_urls: list):
         except Exception as e:
             log.warning(f"  이미지 다운로드 실패: {filename} — {e}")
 
-    log.info(f"이미지 다운로드 완료: {downloaded}개 새로 받음, {len(image_urls) - downloaded}개 캐시 사용")
+    log.info(f"이미지 다운로드 완료: {downloaded}개 새로 받음")
 
 
 # ─── 진행 상황 관리 ───
@@ -201,22 +179,19 @@ def load_progress() -> dict:
                 data = json.load(f)
                 if data.get("date") == date.today().isoformat():
                     return data
-        except (json.JSONDecodeError, Exception) as e:
+        except Exception as e:
             log.warning(f"progress.json 읽기 실패 (초기화): {e}")
     return {"date": date.today().isoformat(), "last_index": -1, "results": []}
 
 
 def save_progress(last_index: int, results: list):
-    """진행 상황 안전하게 저장 (임시 파일 → 이름 변경)"""
     tmp_path = PROGRESS_PATH.with_suffix(".tmp")
     try:
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(
                 {"date": date.today().isoformat(), "last_index": last_index, "results": results},
-                f,
-                ensure_ascii=False,
+                f, ensure_ascii=False,
             )
-        # 원자적 교체 (Windows에서는 먼저 삭제 필요)
         if PROGRESS_PATH.exists():
             PROGRESS_PATH.unlink()
         tmp_path.rename(PROGRESS_PATH)
@@ -224,313 +199,300 @@ def save_progress(last_index: int, results: list):
         log.warning(f"progress 저장 실패: {e}")
 
 
-# ─── 카카오톡 자동화 ───
+# ─── Win32 카카오톡 자동화 ───
 
-SEARCH_ICON = BASE_DIR / "images_ui" / "search.png"
-FRIEND_TAB_ICON = BASE_DIR / "images_ui" / "friend_tab.png"
+class KakaoController:
+    """Win32 API로 카카오톡을 제어 — 모니터 없이 동작
 
+    카카오톡 PC Win32 구조 (Spy++):
+    ├── "카카오톡" (메인 창)
+    │   └── EVA_ChildWindow
+    │       ├── EVA_Window (친구 목록)
+    │       └── EVA_Window (검색 영역)
+    │           └── Edit (검색 입력창)
+    채팅방:
+    ├── "친구이름" (채팅 창)
+    │   └── RichEdit50W (메시지 입력창)
+    """
 
-def find_and_click_image(image_path: str, confidence: float = 0.8, timeout: int = 10) -> bool:
-    """화면에서 이미지를 찾아 클릭"""
-    start = time.time()
-    while time.time() - start < timeout:
-        try:
-            location = pyautogui.locateOnScreen(image_path, confidence=confidence)
-            if location:
-                center = pyautogui.center(location)
-                pyautogui.click(center)
-                return True
-        except Exception:
-            pass
-        time.sleep(0.5)
-    return False
+    def __init__(self):
+        self.main_hwnd = None
+        self.chat_hwnd = None
 
+    # ─── 윈도우 탐색 ───
 
-def focus_kakao():
-    """카카오톡 창을 최상단으로 가져오기"""
-    try:
-        import ctypes
-        import win32gui
-        import win32con
-
-        def find_kakao(hwnd, _):
-            if "카카오톡" in win32gui.GetWindowText(hwnd):
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                win32gui.SetForegroundWindow(hwnd)
-                return False  # 찾았으면 중단
+    def find_main_window(self) -> bool:
+        """카카오톡 메인 창 찾기"""
+        self.main_hwnd = win32gui.FindWindow(None, "카카오톡")
+        if self.main_hwnd:
             return True
-
-        try:
-            win32gui.EnumWindows(find_kakao, None)
-        except Exception:
-            pass
-        time.sleep(0.5)
-    except ImportError:
-        # win32gui 없으면 Alt+Tab으로 시도
-        log.warning("pywin32 없음 — Alt+Tab으로 카카오톡 전환 시도")
-        pyautogui.hotkey("alt", "tab")
-        time.sleep(1)
-
-
-def get_kakao_main_window():
-    """카카오톡 메인 창의 위치와 크기 반환"""
-    try:
-        import win32gui
-        result = {"hwnd": None, "rect": None}
-
-        def find_main(hwnd, _):
-            title = win32gui.GetWindowText(hwnd)
-            if title == "카카오톡" and win32gui.IsWindowVisible(hwnd):
-                result["hwnd"] = hwnd
-                result["rect"] = win32gui.GetWindowRect(hwnd)
-                return False
-            return True
-
-        try:
-            win32gui.EnumWindows(find_main, None)
-        except Exception:
-            pass
-        return result
-    except ImportError:
-        return {"hwnd": None, "rect": None}
-
-
-def go_to_friend_tab():
-    """카카오톡 친구 탭으로 이동 — 3단계 시도"""
-    # 방법 1: Ctrl+1 단축키
-    pyautogui.hotkey("ctrl", "1")
-    time.sleep(0.5)
-
-    # 방법 2: 이미지 매칭
-    if FRIEND_TAB_ICON.exists():
-        try:
-            location = pyautogui.locateOnScreen(str(FRIEND_TAB_ICON), confidence=0.8)
-            if location:
-                pyautogui.click(pyautogui.center(location))
-                time.sleep(0.5)
-                return
-        except Exception:
-            pass
-
-    # 방법 3: 카카오톡 창 좌표 기반 클릭
-    # 친구 탭은 왼쪽 세로 사이드바 최상단 아이콘
-    kakao = get_kakao_main_window()
-    if kakao["rect"]:
-        left, top, right, bottom = kakao["rect"]
-        tab_x = left + 40  # 사이드바 중앙 (약 40px)
-        tab_y = top + 60   # 상단에서 약 60px (첫 번째 아이콘)
-        pyautogui.click(tab_x, tab_y)
-        time.sleep(0.5)
-
-
-def open_search() -> bool:
-    """카카오톡 검색창 열기 — 3단계 시도"""
-    # 방법 1: Ctrl+F 단축키
-    pyautogui.hotkey("ctrl", "f")
-    time.sleep(0.5)
-
-    # 방법 2: 이미지 매칭
-    if SEARCH_ICON.exists():
-        try:
-            location = pyautogui.locateOnScreen(str(SEARCH_ICON), confidence=0.8)
-            if location:
-                pyautogui.click(pyautogui.center(location))
-                time.sleep(0.5)
-                return True
-        except Exception:
-            pass
-
-    # 방법 3: 카카오톡 창 좌표 기반 클릭
-    # 검색 아이콘은 "친구" 타이틀 오른쪽의 🔍 아이콘
-    kakao = get_kakao_main_window()
-    if kakao["rect"]:
-        left, top, right, bottom = kakao["rect"]
-        search_x = right - 70  # 오른쪽에서 약 70px 안쪽 (🔍 위치)
-        search_y = top + 45    # 상단에서 약 45px (타이틀바 아래)
-        pyautogui.click(search_x, search_y)
-        time.sleep(0.5)
-
-    return True
-
-
-def get_all_window_titles() -> list:
-    """현재 열려있는 모든 윈도우 창 제목 목록"""
-    titles = []
-    try:
-        import win32gui
+        # 클래스명으로 재시도
+        results = []
         def callback(hwnd, _):
-            title = win32gui.GetWindowText(hwnd)
-            if title:
-                titles.append(title)
+            if win32gui.IsWindowVisible(hwnd) and "카카오톡" in win32gui.GetWindowText(hwnd):
+                results.append(hwnd)
         win32gui.EnumWindows(callback, None)
-    except ImportError:
-        pass
-    return titles
-
-
-def verify_chat_opened(expected_name: str) -> bool:
-    """채팅방이 열렸는지 창 제목으로 확인
-
-    카카오톡은 채팅방을 열면 별도 창이 생기고,
-    그 창의 제목이 상대방 이름임.
-    """
-    titles = get_all_window_titles()
-    for title in titles:
-        # 채팅방 제목에 이름이 포함되어 있는지 확인
-        if expected_name in title:
+        if results:
+            self.main_hwnd = results[0]
             return True
-    return False
-
-
-def verify_chat_closed(expected_name: str) -> bool:
-    """채팅방이 닫혔는지 창 제목으로 확인"""
-    titles = get_all_window_titles()
-    for title in titles:
-        if expected_name in title:
-            return False  # 아직 열려있음
-    return True
-
-
-def search_friend(name: str) -> bool:
-    """카카오톡 친구 목록에서 이름 검색 → 1:1 채팅방 열기
-
-    중요: 반드시 친구 탭에서 검색해야 함 (채팅 탭 아님)
-    3단계 검증:
-      1. 친구 탭 → 검색 → 이름 입력 → 선택
-      2. 창 제목으로 채팅방 열림 확인
-      3. 실패 시 ESC로 복구 후 False 반환
-    """
-    # 1. 친구 탭으로 이동
-    go_to_friend_tab()
-
-    # 2. 검색창 열기
-    if not open_search():
-        log.warning("검색창을 열 수 없습니다")
         return False
 
-    time.sleep(random.uniform(0.3, 0.5))
+    def find_search_edit(self) -> int:
+        """카카오톡 메인 창의 검색 입력창(Edit) 핸들 찾기
 
-    # 3. 기존 검색어 지우기
-    pyautogui.hotkey("ctrl", "a")
-    pyautogui.press("delete")
-    time.sleep(0.3)
+        구조: 카카오톡 → EVA_ChildWindow → EVA_Window(2번째) → Edit
+        """
+        if not self.main_hwnd:
+            return 0
+        try:
+            child = win32gui.FindWindowEx(self.main_hwnd, None, "EVA_ChildWindow", None)
+            if not child:
+                return 0
+            # 첫 번째 EVA_Window (친구 목록)
+            eva1 = win32gui.FindWindowEx(child, None, "EVA_Window", None)
+            if not eva1:
+                return 0
+            # 두 번째 EVA_Window (검색 영역)
+            eva2 = win32gui.FindWindowEx(child, eva1, "EVA_Window", None)
+            if not eva2:
+                return 0
+            # Edit 컨트롤 (검색 입력창)
+            edit = win32gui.FindWindowEx(eva2, None, "Edit", None)
+            return edit or 0
+        except Exception:
+            return 0
 
-    # 4. 이름 입력 (pyperclip으로 한글 지원)
-    pyperclip.copy(name)
-    pyautogui.hotkey("ctrl", "v")
-    time.sleep(random.uniform(1.5, 2.0))  # 검색 결과 로딩 대기
+    def find_chat_window(self, friend_name: str) -> bool:
+        """특정 이름의 채팅방 창 찾기"""
+        self.chat_hwnd = None
+        def callback(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                if friend_name in title and title != "카카오톡":
+                    self.chat_hwnd = hwnd
+                    return False
+            return True
+        try:
+            win32gui.EnumWindows(callback, None)
+        except Exception:
+            pass
+        return self.chat_hwnd is not None
 
-    # 5. 첫 번째 결과 선택 (down → enter)
-    pyautogui.press("down")
-    time.sleep(0.3)
-    pyautogui.press("enter")
-    time.sleep(random.uniform(1.0, 1.5))
+    def find_chat_edit(self) -> int:
+        """현재 채팅방의 메시지 입력창(RichEdit50W) 핸들 찾기"""
+        if not self.chat_hwnd:
+            return 0
+        try:
+            edit = win32gui.FindWindowEx(self.chat_hwnd, None, "RichEdit50W", None)
+            return edit or 0
+        except Exception:
+            return 0
 
-    # ⭐ 6. 검증: 채팅방이 열렸는지 창 제목으로 확인
-    if verify_chat_opened(name):
-        log.info(f"  채팅방 확인 ✅: {name}")
-        return True
+    # ─── 키 입력 ───
 
-    # 한번 더 시도 (약간 대기 후)
-    time.sleep(1.0)
-    if verify_chat_opened(name):
-        log.info(f"  채팅방 확인 ✅ (2차): {name}")
-        return True
+    def send_return(self, hwnd: int):
+        """엔터키 전송 (PostMessage — 포그라운드 불필요)"""
+        win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
+        time.sleep(0.01)
+        win32api.PostMessage(hwnd, win32con.WM_KEYUP, win32con.VK_RETURN, 0)
+        time.sleep(0.1)
 
-    # 실패 — 검색 결과가 없거나 엉뚱한 곳이 열림
-    log.warning(f"  채팅방 확인 ❌: {name} — 친구 못 찾음")
-    # ESC로 혹시 열린 엉뚱한 창 닫기
-    pyautogui.press("escape")
-    time.sleep(0.3)
-    pyautogui.press("escape")
-    time.sleep(0.3)
-    return False
+    def send_escape_msg(self, hwnd: int):
+        """ESC키 전송"""
+        win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0)
+        time.sleep(0.01)
+        win32api.PostMessage(hwnd, win32con.WM_KEYUP, win32con.VK_ESCAPE, 0)
+        time.sleep(0.1)
 
+    def set_text(self, hwnd: int, text: str):
+        """윈도우 컨트롤에 텍스트 직접 설정 (WM_SETTEXT)"""
+        win32api.SendMessage(hwnd, win32con.WM_SETTEXT, 0, text)
+        time.sleep(0.1)
 
-def send_text_message(text: str):
-    """현재 열린 채팅방에 텍스트 메시지 전송"""
-    pyperclip.copy(text)
-    pyautogui.hotkey("ctrl", "v")
-    time.sleep(0.3)
-    pyautogui.press("enter")
+    def set_clipboard_text(self, text: str):
+        """클립보드에 텍스트 복사"""
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+        finally:
+            win32clipboard.CloseClipboard()
 
+    def send_ctrl_key(self, hwnd: int, char: str):
+        """Ctrl+문자 전송 — 포그라운드 필요하므로 keybd_event 사용"""
+        try:
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            win32gui.SetForegroundWindow(hwnd)
+            time.sleep(0.2)
+        except Exception:
+            pass
+        vk = ord(char.upper())
+        win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
+        time.sleep(0.05)
+        win32api.keybd_event(vk, 0, 0, 0)
+        time.sleep(0.05)
+        win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
+        win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.1)
 
-def send_image_file(image_path: str, config: dict):
-    """현재 열린 채팅방에 이미지 파일 전송"""
-    filename = image_path.split("/")[-1]
-    local_path = IMAGES_DIR / filename
+    # ─── 카카오톡 동작 ───
 
-    if not local_path.exists():
-        log.warning(f"이미지 파일 없음: {local_path}")
-        raise FileNotFoundError(f"이미지 파일 없음: {local_path}")
+    def search_friend(self, name: str) -> bool:
+        """친구 검색 → 채팅방 열기 → 창 제목으로 검증
 
-    # Ctrl+T로 파일 전송 대화상자 열기
-    pyautogui.hotkey("ctrl", "t")
-    time.sleep(1.5)
+        WM_SETTEXT로 검색 입력창에 직접 텍스트 설정 (키보드 시뮬레이션 없음)
+        """
+        if not self.main_hwnd:
+            log.error("  카카오톡 메인 창 없음")
+            return False
 
-    # 파일 경로 입력
-    pyperclip.copy(str(local_path))
-    pyautogui.hotkey("ctrl", "v")
-    time.sleep(0.5)
-    pyautogui.press("enter")
-    time.sleep(1.5)
-    pyautogui.press("enter")  # 전송 확인
-    time.sleep(float(config.get("file_delay", 6)))
+        # 1. 검색 입력창 핸들 찾기
+        search_edit = self.find_search_edit()
+        if not search_edit:
+            log.warning("  검색 입력창을 찾을 수 없음 — Ctrl+F로 시도")
+            self.send_ctrl_key(self.main_hwnd, 'F')
+            time.sleep(0.5)
+            search_edit = self.find_search_edit()
 
+        if not search_edit:
+            log.error("  검색 입력창을 찾을 수 없습니다")
+            return False
 
-def force_close_chat_window(friend_name: str):
-    """ESC가 안 먹힐 때 pywin32로 채팅방 창을 직접 닫기"""
-    try:
-        import win32gui
-        import win32con
+        # 2. 검색어 직접 설정 (WM_SETTEXT — 가장 안정적)
+        self.set_text(search_edit, name)
+        time.sleep(random.uniform(1.5, 2.0))
 
-        def close_matching(hwnd, _):
-            title = win32gui.GetWindowText(hwnd)
-            if friend_name in title and title != "카카오톡":
-                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        # 3. 엔터로 첫 번째 결과 열기
+        self.send_return(search_edit)
+        time.sleep(random.uniform(1.0, 1.5))
+
+        # ⭐ 4. 검증: 채팅방 창이 열렸는지 확인
+        if self.find_chat_window(name):
+            log.info(f"  채팅방 확인 ✅: {name}")
             return True
 
-        win32gui.EnumWindows(close_matching, None)
+        time.sleep(1.0)
+        if self.find_chat_window(name):
+            log.info(f"  채팅방 확인 ✅ (2차): {name}")
+            return True
+
+        log.warning(f"  채팅방 확인 ❌: {name} — 친구 못 찾음")
+        # 검색어 초기화
+        self.set_text(search_edit, "")
+        return False
+
+    def verify_chat_still_open(self, name: str) -> bool:
+        """채팅방이 아직 열려있는지 확인"""
+        return self.find_chat_window(name)
+
+    def send_text_message(self, text: str):
+        """현재 열린 채팅방에 텍스트 전송
+
+        RichEdit50W에 WM_SETTEXT로 직접 설정 → Enter
+        """
+        if not self.chat_hwnd:
+            raise Exception("채팅방 창이 없습니다")
+
+        chat_edit = self.find_chat_edit()
+        if not chat_edit:
+            raise Exception("메시지 입력창(RichEdit50W)을 찾을 수 없습니다")
+
+        self.set_text(chat_edit, text)
+        time.sleep(0.2)
+        self.send_return(chat_edit)
+
+    def send_image_file(self, image_path: str, file_delay: int = 6):
+        """현재 열린 채팅방에 이미지 파일 전송"""
+        if not self.chat_hwnd:
+            raise Exception("채팅방 창이 없습니다")
+
+        filename = image_path.split("/")[-1]
+        local_path = IMAGES_DIR / filename
+
+        if not local_path.exists():
+            raise FileNotFoundError(f"이미지 파일 없음: {local_path}")
+
+        # Ctrl+T로 파일 전송 대화상자 열기
+        self.send_ctrl_key(self.chat_hwnd, 'T')
+        time.sleep(1.5)
+
+        # 파일 대화상자 찾기 (#32770 = 표준 파일 대화상자)
+        file_dialog = None
+        for _ in range(10):
+            file_dialog = win32gui.FindWindow('#32770', None)
+            if file_dialog:
+                break
+            time.sleep(0.3)
+
+        if file_dialog:
+            # 파일명 입력란에 경로 설정
+            # 파일 대화상자의 Edit 컨트롤 (ComboBoxEx32 → ComboBox → Edit)
+            combo = win32gui.FindWindowEx(file_dialog, None, "ComboBoxEx32", None)
+            if combo:
+                combo_inner = win32gui.FindWindowEx(combo, None, "ComboBox", None)
+                if combo_inner:
+                    edit = win32gui.FindWindowEx(combo_inner, None, "Edit", None)
+                    if edit:
+                        self.set_text(edit, str(local_path))
+                        time.sleep(0.5)
+                        self.send_return(file_dialog)
+                        time.sleep(1.5)
+                        self.send_return(self.chat_hwnd)  # 전송 확인
+                    else:
+                        self.send_escape_msg(file_dialog)
+                else:
+                    self.send_escape_msg(file_dialog)
+            else:
+                # 구조가 다르면 클립보드 폴백
+                self.set_clipboard_text(str(local_path))
+                time.sleep(0.2)
+                self.send_ctrl_key(file_dialog, 'V')
+                time.sleep(0.5)
+                self.send_return(file_dialog)
+                time.sleep(1.5)
+                self.send_return(self.chat_hwnd)
+        else:
+            log.warning("  파일 대화상자를 찾을 수 없습니다")
+            self.send_escape_msg(self.chat_hwnd)
+
+        time.sleep(file_delay)
+
+    def close_chat(self, friend_name: str = ""):
+        """채팅방 닫기 — ESC → 검증 → 강제 닫기"""
+        if not self.chat_hwnd:
+            return
+
+        # 1차: ESC
+        self.send_escape_msg(self.chat_hwnd)
+        time.sleep(0.3)
+        self.send_escape_msg(self.chat_hwnd)
         time.sleep(0.5)
-    except Exception as e:
-        log.warning(f"  강제 닫기 실패: {e}")
+
+        if friend_name and not self.find_chat_window(friend_name):
+            self.chat_hwnd = None
+            return
+
+        # 2차: ESC 재시도
+        self.send_escape_msg(self.chat_hwnd)
+        time.sleep(0.5)
+
+        if friend_name and not self.find_chat_window(friend_name):
+            self.chat_hwnd = None
+            return
+
+        # 3차: WM_CLOSE 강제 닫기
+        log.warning(f"  ESC 실패, 창 강제 닫기: {friend_name}")
+        try:
+            win32gui.PostMessage(self.chat_hwnd, win32con.WM_CLOSE, 0, 0)
+            time.sleep(0.5)
+        except Exception:
+            pass
+        self.chat_hwnd = None
 
 
-def close_chat(friend_name: str = ""):
-    """채팅방 닫기 — ESC → 검증 → 안 되면 강제 닫기"""
-    # 1차: ESC
-    pyautogui.press("escape")
-    time.sleep(0.3)
-    pyautogui.press("escape")
-    time.sleep(0.5)
-
-    if not friend_name:
-        return
-
-    # 2차: 확인
-    if verify_chat_closed(friend_name):
-        return
-
-    # 3차: ESC 재시도
-    log.warning(f"  채팅방 안 닫힘, ESC 재시도: {friend_name}")
-    pyautogui.press("escape")
-    time.sleep(0.5)
-    pyautogui.press("escape")
-    time.sleep(0.5)
-
-    if verify_chat_closed(friend_name):
-        return
-
-    # 4차: pywin32로 강제 닫기
-    log.warning(f"  ESC 실패, 창 강제 닫기: {friend_name}")
-    force_close_chat_window(friend_name)
-
-    if not verify_chat_closed(friend_name):
-        log.error(f"  채팅방 닫기 완전 실패: {friend_name}")
-
+# ─── 카카오톡 프로세스 관리 ───
 
 def is_kakao_running() -> bool:
-    """카카오톡이 실행 중인지 확인"""
     result = subprocess.run(
         ["tasklist", "/FI", "IMAGENAME eq KakaoTalk.exe"],
         capture_output=True, text=True
@@ -539,43 +501,32 @@ def is_kakao_running() -> bool:
 
 
 def ensure_kakao_running(config: dict) -> bool:
-    """카카오톡이 꺼져있으면 실행, 이미 실행 중이면 스킵"""
     if is_kakao_running():
         log.info("카카오톡 실행 중 확인 ✅")
         return True
 
     log.warning("카카오톡이 꺼져있습니다. 실행합니다...")
     kakao_path = config.get("kakao_path", r"C:\Program Files (x86)\Kakao\KakaoTalk\KakaoTalk.exe")
-
     try:
         subprocess.Popen([kakao_path])
-        log.info("카카오톡 실행됨, 90초 대기 (로그인 + 로딩)...")
+        log.info("카카오톡 실행됨, 90초 대기...")
         time.sleep(90)
-
-        if is_kakao_running():
-            log.info("카카오톡 실행 확인 ✅")
-            return True
-        else:
-            log.error("카카오톡 실행 실패")
-            return False
+        return is_kakao_running()
     except Exception as e:
         log.error(f"카카오톡 실행 실패: {e}")
         return False
 
 
 def restart_kakao(config: dict) -> bool:
-    """카카오톡 재시작 (먹통 시 사용)"""
     log.info("카카오톡 재시작 중...")
-
     subprocess.run(["taskkill", "/F", "/IM", "KakaoTalk.exe"], capture_output=True)
     time.sleep(30)
-
     kakao_path = config.get("kakao_path", r"C:\Program Files (x86)\Kakao\KakaoTalk\KakaoTalk.exe")
     try:
         subprocess.Popen([kakao_path])
         log.info("카카오톡 실행됨, 60초 대기...")
         time.sleep(60)
-        return True
+        return is_kakao_running()
     except Exception as e:
         log.error(f"카카오톡 실행 실패: {e}")
         return False
@@ -589,7 +540,6 @@ def run_macro():
 
     log.info(f"=== 매크로 시작 — {config['device_id']} ===")
 
-    # 0-a. 중복 실행 방지
     if not acquire_lock():
         return
 
@@ -603,16 +553,21 @@ def run_macro():
 
 
 def _run_macro_inner(config: dict, api: ServerAPI):
-    # 0-b. 카카오톡 실행 확인 (꺼져있으면 자동 실행)
+    # 0. 카카오톡 실행 확인
     if not ensure_kakao_running(config):
-        log.error("카카오톡을 실행할 수 없습니다. 매크로를 종료합니다.")
+        log.error("카카오톡을 실행할 수 없습니다.")
         api.send_heartbeat(0, 0, 0, 0)
         return
 
-    # 0-c. 카카오톡 창 포커스
-    focus_kakao()
+    # 카카오톡 컨트롤러 초기화
+    kakao = KakaoController()
+    if not kakao.find_main_window():
+        log.error("카카오톡 메인 창을 찾을 수 없습니다.")
+        api.send_heartbeat(0, 0, 0, 0)
+        return
+    log.info(f"카카오톡 창 발견 (hwnd: {kakao.main_hwnd})")
 
-    # 1. 대기열 + 설정 + 이미지 목록 수신
+    # 1. 대기열 + 설정 + 이미지 수신
     response = api.get_queue()
     queue = response.get("data", [])
     server_settings = response.get("settings", {})
@@ -625,7 +580,7 @@ def _run_macro_inner(config: dict, api: ServerAPI):
     total = len(queue)
     log.info(f"대기열 수신: {total}건")
 
-    # 서버 발송 설정 적용
+    # 서버 설정 적용
     if server_settings.get("send_message_delay"):
         msg_delay = int(server_settings["send_message_delay"])
         config["min_delay"] = msg_delay
@@ -637,30 +592,28 @@ def _run_macro_inner(config: dict, api: ServerAPI):
     # 2. 이미지 다운로드
     download_images_from_list(image_list)
 
-    # 3. 진행 상황 확인 (재시작 시)
+    # 3. 진행 상황 복원
     progress = load_progress()
     start_index = progress["last_index"] + 1
     results = progress["results"]
 
     if start_index > 0:
-        log.info(f"이전 진행 상황 복원: {start_index}번부터 이어서")
+        log.info(f"이전 진행 복원: {start_index}번부터 이어서")
 
     sent_count = sum(1 for r in results if r["status"] == "sent")
     failed_count = sum(1 for r in results if r["status"] == "failed")
 
-    # 4. heartbeat 타이머
+    # 4. heartbeat
     last_heartbeat = time.time()
-    HEARTBEAT_INTERVAL = 60
 
     def maybe_heartbeat():
         nonlocal last_heartbeat
-        now = time.time()
-        if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+        if time.time() - last_heartbeat >= 60:
             pending = total - sent_count - failed_count
             api.send_heartbeat(pending, sent_count, failed_count, total)
-            last_heartbeat = now
+            last_heartbeat = time.time()
 
-    # 5. 사람 단위로 그룹화
+    # 5. 사람 단위 그룹화
     person_groups = []
     current_person = None
     current_items = []
@@ -687,13 +640,15 @@ def _run_macro_inner(config: dict, api: ServerAPI):
             global_index += len(items)
             continue
 
-        # 카카오톡 포커스 확인 (매 사람마다)
-        focus_kakao()
-
-        # 친구 검색
         log.info(f"발송: {person_name} ({len(items)}건)")
 
-        friend_found = search_friend(person_name)
+        # 카카오톡 메인 창 재확인
+        if not kakao.find_main_window():
+            log.error("카카오톡 메인 창이 사라졌습니다.")
+            break
+
+        # ⭐ 친구 검색 + 채팅방 열림 검증
+        friend_found = kakao.search_friend(person_name)
         if not friend_found:
             log.warning(f"친구 못 찾음: {person_name}")
             for item in items:
@@ -718,9 +673,9 @@ def _run_macro_inner(config: dict, api: ServerAPI):
                 continue
 
             try:
-                # ⭐ 발송 전 확인: 채팅방이 아직 열려있는지
-                if not verify_chat_opened(person_name):
-                    log.warning(f"  채팅방이 닫혔음 — 나머지 메시지 실패 처리: {person_name}")
+                # ⭐ 매 메시지 전 채팅방 열림 확인
+                if not kakao.verify_chat_still_open(person_name):
+                    log.warning(f"  채팅방 닫힘 — 나머지 실패: {person_name}")
                     results.append({
                         "queue_id": item["id"],
                         "status": "failed",
@@ -729,36 +684,25 @@ def _run_macro_inner(config: dict, api: ServerAPI):
                     failed_count += 1
                     person_failed = True
                     save_progress(global_index, results)
-                    break  # 이 사람의 나머지 메시지도 아래에서 실패 처리
+                    break
 
                 if item.get("image_path") and (not item.get("message_content") or item["message_content"] == "파일"):
-                    # 이미지만 전송
-                    send_image_file(item["image_path"], config)
+                    kakao.send_image_file(item["image_path"], int(config.get("file_delay", 6)))
                 elif item.get("image_path"):
-                    # 텍스트 + 이미지
-                    send_text_message(item["message_content"])
-                    delay = float(config.get("min_delay", 3))
-                    time.sleep(delay)
-                    send_image_file(item["image_path"], config)
+                    kakao.send_text_message(item["message_content"])
+                    time.sleep(float(config.get("min_delay", 3)))
+                    kakao.send_image_file(item["image_path"], int(config.get("file_delay", 6)))
                 else:
-                    # 텍스트만 전송
-                    send_text_message(item["message_content"])
+                    kakao.send_text_message(item["message_content"])
 
                 results.append({"queue_id": item["id"], "status": "sent"})
                 sent_count += 1
 
-                # 메시지 간 딜레이
                 delay = random.uniform(
                     float(config.get("min_delay", 3)),
                     float(config.get("max_delay", 5)),
                 )
                 time.sleep(delay)
-
-            except pyautogui.FailSafeException:
-                log.error("FailSafe 발동 — 마우스가 화면 모서리에 감지됨. 중단합니다.")
-                save_progress(global_index - 1, results)
-                api.send_report(results, date.today().isoformat())
-                return
 
             except Exception as e:
                 log.error(f"발송 오류: {e}")
@@ -767,11 +711,11 @@ def _run_macro_inner(config: dict, api: ServerAPI):
                 if not kakao_restart_attempted:
                     log.info("카카오톡 재시작 시도...")
                     kakao_restart_attempted = True
-                    close_chat(person_name)
+                    kakao.close_chat(person_name)
 
                     if restart_kakao(config):
-                        focus_kakao()
-                        go_to_friend_tab()
+                        kakao.find_main_window()
+                        kakao.go_to_friend_tab()
                         results.append({
                             "queue_id": item["id"],
                             "status": "failed",
@@ -806,17 +750,14 @@ def _run_macro_inner(config: dict, api: ServerAPI):
             save_progress(global_index, results)
             maybe_heartbeat()
 
-        # 채팅방 닫기 (창 제목으로 닫힘 확인)
+        # ⭐ 채팅방 닫기 + 검증
         if not person_failed:
-            close_chat(person_name)
+            kakao.close_chat(person_name)
 
     # 7. 최종 보고
     log.info(f"발송 완료: 성공 {sent_count}, 실패 {failed_count}, 총 {total}")
-    success = api.send_report(results, date.today().isoformat())
-    if not success:
-        log.error("결과 보고 실패! progress.json에 결과가 남아있습니다.")
+    api.send_report(results, date.today().isoformat())
 
-    # progress 초기화
     if PROGRESS_PATH.exists():
         PROGRESS_PATH.unlink()
 
