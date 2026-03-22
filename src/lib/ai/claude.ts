@@ -6,6 +6,15 @@ const anthropic = new Anthropic({
 
 const MODEL = 'claude-sonnet-4-20250514'
 
+const URL_SAFETY_RULE = `
+
+[절대 규칙 — URL]
+- URL을 절대로 만들어내거나 추측하지 마라. 웹 검색에서 실제로 찾은 URL만 사용하라.
+- bit.ly, tinyurl.com 등 축약 URL을 직접 만들지 마라. URL 축약은 시스템이 자동으로 처리한다.
+- 원문 링크가 필요한 위치에는 검색에서 찾은 실제 기사 URL 원본을 그대로 넣어라.
+- 가짜 URL, 존재하지 않는 URL, 추측 URL을 포함하면 절대 안 된다.
+- URL을 찾지 못했으면 해당 위치에 "[URL 없음]"이라고 표시하라.`
+
 /**
  * 웹 검색 도구를 사용하여 뉴스 검색/선정
  */
@@ -21,7 +30,7 @@ export async function searchNews(
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 4096,
-    system: searchPrompt,
+    system: searchPrompt + URL_SAFETY_RULE,
     tools: articleUrl ? [] : [
       { type: 'web_search_20250305' as const, name: 'web_search', max_uses: 5 }
     ],
@@ -45,7 +54,7 @@ export async function generateMessage(
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 4096,
-    system: generationPrompt,
+    system: generationPrompt + URL_SAFETY_RULE,
     messages: [{
       role: 'user',
       content: `아래 뉴스를 바탕으로 메시지를 작성하세요.\n\n## 뉴스 내용\n${newsContext}\n\n## 최근 메시지 (참고용, 톤/포맷 참조)\n${recentHistory}`
@@ -69,7 +78,7 @@ export async function modifyMessage(
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 4096,
-    system: generationPrompt,
+    system: generationPrompt + URL_SAFETY_RULE,
     messages: [
       { role: 'user', content: `현재 메시지:\n${currentMessage}` },
       { role: 'assistant', content: currentMessage },
