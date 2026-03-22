@@ -907,54 +907,100 @@ def run_test():
             print("  ❌ 검색 입력창을 찾을 수 없습니다")
             all_ok = False
 
-    # 5. 친구 검색 테스트 (실제 검색 + 채팅방 열기 + 닫기)
-    print("[5/7] 친구 검색 테스트...")
+    # 5. 친구 검색 + 메시지 전송 + 채팅방 닫기 테스트
+    print("[5/7] 카카오톡 발송 테스트...")
     print("")
-    test_name = input("  테스트할 카카오톡 친구 이름을 입력하세요 (본인 이름 추천): ").strip()
+    test_name = input("  테스트할 카카오톡 친구 이름을 입력하세요: ").strip()
 
     if not test_name:
-        print("  ⏭️ 이름 미입력 — 검색 테스트 스킵")
+        print("  ❌ 이름을 입력해주세요")
+        return False
+
+    # === 1차: 검색 → 3건 전송 → 닫기 ===
+    print("")
+    print(f"  ── 1차 테스트: '{test_name}' 검색 + 메시지 3건 ──")
+    print(f"  친구 검색 중...")
+    found = kakao.search_friend(test_name)
+    if not found:
+        print(f"  ❌ 친구 '{test_name}'을 찾을 수 없습니다")
+        print("     카카오톡 친구 목록에 이 이름이 정확히 있는지 확인하세요.")
+        return False
+
+    print(f"  ✅ 채팅방 열림 확인")
+
+    # 메시지 입력창 찾기
+    chat_edit = kakao.find_chat_edit()
+    if not chat_edit:
+        print("  ❌ 메시지 입력창(RichEdit50W)을 찾을 수 없습니다")
+        kakao.close_chat(test_name)
+        return False
+    print(f"  ✅ 메시지 입력창 발견")
+
+    # 메시지 3건 전송
+    test_messages_1 = [
+        "[1D1M 테스트 1/3] 매크로 설치 테스트입니다.",
+        "[1D1M 테스트 2/3] 메시지가 순서대로 도착하면 정상입니다.",
+        "[1D1M 테스트 3/3] 1차 테스트 완료!",
+    ]
+    for i, msg in enumerate(test_messages_1):
+        try:
+            kakao.send_text_message(msg)
+            print(f"  ✅ 메시지 {i+1}/3 전송 완료")
+            time.sleep(2)
+        except Exception as e:
+            print(f"  ❌ 메시지 {i+1}/3 전송 실패: {e}")
+            all_ok = False
+            break
+
+    # 채팅방 닫기
+    print("  채팅방 닫는 중...")
+    kakao.close_chat(test_name)
+    time.sleep(1)
+    if not kakao.find_chat_window(test_name):
+        print("  ✅ 채팅방 닫힘 확인")
     else:
-        print(f"  '{test_name}' 검색 중...")
-        found = kakao.search_friend(test_name)
-        if found:
-            print(f"  ✅ 채팅방 열림 확인: {test_name}")
+        print("  ❌ 채팅방이 안 닫혔습니다")
+        all_ok = False
 
-            # 6. 메시지 입력창 찾기
-            print("[6/7] 메시지 입력창 탐색 (RichEdit50W)...")
-            chat_edit = kakao.find_chat_edit()
-            if chat_edit:
-                print(f"  ✅ 메시지 입력창 발견 (hwnd: {chat_edit})")
+    # === 2차: 다시 검색 → 2건 전송 → 닫기 ===
+    print("")
+    print(f"  ── 2차 테스트: 다시 검색 + 메시지 2건 ──")
+    time.sleep(2)
+    print(f"  친구 재검색 중...")
+    found2 = kakao.search_friend(test_name)
+    if not found2:
+        print(f"  ❌ 2차 검색 실패: '{test_name}'")
+        all_ok = False
+    else:
+        print(f"  ✅ 채팅방 다시 열림 확인")
 
-                # 7. 테스트 메시지 전송
-                print("[7/7] 테스트 메시지 전송...")
-                send_yn = input("  이 친구에게 테스트 메시지를 보낼까요? (y/n): ").strip().lower()
-                if send_yn == 'y':
-                    try:
-                        kakao.send_text_message("[1D1M 매크로 테스트] 이 메시지가 보이면 설치 성공입니다!")
-                        time.sleep(1)
-                        print("  ✅ 메시지 전송 완료!")
-                        print("     카카오톡에서 메시지가 도착했는지 확인하세요.")
-                    except Exception as e:
-                        print(f"  ❌ 메시지 전송 실패: {e}")
-                        all_ok = False
-                else:
-                    print("  ⏭️ 메시지 전송 스킵")
-            else:
-                print("  ❌ 메시지 입력창을 찾을 수 없습니다")
-                all_ok = False
-
-            # 채팅방 닫기
-            print("  채팅방 닫는 중...")
-            kakao.close_chat(test_name)
-            time.sleep(0.5)
-            if not kakao.find_chat_window(test_name):
-                print("  ✅ 채팅방 닫힘 확인")
-            else:
-                print("  ⚠️ 채팅방이 안 닫혔을 수 있음 (수동으로 닫아주세요)")
+        chat_edit2 = kakao.find_chat_edit()
+        if not chat_edit2:
+            print("  ❌ 2차 메시지 입력창을 찾을 수 없습니다")
+            all_ok = False
         else:
-            print(f"  ❌ 친구 '{test_name}'을 찾을 수 없습니다")
-            print("     카카오톡 친구 목록에 이 이름이 정확히 있는지 확인하세요.")
+            test_messages_2 = [
+                "[1D1M 테스트 4/5] 2차 테스트 — 채팅방 다시 열기 성공!",
+                "[1D1M 테스트 5/5] 모든 테스트 완료! 매크로 정상 동작 확인 ✅",
+            ]
+            for i, msg in enumerate(test_messages_2):
+                try:
+                    kakao.send_text_message(msg)
+                    print(f"  ✅ 메시지 {i+4}/5 전송 완료")
+                    time.sleep(2)
+                except Exception as e:
+                    print(f"  ❌ 메시지 {i+4}/5 전송 실패: {e}")
+                    all_ok = False
+                    break
+
+        # 채팅방 닫기
+        print("  채팅방 닫는 중...")
+        kakao.close_chat(test_name)
+        time.sleep(1)
+        if not kakao.find_chat_window(test_name):
+            print("  ✅ 채팅방 닫힘 확인")
+        else:
+            print("  ❌ 채팅방이 안 닫혔습니다")
             all_ok = False
 
     # 결과
