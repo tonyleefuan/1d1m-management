@@ -16,6 +16,7 @@ import { useToast } from '@/lib/use-toast'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck, Sparkles, RotateCcw, Check, Wand2 } from 'lucide-react'
+import { StatusBadge } from '@/components/ui/status-badge'
 import type { Product, Message, DailyMessage, NoticeTemplate } from '@/lib/types'
 
 // --- 메시지 편집 모달 ---
@@ -174,6 +175,17 @@ function MessageEditModal({
             placeholder="메시지 내용을 입력하세요"
           />
         </div>
+
+        {(msg?.image_path as string | null) && (
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground">이미지</label>
+            <img
+              src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/messages/${msg?.image_path as string}`}
+              alt="preview"
+              className="max-w-[200px] max-h-[200px] rounded border object-contain"
+            />
+          </div>
+        )}
 
         {/* AI features for daily messages */}
         {isDailyMessage && !!(msg?.id) && (
@@ -429,7 +441,19 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
                             </span>
                           )}
                         </div>
-                        <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                        {m.image_path ? (
+                          <div className="flex items-center gap-2 flex-1">
+                            <img
+                              src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/messages/${m.image_path}`}
+                              alt={m.image_path}
+                              className="w-10 h-10 object-cover rounded border"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                            <span className="text-xs text-muted-foreground">{m.image_path}</span>
+                          </div>
+                        ) : (
+                          <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                        )}
                       </div>
                     )
                   })}
@@ -775,7 +799,19 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
                     <span className="shrink-0 font-mono text-xs font-semibold bg-primary text-primary-foreground px-2 py-0.5 rounded">
                       {m.send_date?.slice(5)}
                     </span>
-                    <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                    {m.image_path ? (
+                      <div className="flex items-center gap-2 flex-1">
+                        <img
+                          src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/messages/${m.image_path}`}
+                          alt={m.image_path}
+                          className="w-10 h-10 object-cover rounded border"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                        <span className="text-xs text-muted-foreground">{m.image_path}</span>
+                      </div>
+                    ) : (
+                      <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -943,6 +979,190 @@ function NoticesPanel({ products }: { products: Product[] }) {
   )
 }
 
+// --- AI 프롬프트 관리 ---
+function PromptManagementPanel() {
+  const [products, setProducts] = useState<Product[]>([])
+  const [prompts, setPrompts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedProduct, setSelectedProduct] = useState<string>('')
+  const [searchPrompt, setSearchPrompt] = useState('')
+  const [generationPrompt, setGenerationPrompt] = useState('')
+  const [additionalPrompt, setAdditionalPrompt] = useState('')
+  const [saving, setSaving] = useState(false)
+  const { toast, showSuccess, showError, clearToast } = useToast()
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [prodRes, promptRes] = await Promise.all([
+        fetch('/api/products/list'),
+        fetch('/api/ai/prompts'),
+      ])
+      if (!prodRes.ok) throw new Error('상품 목록 로드 실패')
+      if (!promptRes.ok) throw new Error('프롬프트 로드 실패')
+      const prodData = await prodRes.json()
+      const promptData = await promptRes.json()
+      const rtProducts = (prodData || []).filter((p: any) => p.message_type === 'realtime')
+      setProducts(rtProducts)
+      setPrompts(promptData.prompts || [])
+      if (rtProducts.length > 0 && !selectedProduct) {
+        setSelectedProduct(rtProducts[0].id)
+      }
+    } catch {
+      showError('데이터를 불러오지 못했습니다')
+    } finally {
+      setLoading(false)
+    }
+  }, [showError, selectedProduct])
+
+  useEffect(() => { fetchData() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectedProduct) return
+    const prompt = prompts.find((p: any) => p.product_id === selectedProduct)
+    setSearchPrompt(prompt?.search_prompt || '')
+    setGenerationPrompt(prompt?.generation_prompt || '')
+    setAdditionalPrompt(prompt?.additional_prompt || '')
+  }, [selectedProduct, prompts])
+
+  const handleSave = async () => {
+    if (!selectedProduct) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/ai/prompts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: selectedProduct,
+          search_prompt: searchPrompt,
+          generation_prompt: generationPrompt,
+          additional_prompt: additionalPrompt,
+        }),
+      })
+      if (!res.ok) throw new Error('저장 실패')
+      showSuccess('프롬프트가 저장되었습니다')
+      setPrompts(prev => {
+        const existing = prev.findIndex((p: any) => p.product_id === selectedProduct)
+        const updated = { product_id: selectedProduct, search_prompt: searchPrompt, generation_prompt: generationPrompt, additional_prompt: additionalPrompt }
+        if (existing >= 0) {
+          const next = [...prev]
+          next[existing] = { ...next[existing], ...updated }
+          return next
+        }
+        return [...prev, updated]
+      })
+    } catch {
+      showError('프롬프트 저장에 실패했습니다')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-4 pt-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    )
+  }
+
+  if (products.length === 0) {
+    return (
+      <EmptyState
+        icon={Sparkles}
+        title="실시간 상품이 없습니다"
+        description="프롬프트를 설정할 실시간(realtime) 상품이 없습니다"
+      />
+    )
+  }
+
+  return (
+    <div className="flex gap-4 pt-4">
+      <Card className="w-64 shrink-0 overflow-hidden">
+        <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
+          {products.map((p) => {
+            const hasPrompt = prompts.some((pr: any) => pr.product_id === p.id)
+            return (
+              <button
+                key={p.id}
+                onClick={() => setSelectedProduct(p.id)}
+                className={cn(
+                  'w-full text-left px-4 py-3 text-sm border-b last:border-b-0 hover:bg-muted/50 transition-colors',
+                  selectedProduct === p.id && 'bg-accent text-accent-foreground font-medium border-l-2 border-l-primary'
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{p.sku_code}</span>
+                  {hasPrompt && (
+                    <StatusBadge status="success" className="text-[10px]">설정됨</StatusBadge>
+                  )}
+                </div>
+                <div className="mt-1 text-xs leading-relaxed">{p.title}</div>
+              </button>
+            )
+          })}
+        </div>
+      </Card>
+
+      <div className="flex-1 space-y-4">
+        <Card>
+          <CardContent className="p-4 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">기사 검색 프롬프트</Label>
+              <p className="text-xs text-muted-foreground">어디서, 어떻게, 어떤 뉴스를 찾을지 지시합니다. 잘 변하지 않는 고정 지침입니다.</p>
+              <Textarea
+                value={searchPrompt}
+                onChange={e => setSearchPrompt(e.target.value)}
+                rows={6}
+                className="font-mono text-sm"
+                placeholder="검색 프롬프트를 입력하세요..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">메시지 작성 프롬프트</Label>
+              <p className="text-xs text-muted-foreground">메시지 포맷, 톤, 규칙 등을 지시합니다. 잘 변하지 않는 고정 지침입니다.</p>
+              <Textarea
+                value={generationPrompt}
+                onChange={e => setGenerationPrompt(e.target.value)}
+                rows={10}
+                className="font-mono text-sm"
+                placeholder="생성 프롬프트를 입력하세요..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">추가 지시 (선택)</Label>
+              <p className="text-xs text-muted-foreground">매번 메시지 생성 시 추가로 전달할 내용입니다. 예: &quot;오늘은 BTS 관련 뉴스 제외&quot;, &quot;환율 주제로 써줘&quot;</p>
+              <Textarea
+                value={additionalPrompt}
+                onChange={e => setAdditionalPrompt(e.target.value)}
+                rows={3}
+                className="font-mono text-sm"
+                placeholder="추가로 전달할 내용이 있으면 입력하세요..."
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-1.5" />
+                )}
+                저장
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
+    </div>
+  )
+}
+
 // --- 메인 탭 ---
 export function MessagesTab() {
   const [products, setProducts] = useState<Product[]>([])
@@ -973,6 +1193,10 @@ export function MessagesTab() {
             <Bell className="h-3.5 w-3.5 mr-1.5" />
             알림 템플릿
           </TabsTrigger>
+          <TabsTrigger value="prompts">
+            <Wand2 className="h-3.5 w-3.5 mr-1.5" />
+            AI 프롬프트
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="today">
@@ -986,6 +1210,9 @@ export function MessagesTab() {
         </TabsContent>
         <TabsContent value="notices">
           <NoticesPanel products={products} />
+        </TabsContent>
+        <TabsContent value="prompts">
+          <PromptManagementPanel />
         </TabsContent>
       </Tabs>
     </div>

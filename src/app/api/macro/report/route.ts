@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { todayKST } from '@/lib/day'
+import { notifySendingComplete } from '@/lib/slack'
 
 export async function POST(req: Request) {
   const body = await req.json()
@@ -41,14 +42,23 @@ export async function POST(req: Request) {
     }
   }
 
+  // 실패 건을 error_type별로 그룹화하여 배치 업데이트
+  const failedByType = new Map<string, string[]>()
   for (const r of failedResults) {
-    await supabase
-      .from('send_queues')
-      .update({
-        status: 'failed',
-        error_message: r.error_type || 'unknown',
-      })
-      .eq('id', r.queue_id)
+    const errorType = r.error_type || 'unknown'
+    const ids = failedByType.get(errorType) || []
+    ids.push(r.queue_id)
+    failedByType.set(errorType, ids)
+  }
+
+  for (const [errorType, ids] of failedByType) {
+    for (let i = 0; i < ids.length; i += 500) {
+      const batch = ids.slice(i, i + 500)
+      await supabase
+        .from('send_queues')
+        .update({ status: 'failed', error_message: errorType })
+        .in('id', batch)
+    }
   }
 
   // 2. 구독별 성공/실패 집계
@@ -61,9 +71,7 @@ export async function POST(req: Request) {
   if (!queueItems?.length) return NextResponse.json({ ok: true, processed: 0 })
 
   // results를 Map으로 변환 (queue_id → result)
-  const resultMap = new Map<string, { queue_id: string; status: string; error_type?: string }>(
-    results.map((r: any) => [r.queue_id, r])
-  )
+  const resultMap = new Map<string, any>(results.map((r: any) => [r.queue_id, r]))
 
   // 구독별 Day별 그룹화
   const subMap = new Map<string, {
@@ -90,15 +98,20 @@ export async function POST(req: Request) {
     }
   }
 
-  // 3. 구독별 last_sent_day 업데이트
-  for (const [subId, info] of subMap) {
-    // 기존 last_sent_day 조회
-    const { data: existingSub } = await supabase
-      .from('subscriptions')
-      .select('last_sent_day, recovery_mode')
-      .eq('id', subId)
-      .single()
+  // 3. 관련 구독 일괄 조회
+  const subIds = [...subMap.keys()]
+  const { data: existingSubs } = await supabase
+    .from('subscriptions')
+    .select('id, last_sent_day, recovery_mode, customer_id, device_id')
+    .in('id', subIds)
 
+  const existingSubMap = new Map(
+    (existingSubs || []).map(s => [s.id, s])
+  )
+
+  // 구독별 last_sent_day 업데이트
+  for (const [subId, info] of subMap) {
+    const existingSub = existingSubMap.get(subId)
     const existingLastSent = existingSub?.last_sent_day ?? 0
 
     // Day별로 연속 성공 확인 (기존 last_sent_day부터 연속이어야 함)
@@ -149,12 +162,7 @@ export async function POST(req: Request) {
     .map(([subId]) => subId)
 
   for (const subId of friendNotFoundSubIds) {
-    const { data: sub } = await supabase
-      .from('subscriptions')
-      .select('customer_id, device_id')
-      .eq('id', subId)
-      .single()
-
+    const sub = existingSubMap.get(subId)
     if (sub) {
       await supabase.from('subscriptions').update({
         failure_type: 'friend_not_found',
@@ -164,6 +172,41 @@ export async function POST(req: Request) {
       .eq('customer_id', sub.customer_id)
       .eq('device_id', sub.device_id)
       .is('failure_type', null)
+    }
+  }
+
+  // 발송 완료 확인: 오늘 남은 pending 건수 확인
+  const { count: remainingPending } = await supabase
+    .from('send_queues')
+    .select('id', { count: 'exact', head: true })
+    .eq('send_date', reportDate)
+    .eq('status', 'pending')
+
+  if (remainingPending === 0) {
+    // 모든 PC 발송 완료 → 요약 알림
+    const { data: allQueues } = await supabase
+      .from('send_queues')
+      .select('device_id, status')
+      .eq('send_date', reportDate)
+
+    if (allQueues) {
+      const deviceStats: Record<string, { sent: number; failed: number; total: number }> = {}
+      for (const q of allQueues) {
+        if (!deviceStats[q.device_id]) deviceStats[q.device_id] = { sent: 0, failed: 0, total: 0 }
+        deviceStats[q.device_id].total++
+        if (q.status === 'sent') deviceStats[q.device_id].sent++
+        if (q.status === 'failed') deviceStats[q.device_id].failed++
+      }
+
+      const totalSent = Object.values(deviceStats).reduce((s, d) => s + d.sent, 0)
+      const totalFailed = Object.values(deviceStats).reduce((s, d) => s + d.failed, 0)
+
+      await notifySendingComplete(reportDate, {
+        total: allQueues.length,
+        sent: totalSent,
+        failed: totalFailed,
+        devices: deviceStats,
+      })
     }
   }
 

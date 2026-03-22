@@ -1,0 +1,9 @@
+{
+  "device_id": "010-XXXX-XXXX",
+  "server_url": "https://1d1m-management.vercel.app",
+  "api_key": "your-api-key-here",
+  "min_delay": 3,
+  "max_delay": 5,
+  "file_delay": 6,
+  "kakao_path": "C:\\Program Files (x86)\\Kakao\\KakaoTalk\\KakaoTalk.exe"
+}

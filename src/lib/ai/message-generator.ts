@@ -114,7 +114,7 @@ export async function generateDailyMessages(
         // Get prompts for this product
         const { data: prompt } = await supabase
           .from('product_prompts')
-          .select('search_prompt, generation_prompt')
+          .select('search_prompt, generation_prompt, additional_prompt')
           .eq('product_id', p.id)
           .single()
 
@@ -122,9 +122,14 @@ export async function generateDailyMessages(
           return { sku: p.sku_code, status: 'error' as const, error: '프롬프트 미설정' }
         }
 
+        // 추가 지시가 있으면 generation_prompt에 붙임
+        const fullGenPrompt = prompt.additional_prompt
+          ? `${prompt.generation_prompt}\n\n## 추가 지시\n${prompt.additional_prompt}`
+          : prompt.generation_prompt
+
         return generateForProduct(
           p.id, p.sku_code,
-          prompt.search_prompt, prompt.generation_prompt,
+          prompt.search_prompt, fullGenPrompt,
           targetDate, articleUrl
         )
       })

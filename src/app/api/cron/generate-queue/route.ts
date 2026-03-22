@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { todayKST, computeSubscription } from '@/lib/day'
 import { generateQueueForDevice } from '@/lib/queue-generator'
+import { notifyQueueGenerated } from '@/lib/slack'
 
 export async function POST(req: Request) {
   // Vercel Cron or admin auth
@@ -156,6 +157,9 @@ export async function POST(req: Request) {
     summary[device.phone_number] = count
     totalGenerated += count
   }
+
+  // 슬랙 알림
+  await notifyQueueGenerated(summary, totalGenerated, today)
 
   return NextResponse.json({
     ok: true,
