@@ -90,14 +90,8 @@ export async function PATCH(req: Request) {
       if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
 
       // 로그 기록
-      await supabase.from('subscription_logs').insert({
-        subscription_id: targetId,
-        action: 'resolve_failure',
-        field: 'failure_type',
-        old_value: prevSub.failure_type,
-        new_value: action,
-        user_id: session.id,
-      })
+      await logChange(targetId, 'resolve_failure', 'failure_type',
+        prevSub.failure_type, action, session.userId)
 
       return NextResponse.json({ ok: true, action })
     }
