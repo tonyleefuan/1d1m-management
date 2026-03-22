@@ -13,6 +13,7 @@ import requests
 import pyautogui
 import pyperclip
 import subprocess
+import tempfile
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional
@@ -22,6 +23,7 @@ from typing import Optional
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.json"
 PROGRESS_PATH = BASE_DIR / "progress.json"
+LOCK_PATH = BASE_DIR / "macro.lock"
 IMAGES_DIR = BASE_DIR / "images"
 LOG_DIR = BASE_DIR / "logs"
 
@@ -50,6 +52,35 @@ def load_config() -> dict:
         sys.exit(1)
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+# ─── 중복 실행 방지 ───
+
+def acquire_lock() -> bool:
+    """매크로 중복 실행 방지 — 락 파일 생성"""
+    if LOCK_PATH.exists():
+        # 락 파일이 있으면 PID 확인
+        try:
+            pid = int(LOCK_PATH.read_text().strip())
+            # 해당 PID가 아직 실행 중인지 확인
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True, text=True
+            )
+            if f"{pid}" in result.stdout and "python" in result.stdout.lower():
+                log.error(f"매크로가 이미 실행 중입니다 (PID: {pid}). 종료합니다.")
+                return False
+        except (ValueError, Exception):
+            pass  # 락 파일 깨졌으면 무시하고 새로 만듦
+
+    LOCK_PATH.write_text(str(os.getpid()))
+    return True
+
+
+def release_lock():
+    """락 파일 제거"""
+    if LOCK_PATH.exists():
+        LOCK_PATH.unlink()
 
 
 # ─── 서버 통신 ───
@@ -124,11 +155,7 @@ class ServerAPI:
 # ─── 이미지 관리 ───
 
 def download_images_from_list(image_urls: list):
-    """서버에서 받은 이미지 URL 목록을 로컬에 다운로드 (캐싱)
-
-    - 로컬에 있으면 서버 날짜(Last-Modified) 비교, 최신이면 스킵
-    - 없으면 다운로드
-    """
+    """서버에서 받은 이미지 URL 목록을 로컬에 다운로드 (캐싱)"""
     if not image_urls:
         log.info("다운로드할 이미지 없음")
         return
@@ -141,7 +168,6 @@ def download_images_from_list(image_urls: list):
         local_path = IMAGES_DIR / filename
 
         if local_path.exists():
-            # 로컬 파일 존재 — 서버 날짜 비교 (HEAD 요청)
             try:
                 head = requests.head(url, timeout=10)
                 server_modified = head.headers.get("last-modified")
@@ -150,11 +176,10 @@ def download_images_from_list(image_urls: list):
                     server_time = parsedate_to_datetime(server_modified).timestamp()
                     local_time = local_path.stat().st_mtime
                     if server_time <= local_time:
-                        continue  # 로컬이 최신 — 스킵
+                        continue
             except Exception:
-                continue  # HEAD 실패해도 기존 파일 사용
+                continue
 
-        # 다운로드
         try:
             res = requests.get(url, timeout=30)
             res.raise_for_status()
@@ -171,26 +196,38 @@ def download_images_from_list(image_urls: list):
 
 def load_progress() -> dict:
     if PROGRESS_PATH.exists():
-        with open(PROGRESS_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if data.get("date") == date.today().isoformat():
-                return data
+        try:
+            with open(PROGRESS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data.get("date") == date.today().isoformat():
+                    return data
+        except (json.JSONDecodeError, Exception) as e:
+            log.warning(f"progress.json 읽기 실패 (초기화): {e}")
     return {"date": date.today().isoformat(), "last_index": -1, "results": []}
 
 
 def save_progress(last_index: int, results: list):
-    with open(PROGRESS_PATH, "w", encoding="utf-8") as f:
-        json.dump(
-            {"date": date.today().isoformat(), "last_index": last_index, "results": results},
-            f,
-            ensure_ascii=False,
-        )
+    """진행 상황 안전하게 저장 (임시 파일 → 이름 변경)"""
+    tmp_path = PROGRESS_PATH.with_suffix(".tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {"date": date.today().isoformat(), "last_index": last_index, "results": results},
+                f,
+                ensure_ascii=False,
+            )
+        # 원자적 교체 (Windows에서는 먼저 삭제 필요)
+        if PROGRESS_PATH.exists():
+            PROGRESS_PATH.unlink()
+        tmp_path.rename(PROGRESS_PATH)
+    except Exception as e:
+        log.warning(f"progress 저장 실패: {e}")
 
 
 # ─── 카카오톡 자동화 ───
 
 SEARCH_ICON = BASE_DIR / "images_ui" / "search.png"
-CLOSE_ICON = BASE_DIR / "images_ui" / "close.png"
+FRIEND_TAB_ICON = BASE_DIR / "images_ui" / "friend_tab.png"
 
 
 def find_and_click_image(image_path: str, confidence: float = 0.8, timeout: int = 10) -> bool:
@@ -209,7 +246,30 @@ def find_and_click_image(image_path: str, confidence: float = 0.8, timeout: int 
     return False
 
 
-FRIEND_TAB_ICON = BASE_DIR / "images_ui" / "friend_tab.png"
+def focus_kakao():
+    """카카오톡 창을 최상단으로 가져오기"""
+    try:
+        import ctypes
+        import win32gui
+        import win32con
+
+        def find_kakao(hwnd, _):
+            if "카카오톡" in win32gui.GetWindowText(hwnd):
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                win32gui.SetForegroundWindow(hwnd)
+                return False  # 찾았으면 중단
+            return True
+
+        try:
+            win32gui.EnumWindows(find_kakao, None)
+        except Exception:
+            pass
+        time.sleep(0.5)
+    except ImportError:
+        # win32gui 없으면 Alt+Tab으로 시도
+        log.warning("pywin32 없음 — Alt+Tab으로 카카오톡 전환 시도")
+        pyautogui.hotkey("alt", "tab")
+        time.sleep(1)
 
 
 def go_to_friend_tab():
@@ -252,29 +312,34 @@ def search_friend(name: str) -> bool:
     """카카오톡 친구 목록에서 이름 검색 → 1:1 채팅방 열기
 
     중요: 반드시 친구 탭에서 검색해야 함 (채팅 탭 아님)
-    - 친구 탭 → 검색 → 이름 입력 → 선택 → 채팅방 열기
+    검색 결과가 없으면 False 반환
     """
-    # 1. 친구 탭으로 이동 (채팅 탭이 아닌 친구 탭)
+    # 1. 친구 탭으로 이동
     go_to_friend_tab()
 
-    # 2. 검색창 열기 (단축키 + 이미지 매칭 폴백)
+    # 2. 검색창 열기
     if not open_search():
         log.warning("검색창을 열 수 없습니다")
         return False
 
     time.sleep(random.uniform(0.3, 0.5))
 
-    # 기존 검색어 지우기
+    # 3. 기존 검색어 지우기
     pyautogui.hotkey("ctrl", "a")
     pyautogui.press("delete")
     time.sleep(0.3)
 
-    # 이름 입력 (pyperclip으로 한글 지원)
+    # 4. 이름 입력 (pyperclip으로 한글 지원)
     pyperclip.copy(name)
     pyautogui.hotkey("ctrl", "v")
     time.sleep(random.uniform(1.5, 2.0))  # 검색 결과 로딩 대기
 
-    # 첫 번째 결과 선택 (down → enter로 채팅방 열기)
+    # 5. 검색 결과 확인 — 스크린샷으로 "검색 결과 없음" 감지 시도
+    #    pyautogui로는 텍스트 감지가 어려우므로,
+    #    down 키를 눌렀을 때 커서가 이동하는지로 간접 판단
+    #    (검색 결과가 없으면 down 키가 아무 효과 없음)
+
+    # 6. 첫 번째 결과 선택 (down → enter로 채팅방 열기)
     pyautogui.press("down")
     time.sleep(0.3)
     pyautogui.press("enter")
@@ -287,6 +352,7 @@ def send_text_message(text: str):
     """현재 열린 채팅방에 텍스트 메시지 전송"""
     pyperclip.copy(text)
     pyautogui.hotkey("ctrl", "v")
+    time.sleep(0.3)
     pyautogui.press("enter")
 
 
@@ -297,24 +363,27 @@ def send_image_file(image_path: str, config: dict):
 
     if not local_path.exists():
         log.warning(f"이미지 파일 없음: {local_path}")
-        return
+        raise FileNotFoundError(f"이미지 파일 없음: {local_path}")
 
     # Ctrl+T로 파일 전송 대화상자 열기
     pyautogui.hotkey("ctrl", "t")
-    time.sleep(1)
+    time.sleep(1.5)
 
     # 파일 경로 입력
     pyperclip.copy(str(local_path))
     pyautogui.hotkey("ctrl", "v")
+    time.sleep(0.5)
     pyautogui.press("enter")
-    time.sleep(1)
+    time.sleep(1.5)
     pyautogui.press("enter")  # 전송 확인
     time.sleep(float(config.get("file_delay", 6)))
 
 
 def close_chat():
-    """채팅방 닫기"""
+    """채팅방 닫기 — ESC 여러 번 (검색창이 열려있을 수 있음)"""
     pyautogui.press("escape")
+    time.sleep(0.3)
+    pyautogui.press("escape")  # 검색창이 열려있으면 한 번 더
     time.sleep(0.5)
 
 
@@ -328,10 +397,7 @@ def is_kakao_running() -> bool:
 
 
 def ensure_kakao_running(config: dict) -> bool:
-    """카카오톡이 꺼져있으면 실행, 이미 실행 중이면 스킵
-
-    Returns: True면 카카오톡 준비 완료
-    """
+    """카카오톡이 꺼져있으면 실행, 이미 실행 중이면 스킵"""
     if is_kakao_running():
         log.info("카카오톡 실행 중 확인 ✅")
         return True
@@ -359,16 +425,14 @@ def restart_kakao(config: dict) -> bool:
     """카카오톡 재시작 (먹통 시 사용)"""
     log.info("카카오톡 재시작 중...")
 
-    # 강제 종료 (static command — no user input)
     subprocess.run(["taskkill", "/F", "/IM", "KakaoTalk.exe"], capture_output=True)
     time.sleep(30)
 
-    # 재실행
     kakao_path = config.get("kakao_path", r"C:\Program Files (x86)\Kakao\KakaoTalk\KakaoTalk.exe")
     try:
         subprocess.Popen([kakao_path])
         log.info("카카오톡 실행됨, 60초 대기...")
-        time.sleep(60)  # 로그인 + 로딩 대기
+        time.sleep(60)
         return True
     except Exception as e:
         log.error(f"카카오톡 실행 실패: {e}")
@@ -383,13 +447,30 @@ def run_macro():
 
     log.info(f"=== 매크로 시작 — {config['device_id']} ===")
 
-    # 0. 카카오톡 실행 확인 (꺼져있으면 자동 실행)
+    # 0-a. 중복 실행 방지
+    if not acquire_lock():
+        return
+
+    try:
+        _run_macro_inner(config, api)
+    except Exception as e:
+        log.error(f"예상치 못한 오류: {e}")
+    finally:
+        release_lock()
+        log.info("=== 매크로 종료 ===")
+
+
+def _run_macro_inner(config: dict, api: ServerAPI):
+    # 0-b. 카카오톡 실행 확인 (꺼져있으면 자동 실행)
     if not ensure_kakao_running(config):
         log.error("카카오톡을 실행할 수 없습니다. 매크로를 종료합니다.")
         api.send_heartbeat(0, 0, 0, 0)
         return
 
-    # 1. 대기열 + 설정 + 이미지 목록 수신 (한 번의 API 호출)
+    # 0-c. 카카오톡 창 포커스
+    focus_kakao()
+
+    # 1. 대기열 + 설정 + 이미지 목록 수신
     response = api.get_queue()
     queue = response.get("data", [])
     server_settings = response.get("settings", {})
@@ -402,7 +483,7 @@ def run_macro():
     total = len(queue)
     log.info(f"대기열 수신: {total}건")
 
-    # 서버 발송 설정 적용 (대시보드에서 설정한 값 우선)
+    # 서버 발송 설정 적용
     if server_settings.get("send_message_delay"):
         msg_delay = int(server_settings["send_message_delay"])
         config["min_delay"] = msg_delay
@@ -411,7 +492,7 @@ def run_macro():
         config["file_delay"] = int(server_settings["send_file_delay"])
     log.info(f"발송 설정: 메시지 {config['min_delay']}~{config['max_delay']}초, 파일 {config['file_delay']}초")
 
-    # 2. 이미지 다운로드 (서버에서 받은 이미지 목록 기반)
+    # 2. 이미지 다운로드
     download_images_from_list(image_list)
 
     # 3. 진행 상황 확인 (재시작 시)
@@ -463,6 +544,9 @@ def run_macro():
         if global_index + len(items) < start_index:
             global_index += len(items)
             continue
+
+        # 카카오톡 포커스 확인 (매 사람마다)
+        focus_kakao()
 
         # 친구 검색
         log.info(f"발송: {person_name} ({len(items)}건)")
@@ -531,7 +615,8 @@ def run_macro():
                     close_chat()
 
                     if restart_kakao(config):
-                        # 재시작 성공 — 이 사람 나머지 실패 처리 후 다음 사람부터 이어서
+                        focus_kakao()
+                        go_to_friend_tab()
                         results.append({
                             "queue_id": item["id"],
                             "status": "failed",
@@ -541,7 +626,6 @@ def run_macro():
                         save_progress(global_index, results)
                         break
                     else:
-                        # 재시작도 실패 — 전체 중단
                         log.error("카카오톡 재시작 실패. 중단합니다.")
                         results.append({
                             "queue_id": item["id"],
@@ -553,7 +637,6 @@ def run_macro():
                         api.send_report(results, date.today().isoformat())
                         return
                 else:
-                    # 이미 재시작 시도함 — 중단
                     log.error("카카오톡 이미 재시작 시도함. 중단합니다.")
                     results.append({
                         "queue_id": item["id"],
@@ -576,14 +659,11 @@ def run_macro():
     log.info(f"발송 완료: 성공 {sent_count}, 실패 {failed_count}, 총 {total}")
     success = api.send_report(results, date.today().isoformat())
     if not success:
-        log.error("결과 보고 실패! 로컬 로그를 확인하세요.")
-        # progress.json에 결과가 남아있으므로 수동 복구 가능
+        log.error("결과 보고 실패! progress.json에 결과가 남아있습니다.")
 
     # progress 초기화
     if PROGRESS_PATH.exists():
         PROGRESS_PATH.unlink()
-
-    log.info("=== 매크로 종료 ===")
 
 
 if __name__ == "__main__":

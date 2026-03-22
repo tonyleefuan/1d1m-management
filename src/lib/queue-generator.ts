@@ -143,14 +143,24 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
     }
   }
 
-  // Batch insert
+  // Batch insert + ID 반환
   if (queueRows.length > 0) {
     for (let i = 0; i < queueRows.length; i += 500) {
       const batch = queueRows.slice(i, i + 500)
       const { error } = await supabase.from('send_queues').insert(batch)
       if (error) return { error: `대기열 생성 실패: ${error.message}` }
     }
+
+    // 삽입된 행을 ID와 함께 다시 조회
+    const { data: inserted } = await supabase
+      .from('send_queues')
+      .select('*')
+      .eq('device_id', deviceId)
+      .eq('send_date', t)
+      .order('sort_order', { ascending: true })
+
+    return { data: inserted || [], generated: true }
   }
 
-  return { data: queueRows, generated: true }
+  return { data: [], generated: true }
 }
