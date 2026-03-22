@@ -10,6 +10,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'device_id and results required' }, { status: 400 })
   }
 
+  // 입력 검증
+  if (results.length > 10000) {
+    return NextResponse.json({ error: 'Too many results (max 10000)' }, { status: 400 })
+  }
+
+  const validStatuses = new Set(['sent', 'failed'])
+  for (const r of results) {
+    if (!r.queue_id || typeof r.queue_id !== 'string') {
+      return NextResponse.json({ error: 'Invalid queue_id in results' }, { status: 400 })
+    }
+    if (!validStatuses.has(r.status)) {
+      return NextResponse.json({ error: `Invalid status: ${r.status}` }, { status: 400 })
+    }
+  }
+
   const reportDate = date || todayKST()
 
   // 1. send_queues 상태 업데이트 (배치)
@@ -17,10 +32,13 @@ export async function POST(req: Request) {
   const failedResults = results.filter((r: any) => r.status === 'failed')
 
   if (sentIds.length > 0) {
-    await supabase
-      .from('send_queues')
-      .update({ status: 'sent', sent_at: new Date().toISOString() })
-      .in('id', sentIds)
+    for (let i = 0; i < sentIds.length; i += 500) {
+      const batch = sentIds.slice(i, i + 500)
+      await supabase
+        .from('send_queues')
+        .update({ status: 'sent', sent_at: new Date().toISOString() })
+        .in('id', batch)
+    }
   }
 
   for (const r of failedResults) {
@@ -92,11 +110,9 @@ export async function POST(req: Request) {
     }
 
     if (maxCompletedDay > existingLastSent) {
-      // 성공: last_sent_day 업데이트, failure 초기화
+      // 진행 성공: last_sent_day 업데이트
       const updates: any = {
         last_sent_day: maxCompletedDay,
-        failure_type: null,
-        failure_date: null,
         updated_at: new Date().toISOString(),
       }
 
@@ -105,11 +121,18 @@ export async function POST(req: Request) {
         updates.recovery_mode = null
       }
 
-      await supabase.from('subscriptions').update(updates).eq('id', subId)
-    }
+      // 전체 성공이면 failure 초기화, 부분 성공이면 failure 유지/설정
+      if (!info.errorType) {
+        updates.failure_type = null
+        updates.failure_date = null
+      } else {
+        updates.failure_type = info.errorType
+        updates.failure_date = reportDate
+      }
 
-    if (info.errorType) {
-      // 실패 건이 있으면 failure_type 설정 (단, 이미 성공 업데이트된 Day 이후의 실패만)
+      await supabase.from('subscriptions').update(updates).eq('id', subId)
+    } else if (info.errorType) {
+      // 진행 없이 실패만
       await supabase.from('subscriptions').update({
         failure_type: info.errorType,
         failure_date: reportDate,

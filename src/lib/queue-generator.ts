@@ -89,18 +89,18 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
   const sorted = activeSubs.sort((a, b) => (a.send_priority || 3) - (b.send_priority || 3))
 
   for (const sub of sorted) {
-    const name = (sub.customer as any)?.kakao_friend_name || 'unknown'
-    const group = personGroups.get(name) || []
+    const group = personGroups.get(sub.customer_id) || []
     group.push(sub)
-    personGroups.set(name, group)
+    personGroups.set(sub.customer_id, group)
   }
 
   // Generate queue rows
   const queueRows: any[] = []
   let sortOrder = 0
 
-  for (const [friendName, personSubs] of personGroups) {
+  for (const [_customerId, personSubs] of personGroups) {
     for (const sub of personSubs) {
+      const friendName = (sub.customer as any)?.kakao_friend_name || 'unknown'
       const computed = computeSubscription({
         start_date: sub.start_date,
         duration_days: sub.duration_days,
