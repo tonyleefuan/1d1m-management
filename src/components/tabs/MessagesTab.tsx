@@ -497,6 +497,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [generating, setGenerating] = useState(false)
+  const [genProgress, setGenProgress] = useState<{ current: number; total: number; sku: string; title: string; done: string[] } | null>(null)
   const [editingCell, setEditingCell] = useState<{ productId: string; date: string; cell: GridCell } | null>(null)
 
   const refresh = useCallback(() => {
@@ -537,17 +538,49 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
 
   const handleGenerate = async () => {
     setGenerating(true)
+    setGenProgress(null)
     try {
-      const res = await fetch('/api/ai/generate-daily', { method: 'POST' })
+      const res = await fetch('/api/ai/generate-daily?stream=1', { method: 'POST' })
       if (!res.ok) throw new Error('생성 실패')
-      const data = await res.json()
-      const successCount = data.results.filter((r: any) => r.status === 'success').length
-      showSuccess(`${successCount}개 메시지 생성 완료`)
+
+      const reader = res.body?.getReader()
+      if (!reader) throw new Error('스트림 없음')
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      const doneSkus: string[] = []
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+            if (event.type === 'progress') {
+              setGenProgress({ current: event.current, total: event.total, sku: event.sku, title: event.title, done: [...doneSkus] })
+            } else if (event.type === 'done') {
+              doneSkus.push(event.sku)
+              setGenProgress(prev => prev ? { ...prev, done: [...doneSkus] } : null)
+              refresh()
+            } else if (event.type === 'complete') {
+              const successCount = event.results.filter((r: any) => r.status === 'success').length
+              showSuccess(`${successCount}개 메시지 생성 완료`)
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
       refresh()
     } catch {
       showError('메시지 자동 생성 실패')
     } finally {
       setGenerating(false)
+      setGenProgress(null)
     }
   }
 
@@ -601,6 +634,37 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
           내일 메시지 자동 생성
         </Button>
       </div>
+
+      {genProgress && (
+        <div className="bg-muted/50 border rounded-lg p-3 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">
+              생성 중... ({genProgress.current}/{genProgress.total})
+            </span>
+            <span className="font-mono text-xs text-muted-foreground">
+              {genProgress.sku}
+            </span>
+          </div>
+          <div className="w-full bg-muted rounded-full h-2">
+            <div
+              className="bg-primary h-2 rounded-full transition-all duration-500"
+              style={{ width: `${(genProgress.done.length / genProgress.total) * 100}%` }}
+            />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {genProgress.done.map(sku => (
+              <span key={sku} className="text-[11px] bg-green-100 text-green-800 px-1.5 py-0.5 rounded">
+                {sku} ✓
+              </span>
+            ))}
+            {genProgress.sku && !genProgress.done.includes(genProgress.sku) && (
+              <span className="text-[11px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded animate-pulse">
+                {genProgress.sku} 생성 중...
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="overflow-auto max-h-[calc(100vh-300px)]">
         <table className="w-full border-collapse">
