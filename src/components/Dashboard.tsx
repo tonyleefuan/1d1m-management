@@ -160,16 +160,16 @@ export function Dashboard({ userName, userRole }: Props) {
   const visibleTabs = tabs.filter(t => t.visible)
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-muted/40">
       {/* Header */}
-      <header className="bg-white sticky top-0 z-50">
+      <header className="bg-background sticky top-0 z-50 border-b">
         <div className="max-w-[1400px] mx-auto px-4 h-12 flex items-center justify-between">
           <img src="/logo.png" alt="1Day1Message" className="h-5" />
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500">{userName} ({userRole})</span>
+            <span className="text-xs text-muted-foreground">{userName} ({userRole})</span>
             <button
               onClick={handleLogout}
-              className="text-xs text-gray-400 hover:text-gray-600"
+              className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors"
             >
               로그아웃
             </button>
@@ -177,11 +177,10 @@ export function Dashboard({ userName, userRole }: Props) {
         </div>
       </header>
 
-      {/* Tab Navigation — ready 전에는 스켈레톤, ready 후에는 DB 탭 순서 */}
-      <nav className="bg-white border-b">
+      {/* Tab Navigation */}
+      <nav className="bg-background border-b">
         <div className="max-w-[1400px] mx-auto px-4 flex gap-0 overflow-x-auto">
           {!ready ? (
-            // 설정 로드 전: 스켈레톤으로 탭 위치 고정 (순서 점프 방지)
             Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="px-4 py-2.5">
                 <Skeleton className="h-5 w-16" />
@@ -194,8 +193,8 @@ export function Dashboard({ userName, userRole }: Props) {
                 onClick={() => handleTabChange(t.id)}
                 className={`px-4 py-2.5 text-sm whitespace-nowrap border-b-2 transition-colors ${
                   tab === t.id
-                    ? 'border-black text-black font-medium'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    ? 'border-foreground text-foreground font-medium'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {t.label}
