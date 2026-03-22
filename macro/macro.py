@@ -353,23 +353,39 @@ class KakaoController:
         log.warning("클립보드 접근 실패 (5회 시도)")
 
     def send_ctrl_key(self, hwnd: int, char: str):
-        """Ctrl+문자 전송 — Alt 트릭으로 포그라운드 제한 우회"""
+        """Ctrl+문자 전송 — MosesP0124 패턴 (Alt 키 안 씀, 시스템 메뉴 안 뜸)"""
         _user32 = ctypes.windll.user32
-        _user32.ShowWindow(hwnd, win32con.SW_RESTORE)
-        # Alt 키로 SetForegroundWindow 제한 우회
-        _user32.keybd_event(0x12, 0, 0, 0)  # VK_MENU (Alt)
-        _user32.keybd_event(0x12, 0, win32con.KEYEVENTF_KEYUP, 0)
-        _user32.SetForegroundWindow(hwnd)
-        time.sleep(0.15)
+        _kernel32 = ctypes.windll.kernel32
 
-        vk = ord(char.upper())
-        _user32.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-        time.sleep(0.02)
-        _user32.keybd_event(vk, 0, 0, 0)
-        time.sleep(0.02)
-        _user32.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
-        time.sleep(0.02)
-        _user32.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
+        # WM_ACTIVATE로 창 활성화
+        win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+
+        tid_self = _kernel32.GetCurrentThreadId()
+        tid_target = _user32.GetWindowThreadProcessId(hwnd, None)
+
+        _user32.AttachThreadInput(tid_self, tid_target, True)
+        try:
+            vk = ord(char.upper())
+            scan_code = _user32.MapVirtualKeyA(vk, 0)
+            lparam = win32api.MAKELONG(0, scan_code)
+
+            # Ctrl 키 상태 설정
+            key_state = (ctypes.c_ubyte * 256)()
+            _user32.GetKeyboardState(ctypes.byref(key_state))
+            key_state[win32con.VK_CONTROL] = 0x80
+            _user32.SetKeyboardState(ctypes.byref(key_state))
+            time.sleep(0.01)
+
+            win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, vk, lparam)
+            time.sleep(0.01)
+            win32api.PostMessage(hwnd, win32con.WM_KEYUP, vk, lparam | 0xC0000000)
+            time.sleep(0.01)
+
+            # Ctrl 키 상태 복원
+            key_state[win32con.VK_CONTROL] = 0x00
+            _user32.SetKeyboardState(ctypes.byref(key_state))
+        finally:
+            _user32.AttachThreadInput(tid_self, tid_target, False)
         time.sleep(0.1)
 
     # ─── 카카오톡 동작 ───
@@ -434,8 +450,8 @@ class KakaoController:
     def send_text_message(self, text: str):
         """현재 열린 채팅방에 텍스트 전송
 
-        클립보드 + Ctrl+V + keybd_event Enter 방식 사용
-        (WM_SETTEXT+PostMessage Enter는 카카오톡에서 동작하지 않음 확인됨)
+        WM_SETTEXT + MosesP0124 방식 PostMessage Enter
+        (모니터 없이 동작, Alt 키 시스템 메뉴 안 뜸)
         """
         if not self.chat_hwnd:
             raise Exception("채팅방 창이 없습니다")
@@ -444,41 +460,56 @@ class KakaoController:
         if not chat_edit:
             raise Exception("메시지 입력창(RichEdit50W)을 찾을 수 없습니다")
 
-        # 클립보드에 텍스트 복사
-        self.set_clipboard_text(text)
+        # 1. 텍스트 직접 설정 (WM_SETTEXT — 포그라운드 불필요)
+        win32api.SendMessage(chat_edit, win32con.WM_SETTEXT, 0, text)
         time.sleep(0.2)
 
-        # ★ 핵심: RichEdit 입력창에 직접 포커스 (debug.py 방법B와 동일)
-        _user32 = ctypes.windll.user32
-        _user32.ShowWindow(self.chat_hwnd, win32con.SW_RESTORE)
-        _user32.keybd_event(0x12, 0, 0, 0)  # Alt down
-        _user32.keybd_event(0x12, 0, win32con.KEYEVENTF_KEYUP, 0)  # Alt up
-        _user32.SetForegroundWindow(self.chat_hwnd)
-        time.sleep(0.15)
-
-        # AttachThreadInput으로 RichEdit에 SetFocus
-        tid_self = ctypes.windll.kernel32.GetCurrentThreadId()
-        tid_target = _user32.GetWindowThreadProcessId(self.chat_hwnd, None)
-        _user32.AttachThreadInput(tid_self, tid_target, True)
-        _user32.SetFocus(chat_edit)
-        _user32.AttachThreadInput(tid_self, tid_target, False)
-        time.sleep(0.2)
-
-        # Ctrl+V 붙여넣기
-        _user32.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-        time.sleep(0.02)
-        _user32.keybd_event(0x56, 0, 0, 0)  # V
-        time.sleep(0.02)
-        _user32.keybd_event(0x56, 0, win32con.KEYEVENTF_KEYUP, 0)
-        time.sleep(0.02)
-        _user32.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
-        time.sleep(0.5)
-
-        # Enter 전송
-        _user32.keybd_event(win32con.VK_RETURN, 0, 0, 0)
-        time.sleep(0.05)
-        _user32.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
+        # 2. Enter 전송 (MosesP0124 패턴 — SetKeyboardState + PostMessage)
+        self._post_key_with_attach(chat_edit, win32con.VK_RETURN)
         time.sleep(0.3)
+
+    def _post_key_with_attach(self, hwnd: int, vk_key: int):
+        """MosesP0124 패턴: AttachThreadInput + SetKeyboardState + PostMessage
+
+        Alt 키 없이 키 입력을 정확히 전달하는 방법.
+        모니터 없이도 동작.
+        """
+        _user32 = ctypes.windll.user32
+        _kernel32 = ctypes.windll.kernel32
+
+        # WM_ACTIVATE로 창 활성화 (시스템 메뉴 안 뜸)
+        parent = win32gui.GetParent(hwnd) or hwnd
+        win32gui.SendMessage(parent, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+
+        tid_self = _kernel32.GetCurrentThreadId()
+        tid_target = _user32.GetWindowThreadProcessId(parent, None)
+
+        _user32.AttachThreadInput(tid_self, tid_target, True)
+        try:
+            scan_code = _user32.MapVirtualKeyA(vk_key, 0)
+            lparam = win32api.MAKELONG(0, scan_code)
+
+            win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, vk_key, lparam)
+            time.sleep(0.01)
+            win32api.PostMessage(hwnd, win32con.WM_KEYUP, vk_key, lparam | 0xC0000000)
+            time.sleep(0.01)
+        finally:
+            _user32.AttachThreadInput(tid_self, tid_target, False)
+
+    def bring_to_front(self, hwnd: int):
+        """창을 포그라운드로 — Alt 키 없이 안전하게"""
+        try:
+            _user32 = ctypes.windll.user32
+            # 최소화 상태면 복원
+            if _user32.IsIconic(hwnd):
+                _user32.ShowWindow(hwnd, win32con.SW_RESTORE)
+                time.sleep(0.3)
+            # WM_ACTIVATE로 활성화 (시스템 메뉴 안 뜸)
+            win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+            _user32.SetForegroundWindow(hwnd)
+            time.sleep(0.1)
+        except Exception:
+            pass
 
     def send_image_file(self, image_path: str, file_delay: int = 6):
         """이미지를 클립보드에 복사(CF_DIB) → Ctrl+V로 붙여넣기 → Enter 확인
@@ -536,35 +567,17 @@ class KakaoController:
                     raise Exception("이미지 클립보드 설정 실패 (3회 시도)")
                 time.sleep(0.1)
 
-        # 2. WM_PASTE를 채팅창에 직접 전송 (포그라운드 불필요)
-        win32api.SendMessage(self.chat_hwnd, win32con.WM_PASTE, 0, 0)
-
-        # 3. 전송 확인 대화상자에 Enter 전송 (PostMessage — 포그라운드 불필요)
-        time.sleep(1.0)
-        confirm_dialog = None
-        for _ in range(20):
-            time.sleep(0.3)
-            def find_dialog(hwnd, results):
-                if win32gui.IsWindowVisible(hwnd):
-                    cls = win32gui.GetClassName(hwnd)
-                    title = win32gui.GetWindowText(hwnd)
-                    if cls == "#32770" or "전송" in title or "확인" in title:
-                        results.append(hwnd)
-                return True
-            dialogs = []
-            win32gui.EnumWindows(find_dialog, dialogs)
-            if dialogs:
-                confirm_dialog = dialogs[0]
-                break
-
-        if confirm_dialog:
-            win32api.PostMessage(confirm_dialog, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
-            time.sleep(0.05)
-            win32api.PostMessage(confirm_dialog, win32con.WM_KEYUP, win32con.VK_RETURN, 0)
+        # 2. WM_PASTE를 채팅 입력창에 전송
+        chat_edit = self.find_chat_edit()
+        if chat_edit:
+            win32api.SendMessage(chat_edit, win32con.WM_PASTE, 0, 0)
         else:
-            # 대화상자가 안 뜨면 채팅창에 직접 Enter
-            self.send_return(self.chat_hwnd)
+            win32api.SendMessage(self.chat_hwnd, win32con.WM_PASTE, 0, 0)
 
+        # 3. 전송 확인 — Enter 키
+        time.sleep(1.0)
+        target = chat_edit if chat_edit else self.chat_hwnd
+        self._post_key_with_attach(target, win32con.VK_RETURN)
         time.sleep(file_delay)
 
     def go_to_friend_tab(self):

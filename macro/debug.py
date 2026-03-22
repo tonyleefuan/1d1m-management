@@ -237,6 +237,36 @@ time.sleep(0.5)
 
 print("  방법 C 실행 완료 — 카카오톡에 메시지가 보이나요?")
 
+# 방법 D: WM_SETTEXT + MosesP0124 패턴 (AttachThreadInput + SetKeyboardState)
+input("\n  계속하려면 Enter... ")
+print("  방법 D: WM_SETTEXT + AttachThreadInput + SetKeyboardState Enter")
+
+# 텍스트 설정
+win32api.SendMessage(chat_edit, win32con.WM_SETTEXT, 0, "[디버그] 방법D 테스트")
+time.sleep(0.2)
+
+# MosesP0124 패턴 Enter
+_kernel32 = ctypes.windll.kernel32
+parent = win32gui.GetParent(chat_edit) or chat_hwnd
+win32gui.SendMessage(parent, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+
+tid_self = _kernel32.GetCurrentThreadId()
+tid_target = user32.GetWindowThreadProcessId(parent, None)
+user32.AttachThreadInput(tid_self, tid_target, True)
+
+scan_code = user32.MapVirtualKeyA(win32con.VK_RETURN, 0)
+lparam = win32api.MAKELONG(0, scan_code)
+
+win32api.PostMessage(chat_edit, win32con.WM_KEYDOWN, win32con.VK_RETURN, lparam)
+time.sleep(0.01)
+win32api.PostMessage(chat_edit, win32con.WM_KEYUP, win32con.VK_RETURN, lparam | 0xC0000000)
+time.sleep(0.01)
+
+user32.AttachThreadInput(tid_self, tid_target, False)
+time.sleep(0.5)
+
+print("  방법 D 실행 완료 — 카카오톡에 메시지가 보이나요?")
+
 # 8. 채팅방 닫기
 input("\n[8] Enter를 누르면 채팅방을 닫습니다... ")
 print("  WM_CLOSE 전송...")
