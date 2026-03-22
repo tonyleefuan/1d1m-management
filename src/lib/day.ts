@@ -28,7 +28,12 @@ interface CalcCurrentDayInput {
 export function calcCurrentDay(input: CalcCurrentDayInput): number {
   const today = input.today || todayKST()
   const elapsed = diffDays(today, input.start_date) + 1
-  const activePause = input.paused_at ? Math.max(0, diffDays(today, input.paused_at)) : 0
+  // paused_at이 타임스탬프면 KST 날짜로 정규화
+  let pausedAtDate = input.paused_at
+  if (pausedAtDate && pausedAtDate.length > 10) {
+    pausedAtDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(pausedAtDate))
+  }
+  const activePause = pausedAtDate ? Math.max(0, diffDays(today, pausedAtDate)) : 0
   return elapsed - input.paused_days - activePause
 }
 
@@ -95,7 +100,12 @@ export function computeSubscription(sub: {
     }
   }
 
-  const activePause = sub.paused_at ? Math.max(0, diffDays(t, sub.paused_at)) : 0
+  // paused_at이 타임스탬프면 KST 날짜로 정규화
+  let pausedAtDate = sub.paused_at
+  if (pausedAtDate && pausedAtDate.length > 10) {
+    pausedAtDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(pausedAtDate))
+  }
+  const activePause = pausedAtDate ? Math.max(0, diffDays(t, pausedAtDate)) : 0
   const currentDay = calcCurrentDay({
     start_date: sub.start_date,
     paused_days: sub.paused_days,

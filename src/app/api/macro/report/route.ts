@@ -132,7 +132,7 @@ export async function POST(req: Request) {
       }
 
       // recovery_mode 초기화
-      if (existingSub?.recovery_mode === 'bulk') {
+      if (existingSub?.recovery_mode === 'bulk' || existingSub?.recovery_mode === 'sequential') {
         updates.recovery_mode = null
       }
 

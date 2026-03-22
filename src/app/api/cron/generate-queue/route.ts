@@ -152,7 +152,7 @@ export async function POST(req: Request) {
   let totalGenerated = 0
 
   for (const device of devices) {
-    const result = await generateQueueForDevice(device.phone_number, today)
+    const result = await generateQueueForDevice(device.id, today)
     const count = 'error' in result ? 0 : result.data.length
     summary[device.phone_number] = count
     totalGenerated += count

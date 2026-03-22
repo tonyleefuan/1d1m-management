@@ -193,9 +193,7 @@ def save_progress(completed_ids, results: list):
                 "completed_ids": list(completed_ids),
                 "results": results
             }, f, ensure_ascii=False)
-        if PROGRESS_PATH.exists():
-            PROGRESS_PATH.unlink()
-        tmp_path.rename(PROGRESS_PATH)
+        os.replace(tmp_path, PROGRESS_PATH)
     except Exception as e:
         log.warning(f"progress 저장 실패: {e}")
 
@@ -479,12 +477,8 @@ class KakaoController:
                     raise Exception("이미지 클립보드 설정 실패 (3회 시도)")
                 time.sleep(0.1)
 
-        # 2. WM_PASTE를 채팅 입력창에 직접 전송 (포그라운드 불필요)
-        chat_edit = self.find_chat_edit()
-        if chat_edit:
-            win32api.SendMessage(chat_edit, win32con.WM_PASTE, 0, 0)
-        else:
-            raise Exception("이미지 붙여넣기 실패: 입력창을 찾을 수 없습니다")
+        # 2. WM_PASTE를 채팅창에 직접 전송 (포그라운드 불필요)
+        win32api.SendMessage(self.chat_hwnd, win32con.WM_PASTE, 0, 0)
 
         # 3. 전송 확인 대화상자에 Enter 전송 (PostMessage — 포그라운드 불필요)
         time.sleep(1.0)
@@ -793,10 +787,24 @@ def _run_macro_inner(config: dict, api: ServerAPI):
                         break
                     else:
                         log.error("카카오톡 재시작 실패. 중단합니다.")
+                        # 남은 메시지 실패 처리
+                        for remaining in items:
+                            if remaining["id"] not in completed_ids:
+                                completed_ids.add(remaining["id"])
+                                results.append({"queue_id": remaining["id"], "status": "failed", "error_type": "device_error"})
+                                failed_count += 1
+                        save_progress(completed_ids, results)
                         api.send_report(results, date.today().isoformat())
                         return
                 else:
                     log.error("카카오톡 이미 재시작 시도함. 중단합니다.")
+                    # 남은 메시지 실패 처리
+                    for remaining in items:
+                        if remaining["id"] not in completed_ids:
+                            completed_ids.add(remaining["id"])
+                            results.append({"queue_id": remaining["id"], "status": "failed", "error_type": "device_error"})
+                            failed_count += 1
+                    save_progress(completed_ids, results)
                     api.send_report(results, date.today().isoformat())
                     return
 

@@ -6,9 +6,15 @@ const SECRET = new TextEncoder().encode(process.env.AUTH_SECRET!)
 
 const PUBLIC_PATHS = ['/login', '/api/auth/login']
 const MACRO_PATHS = ['/api/macro/']
+const CRON_PATHS = ['/api/cron/']
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
+
+  // Cron API — route handler does its own CRON_SECRET check
+  if (CRON_PATHS.some(p => pathname.startsWith(p))) {
+    return NextResponse.next()
+  }
 
   // Macro API authentication (api_key based)
   if (MACRO_PATHS.some(p => pathname.startsWith(p))) {

@@ -8,7 +8,15 @@ export async function GET(req: Request) {
   const deviceId = searchParams.get('device_id')
   if (!deviceId) return NextResponse.json({ error: 'device_id required' }, { status: 400 })
 
-  const result = await generateQueueForDevice(deviceId)
+  // Look up device by phone_number to get UUID
+  const { data: device } = await supabase
+    .from('send_devices')
+    .select('id')
+    .eq('phone_number', deviceId)
+    .single()
+
+  const actualDeviceId = device?.id || deviceId
+  const result = await generateQueueForDevice(actualDeviceId)
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: 500 })
 
   // 고유 이미지 목록 추출

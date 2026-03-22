@@ -26,7 +26,7 @@ export async function GET(req: Request) {
     created_at: 'created_at',
     start_date: 'start_date',
     end_date: 'end_date',
-    day: 'day',
+    day: 'last_sent_day',
     status: 'status',
   }
   const sortField = SORTABLE_FIELDS[sortBy] || 'created_at'
