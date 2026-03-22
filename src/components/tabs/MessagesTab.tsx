@@ -387,7 +387,7 @@ function TodayMessageBoard({
           </span>
         </div>
       </div>
-      <div className="space-y-3 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
+      <div className="columns-2 gap-3 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
         {sorted.map(p => {
           const existing = todayStatus.status[p.id]
           const isDone = !!existing
@@ -395,7 +395,7 @@ function TodayMessageBoard({
             <div
               key={p.id}
               className={cn(
-                'rounded-lg border p-4',
+                'rounded-lg border p-4 break-inside-avoid mb-3',
                 isDone ? 'bg-card' : 'bg-destructive/5 border-destructive/20'
               )}
             >
@@ -417,16 +417,19 @@ function TodayMessageBoard({
                 )}
               </div>
               {isDone ? (
-                <p className="text-[13px] text-muted-foreground line-clamp-2 pl-6">{existing}</p>
+                <p className="text-[13px] text-muted-foreground whitespace-pre-wrap pl-6">{existing}</p>
               ) : (
                 <div className="pl-6 space-y-2">
                   <Textarea
                     placeholder="오늘의 메시지를 입력하세요..."
-                    className="min-h-[80px] text-[13px]"
+                    className="min-h-[120px] text-[13px]"
                     value={drafts[p.id] || ''}
                     onChange={(e) => setDrafts(d => ({ ...d, [p.id]: e.target.value }))}
                   />
-                  <div className="flex justify-end">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {(drafts[p.id] || '').length}자
+                    </span>
                     <Button
                       size="sm"
                       onClick={() => handleSave(p.id)}
