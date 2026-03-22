@@ -645,10 +645,6 @@ export function AdminTab() {
             <LayoutGrid className="h-4 w-4" />
             탭 관리
           </TabsTrigger>
-          <TabsTrigger value="prompts" className="gap-1.5">
-            <Sparkles className="h-4 w-4" />
-            AI 프롬프트
-          </TabsTrigger>
         </TabsList>
         <TabsContent value="users">
           <UsersPanel />
@@ -658,9 +654,6 @@ export function AdminTab() {
         </TabsContent>
         <TabsContent value="tabs">
           <TabOrderPanel />
-        </TabsContent>
-        <TabsContent value="prompts">
-          <PromptManagementPanel />
         </TabsContent>
       </Tabs>
     </div>

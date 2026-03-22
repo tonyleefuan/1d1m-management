@@ -19,7 +19,7 @@ export async function PUT(request: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
 
-  const { product_id, search_prompt, generation_prompt } = await request.json()
+  const { product_id, search_prompt, generation_prompt, additional_prompt } = await request.json()
   if (!product_id) return NextResponse.json({ error: 'product_id 필요' }, { status: 400 })
 
   const { error } = await supabase
@@ -28,6 +28,7 @@ export async function PUT(request: NextRequest) {
       product_id,
       search_prompt: search_prompt || '',
       generation_prompt: generation_prompt || '',
+      additional_prompt: additional_prompt || '',
       updated_at: new Date().toISOString(),
     }, { onConflict: 'product_id' })
 
