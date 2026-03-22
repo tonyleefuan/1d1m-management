@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { searchNews, generateMessage } from '@/lib/ai/claude'
 import { shortenUrlsInText } from '@/lib/ai/url-shortener'
+import { fetchNewsForProduct } from '@/lib/ai/news-fetcher'
 
 export const maxDuration = 300
 
@@ -36,7 +37,11 @@ async function generateForProduct(
       .map(h => `[${h.send_date}] ${h.content.slice(0, 200)}...`)
       .join('\n\n')
 
-    const newsContext = await searchNews(searchPrompt, recentHistory, targetDate, articleUrl)
+    const sourceContent = articleUrl ? '' : await fetchNewsForProduct(sku)
+    const searchContext = sourceContent
+      ? `${searchPrompt}\n\n## 소스 페이지에서 가져온 헤드라인/기사 목록\n${sourceContent}`
+      : searchPrompt
+    const newsContext = await searchNews(searchContext, recentHistory, targetDate, articleUrl)
     let message = await generateMessage(generationPrompt, newsContext, recentHistory, targetDate)
     message = await shortenUrlsInText(message)
 

@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { searchNews, generateMessage } from './claude'
 import { shortenUrlsInText } from './url-shortener'
+import { fetchNewsForProduct } from './news-fetcher'
 
 interface GenerateResult {
   sku: string
@@ -45,8 +46,12 @@ async function generateForProduct(
       .map(h => `=== ${h.send_date} 메시지 ===\n${h.content}`)
       .join('\n\n')
 
-    // 3. Search news
-    const newsContext = await searchNews(searchPrompt, recentTopics, targetDate, articleUrl)
+    // 3. 소스 페이지 크롤링 + Search news
+    const sourceContent = articleUrl ? '' : await fetchNewsForProduct(sku)
+    const searchContext = sourceContent
+      ? `${searchPrompt}\n\n## 소스 페이지에서 가져온 헤드라인/기사 목록\n${sourceContent}`
+      : searchPrompt
+    const newsContext = await searchNews(searchContext, recentTopics, targetDate, articleUrl)
 
     // 4. Generate message
     let message = await generateMessage(generationPrompt, newsContext, recentTopics, targetDate, formatReference)
