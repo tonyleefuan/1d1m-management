@@ -18,10 +18,10 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { SUBSCRIPTION_STATUSES, STATUS_LABELS, PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
+import { PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Timeline } from '@/components/ui/timeline'
-import { Users, Send, Pause, Clock, FileText, MessageSquare, Check, RefreshCw } from 'lucide-react'
+import { Send, Pause, Clock, FileText, MessageSquare, RefreshCw } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -66,6 +66,19 @@ interface SubRow {
     phone_number: string
     name: string | null
   } | null
+  // New computed fields from API
+  current_day: number
+  computed_status: 'active' | 'pending' | 'completed' | 'paused' | 'cancelled'
+  computed_end_date: string
+  pending_days: number[]
+  missed_days: number
+  // New DB fields
+  last_sent_day: number
+  failure_type: 'friend_not_found' | 'device_error' | 'not_sent' | 'other' | null
+  failure_date: string | null
+  recovery_mode: 'bulk' | 'sequential' | null
+  paused_days: number
+  is_cancelled: boolean
 }
 
 interface LogEntry {
@@ -109,6 +122,21 @@ const STATUS_MAP: Record<string, { status: StatusType; label: string; className?
   pause: { status: 'neutral', label: '일시정지', className: 'bg-purple-100 text-purple-800' },
   archive: { status: 'neutral', label: '종료' },
   cancel: { status: 'error', label: '취소' },
+}
+
+const COMPUTED_STATUS_MAP: Record<string, { status: StatusType; label: string; className?: string }> = {
+  active: { status: 'info', label: '활성' },
+  pending: { status: 'warning', label: '대기' },
+  completed: { status: 'neutral', label: '완료' },
+  paused: { status: 'neutral', label: '정지', className: 'bg-purple-100 text-purple-800' },
+  cancelled: { status: 'error', label: '취소' },
+}
+
+const FAILURE_BADGE_MAP: Record<string, { status: StatusType; label: string; className?: string }> = {
+  friend_not_found: { status: 'error', label: '⚠️ 친구없음' },
+  device_error: { status: 'warning', label: '🔄 자동재시도' },
+  not_sent: { status: 'error', label: '🔴 미발송' },
+  other: { status: 'error', label: '⚠️ 기타' },
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
@@ -378,6 +406,31 @@ export function SubscriptionsTab() {
       fetchSummary()
     } else {
       showError('해소에 실패했습니다')
+    }
+  }
+
+  // ─── Failure resolution ─────────────────────────────
+
+  const [resolveDialogOpen, setResolveDialogOpen] = useState(false)
+  const [resolvingSub, setResolvingSub] = useState<SubRow | null>(null)
+
+  const handleResolveFailure = async (sub: SubRow, action: 'manual_sent' | 'bulk' | 'sequential') => {
+    const res = await fetch('/api/subscriptions/update', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: sub.id,
+        resolve_failure: { action },
+      }),
+    })
+    if (res.ok) {
+      showSuccess(action === 'manual_sent' ? '직접 발송 처리됨' : action === 'bulk' ? '몰아서 보내기 설정됨' : '하루씩 보내기 설정됨')
+      setResolveDialogOpen(false)
+      setResolvingSub(null)
+      fetchSubs()
+      fetchSummary()
+    } else {
+      showError('실패 해제 중 오류가 발생했습니다')
     }
   }
 
@@ -723,17 +776,16 @@ export function SubscriptionsTab() {
                     Day <SortIcon field="day" />
                   </TableHead>
                   <TableHead className="w-[60px] text-center">D-Day</TableHead>
-                  <TableHead className="w-[120px]">상태</TableHead>
+                  <TableHead className="w-[80px]">상태</TableHead>
+                  <TableHead className="w-[90px]">발송상태</TableHead>
                   <TableHead className="w-[110px]">PC</TableHead>
-                  <TableHead className="w-[50px] text-center">정상</TableHead>
-                  <TableHead className="w-[60px] text-center">실패</TableHead>
+                  <TableHead className="w-[100px]">정지/재개</TableHead>
                   <TableHead className="w-[80px] text-center">발송순서</TableHead>
                   <TableHead className="min-w-[100px]">메모</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {subs.map((sub) => {
-                  const sm = STATUS_MAP[sub.status]
                   return (
                     <TableRow key={sub.id} className="group">
                       {/* 1. Checkbox (Shift+Click 범위 선택 지원) */}
@@ -818,14 +870,14 @@ export function SubscriptionsTab() {
 
                       {/* 9. Day */}
                       <TableCell className="py-1 text-center text-xs tabular-nums">
-                        {sub.day ?? '-'}
+                        {sub.current_day > 0 ? sub.current_day : '-'}
                       </TableCell>
 
                       {/* 10. D-Day */}
                       <TableCell
                         className={cn(
                           'py-1 text-center text-xs tabular-nums font-medium',
-                          sub.status === 'pause'
+                          sub.computed_status === 'paused'
                             ? 'text-muted-foreground'
                             : sub.d_day !== null && sub.d_day <= 0
                               ? 'text-destructive'
@@ -834,40 +886,18 @@ export function SubscriptionsTab() {
                                 : '',
                         )}
                       >
-                        {sub.status === 'pause' ? '일시정지' : sub.d_day !== null ? sub.d_day : '-'}
+                        {sub.computed_status === 'paused' ? '정지' : sub.d_day !== null ? sub.d_day : '-'}
                       </TableCell>
 
-                      {/* 11. 상태 */}
-                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
-                        <div>
-                          <Select
-                            value={sub.status}
-                            onValueChange={(v) => handleStatusChange(sub.id, v)}
-                          >
-                            <SelectTrigger className="h-6 w-[100px] border-0 bg-transparent px-0 text-xs focus:ring-0">
-                              <StatusBadge status={sm?.status ?? 'neutral'} size="xs" className={sm?.className}>
-                                {sm?.label ?? sub.status}
-                              </StatusBadge>
-                            </SelectTrigger>
-                            <SelectContent>
-                              {SUBSCRIPTION_STATUSES.map((s) => {
-                                const m = STATUS_MAP[s]
-                                return (
-                                  <SelectItem key={s} value={s}>
-                                    <StatusBadge status={m.status} size="xs" className={m.className}>
-                                      {m.label}
-                                    </StatusBadge>
-                                  </SelectItem>
-                                )
-                              })}
-                            </SelectContent>
-                          </Select>
-                          {sub.status === 'pause' && sub.resume_date && (
-                            <div className="text-[10px] text-muted-foreground pl-0.5">
-                              ~{new Date(sub.resume_date).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }).replace('. ', '/').replace('.', '')} 재개
-                            </div>
-                          )}
-                        </div>
+                      {/* 11. 상태 (읽기 전용) */}
+                      <TableCell className="py-1">
+                        <StatusBadge
+                          status={COMPUTED_STATUS_MAP[sub.computed_status]?.status ?? 'neutral'}
+                          size="xs"
+                          className={COMPUTED_STATUS_MAP[sub.computed_status]?.className}
+                        >
+                          {COMPUTED_STATUS_MAP[sub.computed_status]?.label ?? sub.computed_status}
+                        </StatusBadge>
                       </TableCell>
 
                       {/* 12. PC */}
@@ -919,23 +949,49 @@ export function SubscriptionsTab() {
                         </Select>
                       </TableCell>
 
-                      {/* 13. 정상 (발송 성공 자동 체크) */}
-                      <TableCell className="py-1 text-center text-xs">
-                        {sub.auto_confirmed ? (
-                          <Check className="inline h-3.5 w-3.5 text-emerald-500" />
+                      {/* 13. 발송상태 */}
+                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
+                        {sub.failure_type ? (
+                          <button
+                            className="cursor-pointer"
+                            title={`${sub.failure_date || ''} ${sub.failure_type === 'friend_not_found' ? '친구 못 찾음' : sub.failure_type === 'device_error' ? 'PC오류' : sub.failure_type === 'not_sent' ? '미발송' : sub.failure_type}`}
+                            onClick={() => {
+                              setResolvingSub(sub)
+                              setResolveDialogOpen(true)
+                            }}
+                          >
+                            <StatusBadge
+                              status={FAILURE_BADGE_MAP[sub.failure_type]?.status ?? 'error'}
+                              size="xs"
+                              className={FAILURE_BADGE_MAP[sub.failure_type]?.className}
+                            >
+                              {FAILURE_BADGE_MAP[sub.failure_type]?.label ?? sub.failure_type}
+                            </StatusBadge>
+                          </button>
                         ) : (
-                          <span className="text-muted-foreground">-</span>
+                          <StatusBadge status="success" size="xs">✅ 정상</StatusBadge>
                         )}
                       </TableCell>
 
-                      {/* 15. 최근발송실패 */}
-                      <TableCell className="py-1 text-center text-xs" onClick={(e) => e.stopPropagation()}>
-                        {sub.last_send_failure ? (
+                      {/* 14. 정지/재개 */}
+                      <TableCell className="py-1 text-xs" onClick={(e) => e.stopPropagation()}>
+                        {sub.computed_status === 'paused' ? (
                           <button
-                            className="text-destructive hover:underline cursor-pointer text-xs font-medium"
-                            onClick={() => handleClearFailure(sub)}
+                            className="text-purple-600 hover:underline cursor-pointer text-xs"
+                            onClick={() => {
+                              optimisticUpdate(sub.id, { paused_at: null, resume_date: null } as unknown as Partial<SubRow>, { status: 'live' }, '정지 해제')
+                            }}
                           >
-                            실패
+                            {sub.resume_date ? `~${sub.resume_date.slice(5)} 재개` : '무기한'}
+                          </button>
+                        ) : sub.computed_status === 'active' ? (
+                          <button
+                            className="text-muted-foreground hover:text-foreground cursor-pointer text-xs"
+                            onClick={() => {
+                              optimisticUpdate(sub.id, { status: 'pause' as SubscriptionStatus } as Partial<SubRow>, { status: 'pause', paused_at: new Date().toISOString() }, '정지')
+                            }}
+                          >
+                            정지
                           </button>
                         ) : (
                           <span className="text-muted-foreground">-</span>
@@ -1061,8 +1117,8 @@ export function SubscriptionsTab() {
                 <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
                   <div className="text-muted-foreground">상태</div>
                   <div>
-                    <StatusBadge status={STATUS_MAP[detailSub.status]?.status ?? 'neutral'} size="sm">
-                      {STATUS_MAP[detailSub.status]?.label ?? detailSub.status}
+                    <StatusBadge status={COMPUTED_STATUS_MAP[detailSub.computed_status]?.status ?? 'neutral'} size="sm" className={COMPUTED_STATUS_MAP[detailSub.computed_status]?.className}>
+                      {COMPUTED_STATUS_MAP[detailSub.computed_status]?.label ?? detailSub.computed_status}
                     </StatusBadge>
                   </div>
                   <div className="text-muted-foreground">상품</div>
@@ -1077,10 +1133,10 @@ export function SubscriptionsTab() {
                   <div className="tabular-nums">{detailSub.end_date || '-'}</div>
                   <div className="text-muted-foreground">Day / D-Day</div>
                   <div className="tabular-nums">
-                    {detailSub.status === 'pause'
-                      ? `${detailSub.day}일째 / 일시정지`
+                    {detailSub.computed_status === 'paused'
+                      ? `${detailSub.current_day}일째 / 정지`
                       : detailSub.start_date
-                        ? `${detailSub.day}일째 / D-${detailSub.d_day ?? '-'}`
+                        ? `${detailSub.current_day}일째 / D-${detailSub.d_day ?? '-'}`
                         : '-'}
                   </div>
                   <div className="text-muted-foreground">PC</div>
@@ -1089,33 +1145,36 @@ export function SubscriptionsTab() {
                       ? `${detailSub.device.phone_number?.slice(-4)} ${detailSub.device.name ? `(${detailSub.device.name})` : ''}`
                       : '미배정'}
                   </div>
-                  <div className="text-muted-foreground">정상 발송</div>
-                  <div>
-                    {detailSub.auto_confirmed ? (
-                      <StatusBadge status="success" size="xs">정상</StatusBadge>
-                    ) : (
-                      <StatusBadge status="neutral" size="xs">미확인</StatusBadge>
-                    )}
-                  </div>
-                  <div className="text-muted-foreground">발송실패</div>
+                  <div className="text-muted-foreground">발송상태</div>
                   <div className="flex items-center gap-2">
-                    {detailSub.last_send_failure ? (
+                    {detailSub.failure_type ? (
                       <>
-                        <span className="text-destructive text-xs">{detailSub.last_send_failure}</span>
+                        <StatusBadge
+                          status={FAILURE_BADGE_MAP[detailSub.failure_type]?.status ?? 'error'}
+                          size="xs"
+                          className={FAILURE_BADGE_MAP[detailSub.failure_type]?.className}
+                        >
+                          {FAILURE_BADGE_MAP[detailSub.failure_type]?.label ?? detailSub.failure_type}
+                        </StatusBadge>
                         <Button
                           size="sm"
                           variant="outline"
                           className="h-5 text-[10px] px-1.5"
-                          onClick={() => handleClearFailure(detailSub)}
+                          onClick={() => {
+                            setResolvingSub(detailSub)
+                            setResolveDialogOpen(true)
+                          }}
                         >
-                          해소
+                          해결
                         </Button>
                       </>
                     ) : (
-                      <span className="text-muted-foreground">-</span>
+                      <StatusBadge status="success" size="xs">✅ 정상</StatusBadge>
                     )}
                   </div>
-                  {detailSub.status === 'pause' && (
+                  <div className="text-muted-foreground">마지막 발송</div>
+                  <div className="tabular-nums">Day {detailSub.last_sent_day || '-'}</div>
+                  {detailSub.computed_status === 'paused' && (
                     <>
                       <div className="text-muted-foreground">재개예정일</div>
                       <div>
@@ -1208,7 +1267,57 @@ export function SubscriptionsTab() {
         </SheetContent>
       </Sheet>
 
-      {/* 6. Confirm Dialog */}
+      {/* 6. Failure Resolution Dialog */}
+      {resolveDialogOpen && resolvingSub && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setResolveDialogOpen(false)}>
+          <div className="bg-background rounded-lg shadow-lg p-6 w-[380px] space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-semibold text-sm">{resolvingSub.customer?.kakao_friend_name || resolvingSub.customer?.name} — {resolvingSub.product?.sku_code}</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Day {resolvingSub.last_sent_day + 1}~{resolvingSub.current_day} 미발송
+              </p>
+              <p className="text-xs text-muted-foreground">
+                사유: {resolvingSub.failure_type === 'friend_not_found' ? '친구 못 찾음' : resolvingSub.failure_type === 'device_error' ? 'PC오류' : resolvingSub.failure_type === 'not_sent' ? '미발송' : resolvingSub.failure_type}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                className="w-full text-left px-3 py-2.5 rounded-md hover:bg-muted transition-colors"
+                onClick={() => handleResolveFailure(resolvingSub, 'manual_sent')}
+              >
+                <div className="text-sm font-medium">✅ 직접 보냈어요</div>
+                <div className="text-xs text-muted-foreground">Day {resolvingSub.current_day + 1}부터 정상 진행</div>
+              </button>
+
+              <button
+                className="w-full text-left px-3 py-2.5 rounded-md hover:bg-muted transition-colors"
+                onClick={() => handleResolveFailure(resolvingSub, 'bulk')}
+              >
+                <div className="text-sm font-medium">🔄 밀린 것 몰아서 보내기</div>
+                <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}~{resolvingSub.current_day + 1} 한번에 발송</div>
+              </button>
+
+              <button
+                className="w-full text-left px-3 py-2.5 rounded-md hover:bg-muted transition-colors"
+                onClick={() => handleResolveFailure(resolvingSub, 'sequential')}
+              >
+                <div className="text-sm font-medium">▶️ 밀린 것부터 하루씩 보내기</div>
+                <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}, 모레 Day{resolvingSub.last_sent_day + 2}, ... 종료일 연장</div>
+              </button>
+            </div>
+
+            <button
+              className="w-full text-center text-xs text-muted-foreground hover:text-foreground py-2"
+              onClick={() => setResolveDialogOpen(false)}
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Confirm Dialog */}
       {ConfirmDialogElement}
 
       {/* 7. Toast */}
