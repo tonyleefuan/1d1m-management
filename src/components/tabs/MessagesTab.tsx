@@ -412,7 +412,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                 return (
                   <th key={d} className={cn(
                     'text-center text-xs font-medium p-2 border-b',
-                    isToday ? 'min-w-[400px] bg-primary/5' : isEditable(d) ? 'min-w-[350px] bg-emerald-50/50' : 'min-w-[300px]',
+                    isToday ? 'min-w-[500px] bg-primary/5' : isEditable(d) ? 'min-w-[500px] bg-emerald-50/50' : 'min-w-[500px]',
                   )}>
                     <span className={cn(isToday && 'text-primary font-semibold')}>
                       {formatDate(d).short}
