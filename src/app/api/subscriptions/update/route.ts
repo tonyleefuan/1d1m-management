@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { todayKST, computeSubscription } from '@/lib/day'
 
 // ─── 히스토리 로그 헬퍼 ─────────────────────────
 async function logChange(
@@ -38,6 +39,67 @@ export async function PATCH(req: Request) {
     const targetIds = ids || (id ? [id] : [])
     if (targetIds.length === 0) {
       return NextResponse.json({ error: 'ID가 필요합니다' }, { status: 400 })
+    }
+
+    // 실패 해제 처리
+    if (updates.resolve_failure && targetIds.length === 1) {
+      const { action } = updates.resolve_failure
+      const targetId = targetIds[0]
+
+      // 기존 구독 조회
+      const { data: prevSub } = await supabase
+        .from('subscriptions')
+        .select('start_date, duration_days, last_sent_day, paused_days, paused_at, is_cancelled, failure_type')
+        .eq('id', targetId)
+        .single()
+
+      if (!prevSub) return NextResponse.json({ error: '구독을 찾을 수 없습니다' }, { status: 404 })
+
+      const today = todayKST()
+      const computed = computeSubscription({
+        start_date: prevSub.start_date,
+        duration_days: prevSub.duration_days,
+        last_sent_day: prevSub.last_sent_day ?? 0,
+        paused_days: prevSub.paused_days ?? 0,
+        paused_at: prevSub.paused_at,
+        is_cancelled: prevSub.is_cancelled ?? false,
+      }, today)
+
+      const updateData: Record<string, any> = {
+        failure_type: null,
+        failure_date: null,
+        updated_at: new Date().toISOString(),
+      }
+
+      if (action === 'manual_sent') {
+        updateData.last_sent_day = computed.current_day
+        updateData.recovery_mode = null
+      } else if (action === 'bulk') {
+        updateData.recovery_mode = 'bulk'
+      } else if (action === 'sequential') {
+        updateData.recovery_mode = 'sequential'
+      } else {
+        return NextResponse.json({ error: '유효하지 않은 action' }, { status: 400 })
+      }
+
+      const { error: updateErr } = await supabase
+        .from('subscriptions')
+        .update(updateData)
+        .eq('id', targetId)
+
+      if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
+
+      // 로그 기록
+      await supabase.from('subscription_logs').insert({
+        subscription_id: targetId,
+        action: 'resolve_failure',
+        field: 'failure_type',
+        old_value: prevSub.failure_type,
+        new_value: action,
+        user_id: session.id,
+      })
+
+      return NextResponse.json({ ok: true, action })
     }
 
     // 변경 전 상태 조회 (로그용 + 검증용)
