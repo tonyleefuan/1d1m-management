@@ -308,11 +308,52 @@ def open_search() -> bool:
     return True
 
 
+def get_all_window_titles() -> list:
+    """현재 열려있는 모든 윈도우 창 제목 목록"""
+    titles = []
+    try:
+        import win32gui
+        def callback(hwnd, _):
+            title = win32gui.GetWindowText(hwnd)
+            if title:
+                titles.append(title)
+        win32gui.EnumWindows(callback, None)
+    except ImportError:
+        pass
+    return titles
+
+
+def verify_chat_opened(expected_name: str) -> bool:
+    """채팅방이 열렸는지 창 제목으로 확인
+
+    카카오톡은 채팅방을 열면 별도 창이 생기고,
+    그 창의 제목이 상대방 이름임.
+    """
+    titles = get_all_window_titles()
+    for title in titles:
+        # 채팅방 제목에 이름이 포함되어 있는지 확인
+        if expected_name in title:
+            return True
+    return False
+
+
+def verify_chat_closed(expected_name: str) -> bool:
+    """채팅방이 닫혔는지 창 제목으로 확인"""
+    titles = get_all_window_titles()
+    for title in titles:
+        if expected_name in title:
+            return False  # 아직 열려있음
+    return True
+
+
 def search_friend(name: str) -> bool:
     """카카오톡 친구 목록에서 이름 검색 → 1:1 채팅방 열기
 
     중요: 반드시 친구 탭에서 검색해야 함 (채팅 탭 아님)
-    검색 결과가 없으면 False 반환
+    3단계 검증:
+      1. 친구 탭 → 검색 → 이름 입력 → 선택
+      2. 창 제목으로 채팅방 열림 확인
+      3. 실패 시 ESC로 복구 후 False 반환
     """
     # 1. 친구 탭으로 이동
     go_to_friend_tab()
@@ -334,18 +375,31 @@ def search_friend(name: str) -> bool:
     pyautogui.hotkey("ctrl", "v")
     time.sleep(random.uniform(1.5, 2.0))  # 검색 결과 로딩 대기
 
-    # 5. 검색 결과 확인 — 스크린샷으로 "검색 결과 없음" 감지 시도
-    #    pyautogui로는 텍스트 감지가 어려우므로,
-    #    down 키를 눌렀을 때 커서가 이동하는지로 간접 판단
-    #    (검색 결과가 없으면 down 키가 아무 효과 없음)
-
-    # 6. 첫 번째 결과 선택 (down → enter로 채팅방 열기)
+    # 5. 첫 번째 결과 선택 (down → enter)
     pyautogui.press("down")
     time.sleep(0.3)
     pyautogui.press("enter")
-    time.sleep(random.uniform(0.8, 1.2))
+    time.sleep(random.uniform(1.0, 1.5))
 
-    return True
+    # ⭐ 6. 검증: 채팅방이 열렸는지 창 제목으로 확인
+    if verify_chat_opened(name):
+        log.info(f"  채팅방 확인 ✅: {name}")
+        return True
+
+    # 한번 더 시도 (약간 대기 후)
+    time.sleep(1.0)
+    if verify_chat_opened(name):
+        log.info(f"  채팅방 확인 ✅ (2차): {name}")
+        return True
+
+    # 실패 — 검색 결과가 없거나 엉뚱한 곳이 열림
+    log.warning(f"  채팅방 확인 ❌: {name} — 친구 못 찾음")
+    # ESC로 혹시 열린 엉뚱한 창 닫기
+    pyautogui.press("escape")
+    time.sleep(0.3)
+    pyautogui.press("escape")
+    time.sleep(0.3)
+    return False
 
 
 def send_text_message(text: str):
@@ -379,12 +433,21 @@ def send_image_file(image_path: str, config: dict):
     time.sleep(float(config.get("file_delay", 6)))
 
 
-def close_chat():
-    """채팅방 닫기 — ESC 여러 번 (검색창이 열려있을 수 있음)"""
+def close_chat(friend_name: str = ""):
+    """채팅방 닫기 + 창 제목으로 닫혔는지 확인"""
     pyautogui.press("escape")
     time.sleep(0.3)
-    pyautogui.press("escape")  # 검색창이 열려있으면 한 번 더
+    pyautogui.press("escape")
     time.sleep(0.5)
+
+    # 창 제목으로 확인 (이름이 주어진 경우)
+    if friend_name:
+        if not verify_chat_closed(friend_name):
+            log.warning(f"  채팅방 안 닫힘, ESC 재시도: {friend_name}")
+            pyautogui.press("escape")
+            time.sleep(0.5)
+            pyautogui.press("escape")
+            time.sleep(0.5)
 
 
 def is_kakao_running() -> bool:
@@ -612,7 +675,7 @@ def _run_macro_inner(config: dict, api: ServerAPI):
                 if not kakao_restart_attempted:
                     log.info("카카오톡 재시작 시도...")
                     kakao_restart_attempted = True
-                    close_chat()
+                    close_chat(person_name)
 
                     if restart_kakao(config):
                         focus_kakao()
@@ -651,9 +714,9 @@ def _run_macro_inner(config: dict, api: ServerAPI):
             save_progress(global_index, results)
             maybe_heartbeat()
 
-        # 채팅방 닫기
+        # 채팅방 닫기 (창 제목으로 닫힘 확인)
         if not person_failed:
-            close_chat()
+            close_chat(person_name)
 
     # 7. 최종 보고
     log.info(f"발송 완료: 성공 {sent_count}, 실패 {failed_count}, 총 {total}")
