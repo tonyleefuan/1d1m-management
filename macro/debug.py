@@ -197,7 +197,7 @@ win32gui.SetForegroundWindow(chat_hwnd)
 time.sleep(0.3)
 
 # SetFocus to chat_edit
-tid_self = user32.GetCurrentThreadId()
+tid_self = ctypes.windll.kernel32.GetCurrentThreadId()
 tid_target = user32.GetWindowThreadProcessId(chat_hwnd, None)
 user32.AttachThreadInput(tid_self, tid_target, True)
 user32.SetFocus(chat_edit)
