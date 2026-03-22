@@ -148,7 +148,17 @@ export interface DailyMessage {
   send_date: string
   content: string
   image_path: string | null
+  status: 'draft' | 'approved'
   created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductPrompt {
+  id: string
+  product_id: string
+  search_prompt: string
+  generation_prompt: string
   created_at: string
   updated_at: string
 }
