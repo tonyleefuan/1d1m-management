@@ -83,27 +83,12 @@ foreach ($file in $files) {
 
 # ─── Python 패키지 설치 ───
 Write-Host "[4/8] Python 패키지 설치 중..."
-# pip 경로를 직접 찾기 (새 설치 시 PATH가 바로 안 잡힐 수 있음)
-$pipCmd = Get-Command pip -ErrorAction SilentlyContinue
-if (-not $pipCmd) {
-    # 일반적인 Python 설치 경로에서 pip 찾기
-    $pipPaths = @(
-        "$env:ProgramFiles\Python312\Scripts\pip.exe",
-        "$env:ProgramFiles\Python311\Scripts\pip.exe",
-        "$env:LocalAppData\Programs\Python\Python312\Scripts\pip.exe",
-        "$env:LocalAppData\Programs\Python\Python311\Scripts\pip.exe"
-    )
-    foreach ($p in $pipPaths) {
-        if (Test-Path $p) { $pipCmd = $p; break }
-    }
-}
-if ($pipCmd) {
-    & $pipCmd install -r requirements.txt --quiet 2>&1 | Out-Null
-    Write-Host "       완료!" -ForegroundColor Green
-} else {
-    Write-Host "       [!] pip를 찾을 수 없습니다. 수동 설치 필요:" -ForegroundColor Red
-    Write-Host "           python -m pip install -r requirements.txt" -ForegroundColor Yellow
-}
+# python -m pip 사용 (pip.exe 직접 호출 시 stderr 경고가 에러로 처리되는 문제 방지)
+$pyRun = if ($script:pythonExe) { $script:pythonExe } else { "python" }
+$ErrorActionPreference = "Continue"
+& $pyRun -m pip install -r requirements.txt --quiet 2>$null
+$ErrorActionPreference = "Stop"
+Write-Host "       완료!" -ForegroundColor Green
 
 # ─── config.json 설정 ───
 Write-Host ""
