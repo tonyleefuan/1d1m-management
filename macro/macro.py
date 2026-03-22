@@ -263,12 +263,12 @@ class KakaoController:
             return 0
 
     def find_chat_window(self, friend_name: str) -> bool:
-        """특정 이름의 채팅방 창 찾기"""
+        """특정 이름의 채팅방 창 찾기 (정확히 일치하는 제목만)"""
         self.chat_hwnd = None
         def callback(hwnd, _):
             if win32gui.IsWindowVisible(hwnd):
                 title = win32gui.GetWindowText(hwnd)
-                if friend_name in title and title != "카카오톡":
+                if title == friend_name:
                     self.chat_hwnd = hwnd
                     return False
             return True
@@ -279,7 +279,7 @@ class KakaoController:
         return self.chat_hwnd is not None
 
     def find_chat_edit(self) -> int:
-        """현재 채팅방의 메시지 입력창 핸들 찾기
+        """현재 채팅방의 메시지 입력창 핸들 찾기 (EnumChildWindows 재귀 탐색)
 
         카카오톡 버전에 따라 클래스명이 다를 수 있음:
         - "RichEdit50W" (일반적)
@@ -287,13 +287,18 @@ class KakaoController:
         """
         if not self.chat_hwnd:
             return 0
+        found = []
+        def callback(hwnd, _):
+            cls = win32gui.GetClassName(hwnd)
+            if cls in ("RichEdit50W", "RICHEDIT50W"):
+                found.append(hwnd)
+                return False
+            return True
         try:
-            edit = win32gui.FindWindowEx(self.chat_hwnd, None, "RichEdit50W", None)
-            if not edit:
-                edit = win32gui.FindWindowEx(self.chat_hwnd, None, "RICHEDIT50W", None)
-            return edit or 0
+            win32gui.EnumChildWindows(self.chat_hwnd, callback, None)
         except Exception:
-            return 0
+            pass
+        return found[0] if found else 0
 
     # ─── 키 입력 ───
 
@@ -317,29 +322,38 @@ class KakaoController:
         time.sleep(0.1)
 
     def set_clipboard_text(self, text: str):
-        """클립보드에 텍스트 복사"""
-        win32clipboard.OpenClipboard()
-        try:
-            win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
-        finally:
-            win32clipboard.CloseClipboard()
+        """클립보드에 텍스트 복사 (최대 5회 재시도)"""
+        for attempt in range(5):
+            try:
+                win32clipboard.OpenClipboard()
+                try:
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+                finally:
+                    win32clipboard.CloseClipboard()
+                return
+            except Exception:
+                time.sleep(0.1)
+        log.warning("클립보드 접근 실패 (5회 시도)")
 
     def send_ctrl_key(self, hwnd: int, char: str):
-        """Ctrl+문자 전송 — 포그라운드 필요하므로 keybd_event 사용"""
-        try:
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            win32gui.SetForegroundWindow(hwnd)
-            time.sleep(0.2)
-        except Exception:
-            pass
+        """Ctrl+문자 전송 — Alt 트릭으로 포그라운드 제한 우회"""
+        _user32 = ctypes.windll.user32
+        _user32.ShowWindow(hwnd, win32con.SW_RESTORE)
+        # Alt 키로 SetForegroundWindow 제한 우회
+        _user32.keybd_event(0x12, 0, 0, 0)  # VK_MENU (Alt)
+        _user32.keybd_event(0x12, 0, win32con.KEYEVENTF_KEYUP, 0)
+        _user32.SetForegroundWindow(hwnd)
+        time.sleep(0.15)
+
         vk = ord(char.upper())
-        win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-        time.sleep(0.05)
-        win32api.keybd_event(vk, 0, 0, 0)
-        time.sleep(0.05)
-        win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
-        win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
+        _user32.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
+        time.sleep(0.02)
+        _user32.keybd_event(vk, 0, 0, 0)
+        time.sleep(0.02)
+        _user32.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.02)
+        _user32.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.1)
 
     # ─── 카카오톡 동작 ───
@@ -409,7 +423,11 @@ class KakaoController:
         self.send_return(chat_edit)
 
     def send_image_file(self, image_path: str, file_delay: int = 6):
-        """현재 열린 채팅방에 이미지 파일 전송"""
+        """이미지를 클립보드에 복사(CF_DIB) → Ctrl+V로 붙여넣기 → Enter 확인
+
+        kakaotalk-mcp 패턴 참고: Ctrl+T 파일 대화상자 대신
+        클립보드 이미지 붙여넣기 방식 사용
+        """
         if not self.chat_hwnd:
             raise Exception("채팅방 창이 없습니다")
 
@@ -419,50 +437,86 @@ class KakaoController:
         if not local_path.exists():
             raise FileNotFoundError(f"이미지 파일 없음: {local_path}")
 
-        # Ctrl+T로 파일 전송 대화상자 열기
-        self.send_ctrl_key(self.chat_hwnd, 'T')
-        time.sleep(1.5)
+        # 1. PowerShell로 이미지를 BMP 변환 → 클립보드에 CF_DIB 설정
+        abs_path = str(local_path.resolve())
+        ps_path = abs_path.replace("'", "''")
+        ps_script = (
+            "Add-Type -AssemblyName System.Drawing;"
+            f"$img = [System.Drawing.Image]::FromFile('{ps_path}');"
+            "$ms = New-Object System.IO.MemoryStream;"
+            "$img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Bmp);"
+            "$img.Dispose();"
+            "$bytes = $ms.ToArray();"
+            "$ms.Dispose();"
+            "[Console]::OpenStandardOutput().Write($bytes, 0, $bytes.Length)"
+        )
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True, timeout=15,
+        )
+        if result.returncode != 0:
+            raise OSError(f"이미지 변환 실패: {result.stderr.decode().strip()}")
 
-        # 파일 대화상자 찾기 (#32770 = 표준 파일 대화상자)
-        file_dialog = None
-        for _ in range(10):
-            file_dialog = win32gui.FindWindow('#32770', None)
-            if file_dialog:
+        bmp_data = result.stdout
+        if len(bmp_data) < 54:
+            raise OSError("이미지 변환 결과가 유효하지 않습니다")
+
+        # CF_DIB = BMP에서 14바이트 파일 헤더 제거
+        dib_data = bmp_data[14:]
+
+        for attempt in range(3):
+            try:
+                win32clipboard.OpenClipboard()
+                try:
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardData(win32con.CF_DIB, dib_data)
+                finally:
+                    win32clipboard.CloseClipboard()
                 break
-            time.sleep(0.3)
+            except Exception:
+                time.sleep(0.1)
 
-        if file_dialog:
-            # 파일명 입력란에 경로 설정
-            # 파일 대화상자의 Edit 컨트롤 (ComboBoxEx32 → ComboBox → Edit)
-            combo = win32gui.FindWindowEx(file_dialog, None, "ComboBoxEx32", None)
-            if combo:
-                combo_inner = win32gui.FindWindowEx(combo, None, "ComboBox", None)
-                if combo_inner:
-                    edit = win32gui.FindWindowEx(combo_inner, None, "Edit", None)
-                    if edit:
-                        self.set_text(edit, str(local_path))
-                        time.sleep(0.5)
-                        self.send_return(file_dialog)
-                        time.sleep(1.5)
-                        self.send_return(self.chat_hwnd)  # 전송 확인
-                    else:
-                        self.send_escape_msg(file_dialog)
-                else:
-                    self.send_escape_msg(file_dialog)
-            else:
-                # 구조가 다르면 클립보드 폴백
-                self.set_clipboard_text(str(local_path))
-                time.sleep(0.2)
-                self.send_ctrl_key(file_dialog, 'V')
-                time.sleep(0.5)
-                self.send_return(file_dialog)
-                time.sleep(1.5)
-                self.send_return(self.chat_hwnd)
-        else:
-            log.warning("  파일 대화상자를 찾을 수 없습니다")
-            self.send_escape_msg(self.chat_hwnd)
+        # 2. 채팅방을 포그라운드로 + 입력창에 포커스
+        self._bring_to_front_and_focus(self.chat_hwnd)
+        time.sleep(0.2)
+
+        # 3. Ctrl+V로 이미지 붙여넣기 (전송 확인 대화상자 뜸)
+        self.send_ctrl_key(self.chat_hwnd, 'V')
+        time.sleep(1.0)
+
+        # 4. Enter로 전송 확인
+        _user32 = ctypes.windll.user32
+        _user32.keybd_event(win32con.VK_RETURN, 0, 0, 0)
+        time.sleep(0.05)
+        _user32.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
 
         time.sleep(file_delay)
+
+    def _bring_to_front_and_focus(self, hwnd: int):
+        """창을 포그라운드로 + Alt 키 트릭으로 제한 우회"""
+        _user32 = ctypes.windll.user32
+        _user32.ShowWindow(hwnd, win32con.SW_RESTORE)
+        # Alt 키로 SetForegroundWindow 제한 우회
+        _user32.keybd_event(0x12, 0, 0, 0)  # VK_MENU (Alt)
+        _user32.keybd_event(0x12, 0, win32con.KEYEVENTF_KEYUP, 0)
+        _user32.SetForegroundWindow(hwnd)
+        time.sleep(0.15)
+
+        # 입력창에 포커스 (AttachThreadInput으로 크로스프로세스 SetFocus)
+        edit_hwnd = self.find_chat_edit()
+        if edit_hwnd:
+            my_tid = ctypes.windll.kernel32.GetCurrentThreadId()
+            target_tid = _user32.GetWindowThreadProcessId(hwnd, None)
+            _user32.AttachThreadInput(my_tid, target_tid, True)
+            _user32.SetFocus(edit_hwnd)
+            _user32.AttachThreadInput(my_tid, target_tid, False)
+            time.sleep(0.1)
+
+    def go_to_friend_tab(self):
+        """카카오톡 메인 창에서 친구 탭(Ctrl+1)으로 전환"""
+        if self.main_hwnd:
+            self.send_ctrl_key(self.main_hwnd, '1')
+            time.sleep(0.5)
 
     def close_chat(self, friend_name: str = ""):
         """채팅방 닫기 — ESC → 검증 → 강제 닫기"""
@@ -594,6 +648,9 @@ def _run_macro_inner(config: dict, api: ServerAPI):
         config["max_delay"] = msg_delay + 2
     if server_settings.get("send_file_delay"):
         config["file_delay"] = int(server_settings["send_file_delay"])
+    config.setdefault("min_delay", 3)
+    config.setdefault("max_delay", 5)
+    config.setdefault("file_delay", 6)
     log.info(f"발송 설정: 메시지 {config['min_delay']}~{config['max_delay']}초, 파일 {config['file_delay']}초")
 
     # 2. 이미지 다운로드
@@ -756,6 +813,20 @@ def _run_macro_inner(config: dict, api: ServerAPI):
 
             save_progress(global_index, results)
             maybe_heartbeat()
+
+        # 실패 시 남은 메시지도 실패 처리 (서버에 빈 건이 없도록)
+        if person_failed:
+            for remaining in items:
+                already = any(r["queue_id"] == remaining["id"] for r in results)
+                if not already:
+                    global_index += 1
+                    results.append({
+                        "queue_id": remaining["id"],
+                        "status": "failed",
+                        "error_type": "device_error",
+                    })
+                    failed_count += 1
+            save_progress(global_index, results)
 
         # ⭐ 채팅방 닫기 + 검증
         if not person_failed:
