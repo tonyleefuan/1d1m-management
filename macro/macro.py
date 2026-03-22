@@ -897,24 +897,22 @@ def run_test():
 
     all_ok = True
 
-    # 1. 서버 연결 테스트
+    # 1. 서버 연결 + 이미지 다운로드
     print("[1/7] 서버 연결 테스트...")
     api = ServerAPI(config)
+    test_images = []
     try:
-        res = requests.get(
-            f"{api.base_url}/api/macro/queue",
-            params={"device_id": config["device_id"]},
-            headers=api.headers, timeout=10,
-        )
-        if res.status_code == 200:
-            data = res.json()
-            print(f"  ✅ 서버 연결 성공 (대기열 {data.get('total', 0)}건)")
-        elif res.status_code == 401:
-            print("  ❌ API 키가 잘못되었습니다")
-            all_ok = False
+        response = api.get_queue()
+        queue_data = response.get("data", [])
+        test_images = response.get("images", [])
+        print(f"  ✅ 서버 연결 성공 (대기열 {len(queue_data)}건, 이미지 {len(test_images)}개)")
+
+        # 이미지 다운로드 (실제 매크로와 동일)
+        if test_images:
+            print("  이미지 다운로드 중...")
+            download_images_from_list(test_images)
         else:
-            print(f"  ❌ 서버 응답 오류: {res.status_code}")
-            all_ok = False
+            print("  이미지 없음 (대기열에 이미지 메시지가 없음)")
     except Exception as e:
         print(f"  ❌ 서버 연결 실패: {e}")
         all_ok = False
@@ -1038,27 +1036,18 @@ def run_test():
                 print(f"  ❌ 메시지 4/6 전송 실패: {e}")
                 all_ok = False
 
-            # 이미지 1건 — 테스트용 이미지 자동 생성
+            # 이미지 1건 — 이미 다운로드된 이미지 사용
             try:
-                test_img_path = IMAGES_DIR / "test_image.bmp"
-                # 간단한 BMP 파일 생성 (100x50 빨간색)
-                import struct
-                width, height = 100, 50
-                row_size = (width * 3 + 3) & ~3
-                pixel_data = b''
-                for y in range(height):
-                    row = b'\x00\x00\xff' * width  # BGR = 빨간색
-                    row += b'\x00' * (row_size - width * 3)
-                    pixel_data += row
-                file_size = 54 + len(pixel_data)
-                bmp = struct.pack('<2sIHHI', b'BM', file_size, 0, 0, 54)
-                bmp += struct.pack('<IIIHHIIIIII', 40, width, height, 1, 24, 0, len(pixel_data), 0, 0, 0, 0)
-                bmp += pixel_data
-                test_img_path.write_bytes(bmp)
-                print("  테스트 이미지 생성 완료")
-
-                kakao.send_image_file(str(test_img_path), file_delay=3)
-                print("  ✅ 메시지 5/6 전송 완료 (이미지)")
+                # images/ 폴더에서 첫 번째 이미지 파일 찾기
+                image_files = list(IMAGES_DIR.glob("*.jpg")) + list(IMAGES_DIR.glob("*.png")) + list(IMAGES_DIR.glob("*.bmp"))
+                if image_files:
+                    test_img = image_files[0]
+                    print(f"  로컬 이미지 사용: {test_img.name} ({test_img.stat().st_size // 1024}KB)")
+                    kakao.send_image_file(str(test_img), file_delay=3)
+                    print("  ✅ 메시지 5/6 전송 완료 (이미지)")
+                else:
+                    print("  ⏭️ 이미지 파일 없음 — 이미지 테스트 스킵")
+                    print("     (대기열에 이미지 메시지가 없으면 정상입니다)")
                 time.sleep(2)
             except Exception as e:
                 print(f"  ❌ 메시지 5/6 이미지 전송 실패: {e}")
@@ -1082,11 +1071,6 @@ def run_test():
         else:
             print("  ❌ 채팅방이 안 닫혔습니다")
             all_ok = False
-
-    # 테스트 이미지 정리
-    test_img_cleanup = IMAGES_DIR / "test_image.bmp"
-    if test_img_cleanup.exists():
-        test_img_cleanup.unlink()
 
     # 결과
     print("")
