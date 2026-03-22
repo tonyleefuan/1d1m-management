@@ -45,9 +45,25 @@ if (-not $pythonInstalled) {
     # 자동 설치 (PATH 추가, 모든 사용자)
     Start-Process -FilePath $pyInstaller -ArgumentList "/quiet", "InstallAllUsers=1", "PrependPath=1", "Include_pip=1" -Wait
     Remove-Item $pyInstaller -Force
-    # PATH 갱신
+    # PATH 갱신 (현재 세션에 반영)
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    # python.exe 경로 캐싱
+    $script:pythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
+    if (-not $script:pythonExe) {
+        # 직접 탐색
+        $pyPaths = @(
+            "$env:ProgramFiles\Python312\python.exe",
+            "$env:ProgramFiles\Python311\python.exe",
+            "$env:LocalAppData\Programs\Python\Python312\python.exe",
+            "$env:LocalAppData\Programs\Python\Python311\python.exe"
+        )
+        foreach ($p in $pyPaths) {
+            if (Test-Path $p) { $script:pythonExe = $p; break }
+        }
+    }
     Write-Host "       Python 설치 완료!" -ForegroundColor Green
+} else {
+    $script:pythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
 }
 
 # ─── 매크로 파일 다운로드 ───
@@ -67,8 +83,27 @@ foreach ($file in $files) {
 
 # ─── Python 패키지 설치 ───
 Write-Host "[4/8] Python 패키지 설치 중..."
-& pip install -r requirements.txt --quiet 2>&1 | Out-Null
-Write-Host "       완료!" -ForegroundColor Green
+# pip 경로를 직접 찾기 (새 설치 시 PATH가 바로 안 잡힐 수 있음)
+$pipCmd = Get-Command pip -ErrorAction SilentlyContinue
+if (-not $pipCmd) {
+    # 일반적인 Python 설치 경로에서 pip 찾기
+    $pipPaths = @(
+        "$env:ProgramFiles\Python312\Scripts\pip.exe",
+        "$env:ProgramFiles\Python311\Scripts\pip.exe",
+        "$env:LocalAppData\Programs\Python\Python312\Scripts\pip.exe",
+        "$env:LocalAppData\Programs\Python\Python311\Scripts\pip.exe"
+    )
+    foreach ($p in $pipPaths) {
+        if (Test-Path $p) { $pipCmd = $p; break }
+    }
+}
+if ($pipCmd) {
+    & $pipCmd install -r requirements.txt --quiet 2>&1 | Out-Null
+    Write-Host "       완료!" -ForegroundColor Green
+} else {
+    Write-Host "       [!] pip를 찾을 수 없습니다. 수동 설치 필요:" -ForegroundColor Red
+    Write-Host "           python -m pip install -r requirements.txt" -ForegroundColor Yellow
+}
 
 # ─── config.json 설정 ───
 Write-Host ""
@@ -140,7 +175,8 @@ Write-Host "       매일 22:00 재부팅" -ForegroundColor Gray
 
 # 매일 04:00 매크로 실행
 $macroPath = "$installDir\macro.py"
-schtasks /create /tn "1D1M_Macro" /tr "python `"$macroPath`"" /sc daily /st 04:00 /f 2>&1 | Out-Null
+$pyForTask = if ($script:pythonExe) { "`"$script:pythonExe`"" } else { "python" }
+schtasks /create /tn "1D1M_Macro" /tr "$pyForTask `"$macroPath`"" /sc daily /st 04:00 /f 2>&1 | Out-Null
 Write-Host "       매일 04:00 매크로 실행" -ForegroundColor Gray
 
 # ─── 방화벽 ───
@@ -168,7 +204,8 @@ Write-Host ""
 
 # 자동 테스트 실행
 Set-Location $installDir
-& python macro.py --test
+$pyRun = if ($script:pythonExe) { $script:pythonExe } else { "python" }
+& $pyRun macro.py --test
 
 Write-Host ""
 Write-Host "  위 결과에 ❌ 가 있으면 설정을 확인하세요." -ForegroundColor Yellow
