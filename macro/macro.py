@@ -1,8 +1,8 @@
 """
-1D1M KakaoTalk Macro — 카카오톡 자동 발송 프로그램
+1D1M KakaoTalk Macro — 카카오톡 자동 발송 프로그램 (Win32 API)
 
 서버에서 대기열을 받아 카카오톡으로 메시지를 순차 발송합니다.
-pyautogui 기반 — 활성 데스크톱 세션 필요 (RDP 끊을 때 disconnect.bat 사용).
+Win32 API 기반으로 모니터 없이도 동작합니다.
 """
 
 import json
@@ -21,6 +21,7 @@ import win32gui
 import win32con
 import win32api
 import win32clipboard
+import win32process
 import pyautogui
 import pyperclip
 
@@ -206,7 +207,7 @@ def save_progress(completed_ids, results: list):
 # ─── Win32 카카오톡 자동화 ───
 
 class KakaoController:
-    """pyautogui + Win32 API로 카카오톡을 제어 — 활성 데스크톱 세션 필요
+    """Win32 API로 카카오톡을 제어 — 모니터 없이 동작
 
     카카오톡 PC Win32 구조 (Spy++):
     ├── "카카오톡" (메인 창)
@@ -314,7 +315,7 @@ class KakaoController:
             return False
 
     def send_return(self, hwnd: int):
-        """엔터키 전송 — Edit 컨트롤용 (PostMessage, 검색에서 사용)"""
+        """엔터키 전송 (PostMessage — 포그라운드 불필요)"""
         if not self._is_valid_hwnd(hwnd):
             return
         try:
@@ -325,10 +326,17 @@ class KakaoController:
         except Exception:
             pass
 
-    def send_escape(self):
-        """ESC키 전송 — pyautogui"""
-        pyautogui.press('escape')
-        time.sleep(0.2)
+    def send_escape_msg(self, hwnd: int):
+        """ESC키 전송"""
+        if not self._is_valid_hwnd(hwnd):
+            return
+        try:
+            win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_ESCAPE, 0)
+            time.sleep(0.01)
+            win32api.PostMessage(hwnd, win32con.WM_KEYUP, win32con.VK_ESCAPE, 0)
+            time.sleep(0.1)
+        except Exception:
+            pass
 
     def set_text(self, hwnd: int, text: str):
         """윈도우 컨트롤에 텍스트 직접 설정 (WM_SETTEXT)"""
@@ -392,7 +400,7 @@ class KakaoController:
         self.set_text(search_edit, name)
         time.sleep(random.uniform(2.0, 2.5))  # 검색 결과 로딩 충분히 대기
 
-        # 4. 엔터로 첫 번째 결과 열기 (PostMessage → Edit 컨트롤은 이걸로 됨)
+        # 4. 엔터로 첫 번째 결과 열기
         self.send_return(search_edit)
         time.sleep(random.uniform(1.5, 2.0))  # 채팅방 열리는 시간 충분히 대기
 
@@ -432,6 +440,34 @@ class KakaoController:
         time.sleep(0.3)
         pyautogui.press('enter')
         time.sleep(0.3)
+
+    def _post_key_with_attach(self, hwnd: int, vk_key: int):
+        """MosesP0124 패턴: AttachThreadInput + SetKeyboardState + PostMessage
+
+        Alt 키 없이 키 입력을 정확히 전달하는 방법.
+        모니터 없이도 동작.
+        """
+        _user32 = ctypes.windll.user32
+        _kernel32 = ctypes.windll.kernel32
+
+        # WM_ACTIVATE로 창 활성화 (시스템 메뉴 안 뜸)
+        parent = win32gui.GetParent(hwnd) or hwnd
+        win32gui.SendMessage(parent, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+
+        tid_self = _kernel32.GetCurrentThreadId()
+        tid_target = _user32.GetWindowThreadProcessId(parent, None)
+
+        _user32.AttachThreadInput(tid_self, tid_target, True)
+        try:
+            scan_code = _user32.MapVirtualKeyA(vk_key, 0)
+            lparam = win32api.MAKELONG(0, scan_code)
+
+            win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, vk_key, lparam)
+            time.sleep(0.01)
+            win32api.PostMessage(hwnd, win32con.WM_KEYUP, vk_key, lparam | 0xC0000000)
+            time.sleep(0.01)
+        finally:
+            _user32.AttachThreadInput(tid_self, tid_target, False)
 
     def bring_to_front(self, hwnd: int):
         """창을 포그라운드로 — Alt 키 없이 안전하게"""
@@ -534,11 +570,10 @@ class KakaoController:
             self.chat_hwnd = None
             return
 
-        # 2차: ESC (pyautogui)
-        self.bring_to_front(self.chat_hwnd)
-        time.sleep(0.2)
-        self.send_escape()
-        self.send_escape()
+        # 2차: ESC
+        self.send_escape_msg(self.chat_hwnd)
+        time.sleep(0.5)
+        self.send_escape_msg(self.chat_hwnd)
         time.sleep(0.5)
 
         if friend_name and not self.find_chat_window(friend_name):
@@ -547,8 +582,8 @@ class KakaoController:
 
         # 3차: ESC + WM_CLOSE 재시도
         log.warning(f"  채팅방 닫기 재시도: {friend_name}")
-        self.send_escape()
-        time.sleep(0.3)
+        self.send_escape_msg(self.chat_hwnd)
+        time.sleep(0.5)
         try:
             win32gui.PostMessage(self.chat_hwnd, win32con.WM_CLOSE, 0, 0)
             time.sleep(0.5)
