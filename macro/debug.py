@@ -40,27 +40,8 @@ eva2 = win32gui.FindWindowEx(child, eva1, "EVA_Window", None)
 search_edit = win32gui.FindWindowEx(eva2, None, "Edit", None)
 print(f"✅ 검색 입력창: {search_edit}")
 
-# 3. 검색 (친구 탭 전환 후)
-# 먼저 친구 탭으로 전환 (PostMessage 방식 — 포그라운드 불필요)
-_user32 = ctypes.windll.user32
-_kernel32 = ctypes.windll.kernel32
-tid_self = _kernel32.GetCurrentThreadId()
-tid_target = _user32.GetWindowThreadProcessId(hwnd, None)
-win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
-_user32.AttachThreadInput(tid_self, tid_target, True)
-key_state = (ctypes.c_ubyte * 256)()
-_user32.GetKeyboardState(ctypes.byref(key_state))
-key_state[win32con.VK_CONTROL] = 0x80
-_user32.SetKeyboardState(ctypes.byref(key_state))
-win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, ord('1'), 0)
-time.sleep(0.01)
-win32api.PostMessage(hwnd, win32con.WM_KEYUP, ord('1'), 0)
-key_state[win32con.VK_CONTROL] = 0x00
-_user32.SetKeyboardState(ctypes.byref(key_state))
-_user32.AttachThreadInput(tid_self, tid_target, False)
-time.sleep(1)
-print("✅ 친구 탭 전환")
-
+# 3. 검색
+print(f"  검색: {name}")
 win32api.SendMessage(search_edit, win32con.WM_SETTEXT, 0, name)
 time.sleep(2)
 win32api.PostMessage(search_edit, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
