@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, Component, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { TABS, TabConfig } from '@/lib/constants'
 import dynamic from 'next/dynamic'
+import { Skeleton } from '@/components/ui/skeleton'
 
 const ProductsTab = dynamic(() => import('./tabs/ProductsTab').then(m => ({ default: m.ProductsTab })))
 const OrdersTab = dynamic(() => import('./tabs/OrdersTab').then(m => ({ default: m.OrdersTab })))
@@ -29,6 +30,42 @@ function getHashTab(): string | null {
   const hash = window.location.hash.slice(1)
   return VALID_TAB_IDS.has(hash) ? hash : null
 }
+
+// ─── Error Boundary ─────────────────────────────────────
+// 탭 컴포넌트가 크래시해도 전체 페이지가 죽지 않도록 보호
+
+interface ErrorBoundaryProps {
+  children: ReactNode
+  fallback: ReactNode
+  resetKey: string
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean
+}
+
+class TabErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false }
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true }
+  }
+
+  componentDidUpdate(prevProps: ErrorBoundaryProps) {
+    if (prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback
+    }
+    return this.props.children
+  }
+}
+
+// ─── Dashboard ──────────────────────────────────────────
 
 interface Props {
   userName: string
@@ -108,9 +145,10 @@ export function Dashboard({ userName, userRole }: Props) {
   }, [])
 
   const handleTabChange = useCallback((id: string) => {
+    if (id === tab) return
     setTab(id)
-    window.history.replaceState(null, '', `#${id}`)
-  }, [])
+    window.history.pushState(null, '', `#${id}`)
+  }, [tab])
 
   const handleLogout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -139,28 +177,53 @@ export function Dashboard({ userName, userRole }: Props) {
         </div>
       </header>
 
-      {/* Tab Navigation — ready 전에는 기본 탭, ready 후에는 DB 탭 순서 */}
+      {/* Tab Navigation — ready 전에는 스켈레톤, ready 후에는 DB 탭 순서 */}
       <nav className="bg-white border-b">
         <div className="max-w-[1400px] mx-auto px-4 flex gap-0 overflow-x-auto">
-          {visibleTabs.map(t => (
-            <button
-              key={t.id}
-              onClick={() => handleTabChange(t.id)}
-              className={`px-4 py-2.5 text-sm whitespace-nowrap border-b-2 transition-colors ${
-                tab === t.id
-                  ? 'border-black text-black font-medium'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+          {!ready ? (
+            // 설정 로드 전: 스켈레톤으로 탭 위치 고정 (순서 점프 방지)
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="px-4 py-2.5">
+                <Skeleton className="h-5 w-16" />
+              </div>
+            ))
+          ) : (
+            visibleTabs.map(t => (
+              <button
+                key={t.id}
+                onClick={() => handleTabChange(t.id)}
+                className={`px-4 py-2.5 text-sm whitespace-nowrap border-b-2 transition-colors ${
+                  tab === t.id
+                    ? 'border-black text-black font-medium'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))
+          )}
         </div>
       </nav>
 
       {/* Tab Content */}
       <main className="max-w-[1400px] mx-auto px-4 py-6">
-        {ActiveTab && <ActiveTab />}
+        <TabErrorBoundary
+          resetKey={tab}
+          fallback={
+            <div className="text-center py-20">
+              <p className="text-lg font-medium mb-2">탭을 불러오는 중 오류가 발생했습니다</p>
+              <p className="text-muted-foreground mb-4">다른 탭을 선택하거나 새로고침해 주세요.</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm"
+              >
+                새로고침
+              </button>
+            </div>
+          }
+        >
+          {ActiveTab && <ActiveTab />}
+        </TabErrorBoundary>
       </main>
     </div>
   )
