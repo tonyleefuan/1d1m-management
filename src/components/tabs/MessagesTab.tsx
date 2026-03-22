@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { cn } from '@/lib/utils'
-import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2 } from 'lucide-react'
+import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck } from 'lucide-react'
 import type { Product, Message, DailyMessage, NoticeTemplate } from '@/lib/types'
 
 // --- 메시지 편집 모달 ---
@@ -325,130 +325,181 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
   )
 }
 
-// --- 오늘의 메시지 보드 ---
-function TodayMessageBoard({
-  products, todayStatus, onRefresh, onSelectProduct,
-}: {
-  products: Product[]
-  todayStatus: { date: string; status: Record<string, string> } | null
-  onRefresh: () => void
-  onSelectProduct: (id: string) => void
-}) {
-  const { showSuccess, showError } = useToast()
+// --- 오늘의 메시지 패널 (7일 그리드) ---
+function TodayMessagesPanel({ products }: { products: Product[] }) {
+  const rtProducts = products.filter(p => p.message_type === 'realtime')
+  const { toast, showSuccess, showError, clearToast } = useToast()
+  const [gridData, setGridData] = useState<{ dates: string[]; today: string; grid: Record<string, Record<string, string>> } | null>(null)
+  // drafts keyed by `${productId}:${date}`
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
 
-  if (!todayStatus) return <Skeleton className="h-40 w-full" />
+  const refresh = useCallback(() => {
+    fetch('/api/daily-messages/today-status')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setGridData(d))
+      .catch(() => {})
+  }, [])
 
-  const todayDate = todayStatus.date
-  const doneCount = products.filter(p => todayStatus.status[p.id]).length
+  useEffect(() => { refresh() }, [refresh])
 
-  const handleSave = async (productId: string) => {
-    const content = drafts[productId]?.trim()
+  if (!gridData) return <Skeleton className="h-60 w-full" />
+
+  const { dates, today, grid } = gridData
+  const doneCount = rtProducts.filter(p => grid[p.id]?.[today]).length
+
+  const handleSave = async (productId: string, date: string) => {
+    const key = `${productId}:${date}`
+    const content = drafts[key]?.trim()
     if (!content) return
-    setSaving(s => ({ ...s, [productId]: true }))
+    setSaving(s => ({ ...s, [key]: true }))
     try {
       const res = await fetch('/api/daily-messages/upsert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_id: productId, send_date: todayDate, content }),
+        body: JSON.stringify({ product_id: productId, send_date: date, content }),
       })
       if (!res.ok) throw new Error('실패')
       showSuccess('저장되었습니다')
-      setDrafts(d => { const n = { ...d }; delete n[productId]; return n })
-      onRefresh()
+      setDrafts(d => { const n = { ...d }; delete n[key]; return n })
+      refresh()
     } catch {
       showError('저장에 실패했습니다')
     } finally {
-      setSaving(s => ({ ...s, [productId]: false }))
+      setSaving(s => ({ ...s, [key]: false }))
     }
   }
 
-  // 미작성을 먼저, 작성 완료를 나중에
-  const sorted = [...products].sort((a, b) => {
-    const aDone = todayStatus.status[a.id] ? 1 : 0
-    const bDone = todayStatus.status[b.id] ? 1 : 0
-    return aDone - bDone
-  })
+  const formatDate = (d: string) => {
+    const dt = new Date(d + 'T00:00:00+09:00')
+    const day = ['일','월','화','수','목','금','토'][dt.getDay()]
+    return { short: d.slice(5), day }
+  }
+
+  const getDateLabel = (d: string) => {
+    if (d === today) return '오늘'
+    const diff = (new Date(d).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24)
+    if (diff === 1) return '내일'
+    if (diff === 2) return '모레'
+    return null
+  }
+
+  // 편집 가능: 오늘 + 미래
+  const isEditable = (d: string) => d >= today
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">오늘의 메시지</span>
-          <span className="text-xs text-muted-foreground font-mono">{todayDate}</span>
-          <span className={cn(
-            'text-xs font-medium px-1.5 py-0.5 rounded',
-            doneCount === products.length
-              ? 'bg-emerald-100 text-emerald-700'
-              : 'bg-destructive/10 text-destructive'
-          )}>
-            {doneCount}/{products.length}
-          </span>
-        </div>
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-sm font-medium">오늘의 메시지</span>
+        <span className="text-xs text-muted-foreground font-mono">{today}</span>
+        <span className={cn(
+          'text-xs font-medium px-1.5 py-0.5 rounded',
+          doneCount === rtProducts.length
+            ? 'bg-emerald-100 text-emerald-700'
+            : 'bg-destructive/10 text-destructive'
+        )}>
+          {doneCount}/{rtProducts.length}
+        </span>
       </div>
-      <div className="columns-2 gap-3 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
-        {sorted.map(p => {
-          const existing = todayStatus.status[p.id]
-          const isDone = !!existing
-          return (
-            <div
-              key={p.id}
-              className={cn(
-                'rounded-lg border p-4 break-inside-avoid mb-3',
-                isDone ? 'bg-card' : 'bg-destructive/5 border-destructive/20'
-              )}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                {isDone ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                ) : (
-                  <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
-                )}
-                <span className="text-xs font-mono text-muted-foreground">{p.sku_code}</span>
-                <span className="text-sm font-medium">{p.title}</span>
-                {isDone && (
-                  <button
-                    className="ml-auto text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => onSelectProduct(p.id)}
-                  >
-                    수정 →
-                  </button>
-                )}
-              </div>
-              {isDone ? (
-                <p className="text-[13px] text-muted-foreground whitespace-pre-wrap pl-6">{existing}</p>
-              ) : (
-                <div className="pl-6 space-y-2">
-                  <Textarea
-                    placeholder="오늘의 메시지를 입력하세요..."
-                    className="min-h-[120px] text-[13px]"
-                    value={drafts[p.id] || ''}
-                    onChange={(e) => setDrafts(d => ({ ...d, [p.id]: e.target.value }))}
-                  />
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-muted-foreground tabular-nums">
-                      {(drafts[p.id] || '').length}자
+
+      <div className="overflow-auto max-h-[calc(100vh-300px)]">
+        <table className="w-full border-collapse">
+          <thead className="sticky top-0 z-10 bg-background">
+            <tr>
+              <th className="text-left text-xs font-medium text-muted-foreground p-2 border-b w-[100px] sticky left-0 bg-background z-20">상품</th>
+              {dates.map(d => {
+                const label = getDateLabel(d)
+                const isToday = d === today
+                return (
+                  <th key={d} className={cn(
+                    'text-center text-xs font-medium p-2 border-b',
+                    isToday ? 'min-w-[280px] bg-primary/5' : isEditable(d) ? 'min-w-[250px] bg-emerald-50/50' : 'min-w-[200px]',
+                  )}>
+                    <span className={cn(isToday && 'text-primary font-semibold')}>
+                      {formatDate(d).short}
                     </span>
-                    <Button
-                      size="sm"
-                      onClick={() => handleSave(p.id)}
-                      disabled={!drafts[p.id]?.trim() || saving[p.id]}
-                    >
-                      {saving[p.id] ? (
-                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                    <span className="text-muted-foreground ml-1">
+                      ({formatDate(d).day}){label && ` ${label}`}
+                    </span>
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {rtProducts.map(p => {
+              const hasTodayMsg = !!grid[p.id]?.[today]
+              return (
+                <tr key={p.id} className={cn(!hasTodayMsg && 'bg-destructive/5')}>
+                  {/* 상품명 */}
+                  <td className="p-2 border-b align-top sticky left-0 bg-background z-10">
+                    <div className="flex items-center gap-1">
+                      {hasTodayMsg ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                       ) : (
-                        <Save className="h-3.5 w-3.5 mr-1" />
+                        <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
                       )}
-                      저장
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })}
+                      <span className="text-xs font-mono">{p.sku_code}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{p.title}</p>
+                  </td>
+                  {/* 날짜별 셀 */}
+                  {dates.map(d => {
+                    const content = grid[p.id]?.[d]
+                    const editable = isEditable(d)
+                    const isToday = d === today
+                    const key = `${p.id}:${d}`
+                    return (
+                      <td key={d} className={cn(
+                        'p-2 border-b align-top',
+                        isToday ? 'bg-primary/5' : editable ? 'bg-emerald-50/50' : '',
+                      )}>
+                        {content ? (
+                          <p className={cn(
+                            'whitespace-pre-wrap leading-relaxed',
+                            isToday ? 'text-[12px]' : 'text-[11px] text-muted-foreground'
+                          )}>{content}</p>
+                        ) : editable ? (
+                          <div className="space-y-1.5">
+                            <Textarea
+                              placeholder={`${formatDate(d).short} 메시지...`}
+                              className={cn('text-[12px] leading-relaxed', isToday ? 'min-h-[100px]' : 'min-h-[60px]')}
+                              value={drafts[key] || ''}
+                              onChange={(e) => setDrafts(dr => ({ ...dr, [key]: e.target.value }))}
+                            />
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] text-muted-foreground tabular-nums">
+                                {(drafts[key] || '').length}자
+                              </span>
+                              <Button
+                                size="sm"
+                                className="h-7"
+                                onClick={() => handleSave(p.id, d)}
+                                disabled={!drafts[key]?.trim() || saving[key]}
+                              >
+                                {saving[key] ? (
+                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : (
+                                  <Save className="h-3 w-3 mr-1" />
+                                )}
+                                저장
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">-</span>
+                        )}
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
     </div>
   )
 }
@@ -460,16 +511,7 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
   const [messages, setMessages] = useState<DailyMessage[]>([])
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<DailyMessage | null | undefined>(undefined)
-  const [todayStatus, setTodayStatus] = useState<{ date: string; status: Record<string, string> } | null>(null)
   const { toast, showSuccess, showError, clearToast } = useToast()
-
-  // 오늘자 메시지 현황
-  useEffect(() => {
-    fetch('/api/daily-messages/today-status')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => d && setTodayStatus(d))
-      .catch(() => {})
-  }, [])
 
   const fetchMessages = useCallback(async () => {
     if (!selectedProduct) return
@@ -485,16 +527,8 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
 
   useEffect(() => { fetchMessages() }, [fetchMessages])
 
-  const refreshTodayStatus = () => {
-    fetch('/api/daily-messages/today-status')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => d && setTodayStatus(d))
-      .catch(() => {})
-  }
-
   const handleSaved = () => {
     fetchMessages()
-    refreshTodayStatus()
     showSuccess('메시지가 저장되었습니다')
   }
 
@@ -507,11 +541,10 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
       />
       <div className="flex-1">
         {!selectedProduct ? (
-          <TodayMessageBoard
-            products={rtProducts}
-            todayStatus={todayStatus}
-            onRefresh={refreshTodayStatus}
-            onSelectProduct={setSelectedProduct}
+          <EmptyState
+            icon={Zap}
+            title="상품을 선택하세요"
+            description="좌측에서 상품을 선택하면 메시지 목록이 표시됩니다"
           />
         ) : loading ? (
           <MessageListSkeleton />
@@ -722,15 +755,19 @@ export function MessagesTab() {
     <div>
       <PageHeader title="메시지 관리" description="고정/실시간 메시지와 알림 템플릿을 관리합니다" className="mb-6" />
 
-      <Tabs defaultValue="realtime">
+      <Tabs defaultValue="today">
         <TabsList>
-          <TabsTrigger value="fixed">
-            <FileText className="h-3.5 w-3.5 mr-1.5" />
-            고정 메시지
+          <TabsTrigger value="today">
+            <CalendarCheck className="h-3.5 w-3.5 mr-1.5" />
+            오늘 메시지
           </TabsTrigger>
           <TabsTrigger value="realtime">
             <Zap className="h-3.5 w-3.5 mr-1.5" />
             실시간 메시지
+          </TabsTrigger>
+          <TabsTrigger value="fixed">
+            <FileText className="h-3.5 w-3.5 mr-1.5" />
+            고정 메시지
           </TabsTrigger>
           <TabsTrigger value="notices">
             <Bell className="h-3.5 w-3.5 mr-1.5" />
@@ -738,11 +775,14 @@ export function MessagesTab() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="fixed">
-          <FixedMessagesPanel products={products} />
+        <TabsContent value="today">
+          <TodayMessagesPanel products={products} />
         </TabsContent>
         <TabsContent value="realtime">
           <RealtimeMessagesPanel products={products} />
+        </TabsContent>
+        <TabsContent value="fixed">
+          <FixedMessagesPanel products={products} />
         </TabsContent>
         <TabsContent value="notices">
           <NoticesPanel products={products} />
