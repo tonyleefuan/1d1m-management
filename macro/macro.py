@@ -314,11 +314,16 @@ class KakaoController:
             return False
 
     def send_return(self, hwnd: int):
-        """엔터키 전송 — pyautogui (포그라운드 필요)"""
-        self.bring_to_front(hwnd)
-        time.sleep(0.1)
-        pyautogui.press('enter')
-        time.sleep(0.1)
+        """엔터키 전송 — Edit 컨트롤용 (PostMessage, 검색에서 사용)"""
+        if not self._is_valid_hwnd(hwnd):
+            return
+        try:
+            win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
+            time.sleep(0.01)
+            win32api.PostMessage(hwnd, win32con.WM_KEYUP, win32con.VK_RETURN, 0)
+            time.sleep(0.1)
+        except Exception:
+            pass
 
     def send_escape(self):
         """ESC키 전송 — pyautogui"""
@@ -387,8 +392,8 @@ class KakaoController:
         self.set_text(search_edit, name)
         time.sleep(random.uniform(2.0, 2.5))  # 검색 결과 로딩 충분히 대기
 
-        # 4. 엔터로 첫 번째 결과 열기 (pyautogui)
-        self.send_return(self.main_hwnd)
+        # 4. 엔터로 첫 번째 결과 열기 (PostMessage → Edit 컨트롤은 이걸로 됨)
+        self.send_return(search_edit)
         time.sleep(random.uniform(1.5, 2.0))  # 채팅방 열리는 시간 충분히 대기
 
         # ⭐ 5. 검증: 채팅방 창이 열렸는지 확인
