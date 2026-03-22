@@ -33,6 +33,7 @@ interface QueueItem {
   sent_at: string | null
   error_message: string | null
   estimated_time: string
+  day_number: number | null
   subscription?: {
     id: string
     day: number
@@ -174,6 +175,32 @@ export function SendingTab() {
     }
   }
 
+  const handleRegenerate = async () => {
+    if (!confirm('기존 대기열을 삭제하고 다시 생성하시겠습니까?')) return
+    setGenerating(true)
+    // 기존 대기열 삭제
+    const clearRes = await fetch('/api/sending/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: null }),
+    })
+    if (!clearRes.ok) {
+      showError('대기열 삭제 실패')
+      setGenerating(false)
+      return
+    }
+    // 크론 API로 재생성
+    const genRes = await fetch('/api/cron/generate-queue', { method: 'POST' })
+    const json = await genRes.json()
+    if (genRes.ok) {
+      showSuccess(`대기열 재생성 완료: ${json.total}건`)
+      fetchQueue()
+    } else {
+      showError(json.error || '대기열 재생성 실패')
+    }
+    setGenerating(false)
+  }
+
   // ─── Helpers ───
 
   const getDeviceName = (id: string) => {
@@ -205,6 +232,16 @@ export function SendingTab() {
     3: '보통',
     4: '늦게',
   }
+
+  // Auto-refresh when there are pending items
+  useEffect(() => {
+    if (totalSummary.pending > 0) {
+      const interval = setInterval(() => {
+        fetchQueue()
+      }, 30000) // 30 seconds
+      return () => clearInterval(interval)
+    }
+  }, [totalSummary.pending, fetchQueue])
 
   // ─── Render ───
 
@@ -273,6 +310,30 @@ export function SendingTab() {
         </CardContent>
       </Card>
 
+      {/* 대기열 상태 */}
+      <div className="flex items-center justify-between px-4 py-2 bg-muted/30 rounded-lg">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium">
+            {totalSummary.total > 0 ? (
+              <>대기열: <span className="text-emerald-600">✅ 생성 완료</span> ({totalSummary.total}건)</>
+            ) : (
+              <>대기열: <span className="text-muted-foreground">없음</span></>
+            )}
+          </span>
+        </div>
+        <div className="flex gap-2">
+          {totalSummary.total > 0 && totalSummary.sent === 0 && (
+            <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={generating} className="h-7 text-xs">
+              {generating ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+              재생성
+            </Button>
+          )}
+          {totalSummary.sent > 0 && (
+            <span className="text-xs text-muted-foreground py-1">발송 중에는 재생성 불가</span>
+          )}
+        </div>
+      </div>
+
       {/* PC별 요약 카드 */}
       {devices.filter(d => d.is_active).length > 0 && (
         <div className="grid grid-cols-5 gap-3">
@@ -289,6 +350,14 @@ export function SendingTab() {
                     <span className="text-xs text-emerald-600">성공 <span className="font-semibold">{s.sent}</span>{s.total > 0 && <span className="text-[10px] ml-0.5">({Math.round((s.sent / s.total) * 100)}%)</span>}</span>
                     <span className="text-xs text-destructive">실패 <span className="font-semibold">{s.failed}</span>{s.total > 0 && <span className="text-[10px] ml-0.5">({Math.round((s.failed / s.total) * 100)}%)</span>}</span>
                   </div>
+                  {s.total > 0 && (
+                    <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 transition-all duration-500"
+                        style={{ width: `${Math.round((s.sent / s.total) * 100)}%` }}
+                      />
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )
@@ -409,7 +478,7 @@ export function SendingTab() {
                         {sub?.product?.sku_code || '-'}
                       </TableCell>
                       <TableCell className="py-1 text-center text-xs tabular-nums whitespace-nowrap">
-                        {sub?.day || '-'}
+                        {item.day_number || sub?.day || '-'}
                       </TableCell>
                       <TableCell className="py-1 text-center text-xs tabular-nums whitespace-nowrap text-muted-foreground">
                         {item.message_seq || '-'}
