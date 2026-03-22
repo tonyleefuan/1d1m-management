@@ -69,35 +69,64 @@ win32api.PostMessage(edit, win32con.WM_KEYUP, win32con.VK_RETURN, 0)
 print("  Enter 전송 완료 (2초 대기)")
 time.sleep(2)
 
-# 5. 열린 채팅방 확인
+# 5. 열린 채팅방 확인 — 모든 창 클래스 탐색
 print("\n[5] 열린 창 목록 확인...")
+all_windows = []
 titles = []
 def enum_cb(h, _):
     if win32gui.IsWindowVisible(h):
         cls = win32gui.GetClassName(h)
         t = win32gui.GetWindowText(h)
-        if t and cls == "#32770":  # 카카오톡 채팅방
-            titles.append((h, t, cls))
+        if t and t != "카카오톡" and h != hwnd:
+            all_windows.append((h, t, cls))
+            # 카카오톡 프로세스 창인지 확인
+            _, pid = win32process.GetWindowThreadProcessId(h)
+            _, kakao_pid = win32process.GetWindowThreadProcessId(hwnd)
+            if pid == kakao_pid:
+                titles.append((h, t, cls))
     return True
+
+import win32process
 win32gui.EnumWindows(enum_cb, None)
-print(f"  채팅방 후보: {len(titles)}개")
+print(f"  카카오톡 프로세스 창: {len(titles)}개")
 for h, t, c in titles:
-    print(f"    hwnd={h}, title='{t}', class={c}")
+    print(f"    hwnd={h}, title='{t}', class='{c}'")
+if not titles:
+    print(f"  (참고) 전체 보이는 창 중 관련 후보:")
+    for h, t, c in all_windows[:10]:
+        print(f"    hwnd={h}, title='{t}', class='{c}'")
 
 chat_hwnd = None
 for h, t, c in titles:
     if test_name in t or t in test_name:
         chat_hwnd = h
-        print(f"  ✅ 채팅방 발견: '{t}' (hwnd={h})")
+        print(f"  ✅ 채팅방 발견: '{t}' (hwnd={h}, class='{c}')")
         break
 
 if not chat_hwnd and titles:
     chat_hwnd = titles[0][0]
-    print(f"  ⚠️  정확 매칭 없음, 첫 번째 채팅방 사용: '{titles[0][1]}'")
+    print(f"  ⚠️  정확 매칭 없음, 첫 번째 카카오톡 창 사용: '{titles[0][1]}'")
 
 if not chat_hwnd:
     print("  ❌ 채팅방을 찾을 수 없습니다")
-    sys.exit(1)
+    print("  채팅방이 PowerShell 뒤에 열려있을 수 있습니다.")
+    print("  카카오톡 채팅방을 수동으로 앞으로 가져온 후 Enter를 누르세요.")
+    input("  Enter를 누르면 다시 검색합니다... ")
+    titles.clear()
+    win32gui.EnumWindows(enum_cb, None)
+    print(f"  카카오톡 프로세스 창: {len(titles)}개")
+    for h, t, c in titles:
+        print(f"    hwnd={h}, title='{t}', class='{c}'")
+    for h, t, c in titles:
+        if test_name in t or t in test_name:
+            chat_hwnd = h
+            break
+    if not chat_hwnd and titles:
+        chat_hwnd = titles[0][0]
+    if not chat_hwnd:
+        print("  ❌ 여전히 찾을 수 없습니다")
+        sys.exit(1)
+    print(f"  ✅ 채팅방 발견: hwnd={chat_hwnd}")
 
 # 6. 메시지 입력창 (RichEdit50W) 찾기
 print("\n[6] 메시지 입력창 찾기 (RichEdit50W)...")
