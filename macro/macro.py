@@ -64,8 +64,8 @@ class ServerAPI:
             "Content-Type": "application/json",
         }
 
-    def get_queue(self) -> list:
-        """오늘 발송 대기열 조회"""
+    def get_queue(self) -> dict:
+        """오늘 발송 대기열 + 발송 설정 + 이미지 목록 조회"""
         try:
             res = requests.get(
                 f"{self.base_url}/api/macro/queue",
@@ -74,11 +74,10 @@ class ServerAPI:
                 timeout=60,
             )
             res.raise_for_status()
-            data = res.json()
-            return data.get("data", [])
+            return res.json()
         except Exception as e:
             log.error(f"대기열 조회 실패: {e}")
-            return []
+            return {"data": [], "settings": {}, "images": []}
 
     def send_heartbeat(self, pending: int, sent: int, failed: int, total: int):
         """진행 상황 보고 (1분마다)"""
@@ -124,13 +123,12 @@ class ServerAPI:
 
 # ─── 이미지 관리 ───
 
-def download_images(queue: list, config: dict):
-    """대기열의 이미지 다운로드 (캐싱)"""
-    image_urls = set()
-    for item in queue:
-        if item.get("image_path"):
-            image_urls.add(item["image_path"])
+def download_images_from_list(image_urls: list):
+    """서버에서 받은 이미지 URL 목록을 로컬에 다운로드 (캐싱)
 
+    - 로컬에 있으면 서버 날짜(Last-Modified) 비교, 최신이면 스킵
+    - 없으면 다운로드
+    """
     if not image_urls:
         log.info("다운로드할 이미지 없음")
         return
@@ -143,7 +141,7 @@ def download_images(queue: list, config: dict):
         local_path = IMAGES_DIR / filename
 
         if local_path.exists():
-            # 로컬 파일 존재 — 서버 날짜 확인 (HEAD 요청)
+            # 로컬 파일 존재 — 서버 날짜 비교 (HEAD 요청)
             try:
                 head = requests.head(url, timeout=10)
                 server_modified = head.headers.get("last-modified")
@@ -162,10 +160,11 @@ def download_images(queue: list, config: dict):
             res.raise_for_status()
             local_path.write_bytes(res.content)
             downloaded += 1
+            log.info(f"  다운로드: {filename}")
         except Exception as e:
-            log.warning(f"이미지 다운로드 실패: {filename} — {e}")
+            log.warning(f"  이미지 다운로드 실패: {filename} — {e}")
 
-    log.info(f"이미지 다운로드 완료: {downloaded}개 새로 받음")
+    log.info(f"이미지 다운로드 완료: {downloaded}개 새로 받음, {len(image_urls) - downloaded}개 캐시 사용")
 
 
 # ─── 진행 상황 관리 ───
@@ -306,8 +305,12 @@ def run_macro():
 
     log.info(f"=== 매크로 시작 — {config['device_id']} ===")
 
-    # 1. 대기열 수신
-    queue = api.get_queue()
+    # 1. 대기열 + 설정 + 이미지 목록 수신 (한 번의 API 호출)
+    response = api.get_queue()
+    queue = response.get("data", [])
+    server_settings = response.get("settings", {})
+    image_list = response.get("images", [])
+
     if not queue:
         log.info("오늘 발송 대기열이 없습니다.")
         return
@@ -315,8 +318,17 @@ def run_macro():
     total = len(queue)
     log.info(f"대기열 수신: {total}건")
 
-    # 2. 이미지 다운로드
-    download_images(queue, config)
+    # 서버 발송 설정 적용 (대시보드에서 설정한 값 우선)
+    if server_settings.get("send_message_delay"):
+        msg_delay = int(server_settings["send_message_delay"])
+        config["min_delay"] = msg_delay
+        config["max_delay"] = msg_delay + 2
+    if server_settings.get("send_file_delay"):
+        config["file_delay"] = int(server_settings["send_file_delay"])
+    log.info(f"발송 설정: 메시지 {config['min_delay']}~{config['max_delay']}초, 파일 {config['file_delay']}초")
+
+    # 2. 이미지 다운로드 (서버에서 받은 이미지 목록 기반)
+    download_images_from_list(image_list)
 
     # 3. 진행 상황 확인 (재시작 시)
     progress = load_progress()
