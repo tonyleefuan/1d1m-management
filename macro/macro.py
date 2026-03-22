@@ -209,13 +209,33 @@ def find_and_click_image(image_path: str, confidence: float = 0.8, timeout: int 
     return False
 
 
+FRIEND_TAB_ICON = BASE_DIR / "images_ui" / "friend_tab.png"
+
+
+def go_to_friend_tab():
+    """카카오톡 친구 탭으로 이동 — 단축키 우선, 실패 시 이미지 매칭"""
+    # 방법 1: Ctrl+1 단축키 (친구 탭)
+    pyautogui.hotkey("ctrl", "1")
+    time.sleep(0.5)
+
+    # 방법 2: 이미지 매칭 (친구 탭 아이콘)
+    if FRIEND_TAB_ICON.exists():
+        try:
+            location = pyautogui.locateOnScreen(str(FRIEND_TAB_ICON), confidence=0.8)
+            if location:
+                pyautogui.click(pyautogui.center(location))
+                time.sleep(0.5)
+        except Exception:
+            pass
+
+
 def open_search() -> bool:
     """카카오톡 검색창 열기 — 단축키 우선, 실패 시 이미지 매칭"""
     # 방법 1: Ctrl+F 단축키
     pyautogui.hotkey("ctrl", "f")
     time.sleep(0.5)
 
-    # 방법 2: 이미지 매칭 (단축키가 안 먹힐 경우 대비)
+    # 방법 2: 이미지 매칭 (검색 아이콘)
     if SEARCH_ICON.exists():
         try:
             location = pyautogui.locateOnScreen(str(SEARCH_ICON), confidence=0.8)
@@ -223,19 +243,21 @@ def open_search() -> bool:
                 pyautogui.click(pyautogui.center(location))
                 time.sleep(0.5)
         except Exception:
-            pass  # 이미지 못 찾아도 Ctrl+F가 이미 열었을 수 있음
+            pass
 
     return True
 
 
 def search_friend(name: str) -> bool:
-    """카카오톡에서 친구 이름 검색 → 1:1 채팅방 열기
+    """카카오톡 친구 목록에서 이름 검색 → 1:1 채팅방 열기
 
-    기존 Kakao v4 매크로 패턴 참고:
-    - chat_criteria: "친구이름" (친구 탭에서 이름 검색)
-    - 검색 아이콘 클릭 → 이름 입력 → 아래 키로 선택 → Enter
+    중요: 반드시 친구 탭에서 검색해야 함 (채팅 탭 아님)
+    - 친구 탭 → 검색 → 이름 입력 → 선택 → 채팅방 열기
     """
-    # 검색창 열기 (단축키 + 이미지 매칭 폴백)
+    # 1. 친구 탭으로 이동 (채팅 탭이 아닌 친구 탭)
+    go_to_friend_tab()
+
+    # 2. 검색창 열기 (단축키 + 이미지 매칭 폴백)
     if not open_search():
         log.warning("검색창을 열 수 없습니다")
         return False
