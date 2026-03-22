@@ -123,16 +123,6 @@ export function SendingTab() {
   useEffect(() => { fetchDevices(); fetchSettings() }, [fetchDevices, fetchSettings])
   useEffect(() => { fetchQueue() }, [fetchQueue])
 
-  // Auto-refresh when there are pending items
-  useEffect(() => {
-    if (totalSummary.pending > 0) {
-      const interval = setInterval(() => {
-        fetchQueue()
-      }, 30000) // 30 seconds
-      return () => clearInterval(interval)
-    }
-  }, [totalSummary.pending, fetchQueue])
-
   // ─── Actions ───
 
   const saveSettings = async () => {
@@ -242,6 +232,16 @@ export function SendingTab() {
     3: '보통',
     4: '늦게',
   }
+
+  // Auto-refresh when there are pending items
+  useEffect(() => {
+    if (totalSummary.pending > 0) {
+      const interval = setInterval(() => {
+        fetchQueue()
+      }, 30000) // 30 seconds
+      return () => clearInterval(interval)
+    }
+  }, [totalSummary.pending, fetchQueue])
 
   // ─── Render ───
 
@@ -478,7 +478,7 @@ export function SendingTab() {
                         {sub?.product?.sku_code || '-'}
                       </TableCell>
                       <TableCell className="py-1 text-center text-xs tabular-nums whitespace-nowrap">
-                        {sub?.day || '-'}
+                        {item.day_number || sub?.day || '-'}
                       </TableCell>
                       <TableCell className="py-1 text-center text-xs tabular-nums whitespace-nowrap text-muted-foreground">
                         {item.message_seq || '-'}
