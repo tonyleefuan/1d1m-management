@@ -18,7 +18,7 @@ async function generateForProduct(
   articleUrl?: string
 ): Promise<GenerateResult> {
   try {
-    // 1. Recent 7-day history
+    // 1. Recent history — 중복 방지용 (7일, 요약)
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
     const { data: history } = await supabase
@@ -29,15 +29,27 @@ async function generateForProduct(
       .order('send_date', { ascending: false })
       .limit(7)
 
-    const recentHistory = (history || [])
+    const recentTopics = (history || [])
       .map(h => `[${h.send_date}] ${h.content.slice(0, 200)}...`)
       .join('\n\n')
 
-    // 2. Search news
-    const newsContext = await searchNews(searchPrompt, recentHistory, targetDate, articleUrl)
+    // 2. 포맷 참조용 — 최근 2개 메시지 전체 내용
+    const { data: fullExamples } = await supabase
+      .from('daily_messages')
+      .select('send_date, content')
+      .eq('product_id', productId)
+      .order('send_date', { ascending: false })
+      .limit(2)
 
-    // 3. Generate message
-    let message = await generateMessage(generationPrompt, newsContext, recentHistory, targetDate)
+    const formatReference = (fullExamples || [])
+      .map(h => `=== ${h.send_date} 메시지 ===\n${h.content}`)
+      .join('\n\n')
+
+    // 3. Search news
+    const newsContext = await searchNews(searchPrompt, recentTopics, targetDate, articleUrl)
+
+    // 4. Generate message
+    let message = await generateMessage(generationPrompt, newsContext, recentTopics, targetDate, formatReference)
 
     // 4. Shorten URLs inline
     message = await shortenUrlsInText(message)

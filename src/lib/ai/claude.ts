@@ -49,16 +49,22 @@ export async function generateMessage(
   generationPrompt: string,
   newsContext: string,
   recentHistory: string,
-  targetDate: string
+  targetDate: string,
+  formatReference?: string
 ): Promise<string> {
+  let userContent = `아래 뉴스를 바탕으로 메시지를 작성하세요.\n\n대상 날짜: ${targetDate}\n날짜 표기는 반드시 "${targetDate}"을 사용하세요. 직접 계산하지 마세요.\n\n## 뉴스 내용\n${newsContext}`
+
+  if (formatReference) {
+    userContent += `\n\n## 포맷 참조 (아래 메시지와 동일한 포맷/톤/구조로 작성하세요)\n${formatReference}`
+  }
+
+  userContent += `\n\n## 최근 다룬 주제 (중복 회피용)\n${recentHistory}`
+
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 8192,
     system: generationPrompt + SYSTEM_RULES,
-    messages: [{
-      role: 'user',
-      content: `아래 뉴스를 바탕으로 메시지를 작성하세요.\n\n대상 날짜: ${targetDate}\n날짜 표기는 반드시 "${targetDate}"을 사용하세요. 직접 계산하지 마세요.\n\n## 뉴스 내용\n${newsContext}\n\n## 최근 메시지 (참고용, 톤/포맷 참조)\n${recentHistory}`
-    }],
+    messages: [{ role: 'user', content: userContent }],
   })
 
   return response.content
