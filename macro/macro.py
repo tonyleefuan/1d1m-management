@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import logging
+import random
 import requests
 import pyautogui
 import pyperclip
@@ -210,28 +211,34 @@ def find_and_click_image(image_path: str, confidence: float = 0.8, timeout: int 
 
 
 def search_friend(name: str) -> bool:
-    """카카오톡에서 친구 검색 → 채팅방 열기"""
+    """카카오톡에서 친구 이름 검색 → 1:1 채팅방 열기
+
+    기존 Kakao v4 매크로 패턴 참고:
+    - chat_criteria: "친구이름" (친구 탭에서 이름 검색)
+    - 검색 아이콘 클릭 → 이름 입력 → 아래 키로 선택 → Enter
+    """
     # 검색 아이콘 클릭
     if not find_and_click_image(str(SEARCH_ICON), timeout=5):
         log.warning("검색 아이콘을 찾을 수 없습니다")
         return False
 
-    time.sleep(0.5)
+    time.sleep(random.uniform(0.5, 1.0))
 
-    # 기존 검색어 지우기
+    # 기존 검색어 지우기 (X 아이콘 또는 Ctrl+A → Delete)
     pyautogui.hotkey("ctrl", "a")
     pyautogui.press("delete")
     time.sleep(0.3)
 
-    # 이름 입력
+    # 이름 입력 (pyperclip으로 한글 지원)
     pyperclip.copy(name)
     pyautogui.hotkey("ctrl", "v")
-    time.sleep(1.5)
+    time.sleep(random.uniform(1.5, 2.0))  # 검색 결과 로딩 대기
 
-    # 첫 번째 결과 클릭 (검색 결과 아래)
+    # 첫 번째 결과 선택 (down → enter로 채팅방 열기)
     pyautogui.press("down")
+    time.sleep(0.3)
     pyautogui.press("enter")
-    time.sleep(1)
+    time.sleep(random.uniform(0.8, 1.2))
 
     return True
 
@@ -406,7 +413,6 @@ def run_macro():
                 sent_count += 1
 
                 # 메시지 간 딜레이
-                import random
                 delay = random.uniform(
                     float(config.get("min_delay", 3)),
                     float(config.get("max_delay", 5)),
