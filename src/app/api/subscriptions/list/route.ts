@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { sanitizeSearch } from '@/lib/sanitize'
+import { computeSubscription, todayKST } from '@/lib/day'
 
 export async function GET(req: Request) {
   const session = await getSession()
@@ -69,21 +70,35 @@ export async function GET(req: Request) {
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // day: DB 저장값 사용 (발송 성공 시에만 +1)
-  // d_day: end_date - 오늘 (pause 중이면 "일시정지")
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const today = todayKST()
   const enriched = data?.map(sub => {
+    const computed = computeSubscription({
+      start_date: sub.start_date,
+      duration_days: sub.duration_days,
+      last_sent_day: sub.last_sent_day ?? 0,
+      paused_days: sub.paused_days ?? 0,
+      paused_at: sub.paused_at,
+      is_cancelled: sub.is_cancelled ?? false,
+    }, today)
+
+    // D-Day 계산
     let dDay: number | null = null
-    if (sub.status === 'pause') {
-      dDay = null // UI에서 "일시정지" 표시
-    } else if (sub.end_date) {
-      const end = new Date(sub.end_date)
-      end.setHours(0, 0, 0, 0)
-      dDay = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    if (computed.computed_status === 'paused') {
+      dDay = null
+    } else if (computed.computed_end_date) {
+      dDay = Math.ceil((new Date(computed.computed_end_date).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24))
     }
-    const isStarted = sub.start_date ? new Date(sub.start_date) <= today : false
-    return { ...sub, d_day: dDay, is_started: isStarted }
+
+    return {
+      ...sub,
+      d_day: dDay,
+      is_started: computed.current_day >= 1,
+      current_day: computed.current_day,
+      computed_status: computed.computed_status,
+      computed_end_date: computed.computed_end_date,
+      pending_days: computed.pending_days,
+      missed_days: computed.missed_days,
+    }
   })
 
   return NextResponse.json({ data: enriched, total: count, page, limit })
