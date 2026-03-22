@@ -45,8 +45,8 @@ function SourceGenerateDialog({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const days = ['일', '월', '화', '수', '목', '금', '토']
-  const dt = new Date(date + 'T00:00:00+09:00')
-  const dayName = days[dt.getDay()]
+  const [_y, _m, _d] = date.split('-').map(Number)
+  const dayName = days[new Date(Date.UTC(_y, _m - 1, _d)).getUTCDay()]
 
   const handleImageAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -869,8 +869,8 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   }
 
   const formatDate = (d: string) => {
-    const dt = new Date(d + 'T00:00:00+09:00')
-    const day = ['일','월','화','수','목','금','토'][dt.getDay()]
+    const [y, m, dd] = d.split('-').map(Number)
+    const day = ['일','월','화','수','목','금','토'][new Date(Date.UTC(y, m - 1, dd)).getUTCDay()]
     return { short: d.slice(5), day }
   }
 

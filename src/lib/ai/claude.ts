@@ -47,8 +47,9 @@ export async function searchNews(
  */
 function formatDateWithDay(dateStr: string): string {
   const days = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일']
-  const dt = new Date(dateStr + 'T00:00:00+09:00')
-  const dayName = days[dt.getDay()]
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  const dayName = days[dt.getUTCDay()]
   return `${dateStr.replace(/-/g, '.')} ${dayName}`
 }
 
