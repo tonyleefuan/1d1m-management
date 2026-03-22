@@ -576,7 +576,7 @@ export function MessagesTab() {
     <div>
       <PageHeader title="메시지 관리" description="고정/실시간 메시지와 알림 템플릿을 관리합니다" className="mb-6" />
 
-      <Tabs defaultValue="fixed">
+      <Tabs defaultValue="realtime">
         <TabsList>
           <TabsTrigger value="fixed">
             <FileText className="h-3.5 w-3.5 mr-1.5" />
