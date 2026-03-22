@@ -59,6 +59,7 @@ export async function POST() {
           .select('content, image_path')
           .eq('product_id', productId)
           .eq('send_date', today)
+          .eq('status', 'approved')
           .limit(1)
         if (error) throw new Error(`실시간 메시지 조회 실패: ${error.message}`)
         if (data?.length) {
