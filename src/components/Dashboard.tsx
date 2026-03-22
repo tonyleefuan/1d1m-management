@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { TABS, TabConfig } from '@/lib/constants'
 import dynamic from 'next/dynamic'
@@ -21,10 +21,13 @@ const TAB_COMPONENTS: Record<string, React.ComponentType> = {
   admin: AdminTab,
 }
 
+// 모든 유효한 탭 ID 집합 (TABS 원본 기준)
+const VALID_TAB_IDS = new Set(TABS.map(t => t.id))
+
 function getHashTab(): string | null {
   if (typeof window === 'undefined') return null
   const hash = window.location.hash.slice(1)
-  return TABS.some(t => t.id === hash) ? hash : null
+  return VALID_TAB_IDS.has(hash) ? hash : null
 }
 
 interface Props {
@@ -36,15 +39,67 @@ export function Dashboard({ userName, userRole }: Props) {
   const router = useRouter()
   const [tabs, setTabs] = useState<TabConfig[]>(TABS)
   const [tab, setTab] = useState(() => getHashTab() || TABS[0].id)
+  const [ready, setReady] = useState(false)
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+
+  // Fetch saved tab order from DB
+  useEffect(() => {
+    fetch('/api/admin/settings')
+      .then(r => {
+        if (!r.ok) throw new Error('설정 로드 실패')
+        return r.json()
+      })
+      .then(settings => {
+        if (settings.tab_order && Array.isArray(settings.tab_order)) {
+          const order = settings.tab_order as { id: string; visible: boolean }[]
+          const ordered = order
+            .filter(o => VALID_TAB_IDS.has(o.id))
+            .map(o => {
+              const t = TABS.find(tab => tab.id === o.id)
+              return t ? { ...t, visible: o.visible } : null
+            })
+            .filter((t): t is TabConfig => t !== null)
+
+          // Add any new tabs not in saved order
+          TABS.forEach(t => {
+            if (!ordered.find(o => o.id === t.id)) ordered.push(t)
+          })
+
+          setTabs(ordered)
+
+          // Validate current tab against visible tabs
+          const visibleTabs = ordered.filter(t => t.visible)
+          if (visibleTabs.length > 0) {
+            const hashTab = getHashTab()
+            const currentTab = hashTab || tab
+            const isCurrentVisible = visibleTabs.some(t => t.id === currentTab)
+            if (!isCurrentVisible) {
+              const first = visibleTabs[0].id
+              setTab(first)
+              window.history.replaceState(null, '', `#${first}`)
+            }
+          }
+        }
+      })
+      .catch(() => {
+        // 설정 로드 실패 시 기본 TABS 사용 (이미 초기값)
+      })
+      .finally(() => setReady(true))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync tab state with hash changes (browser back/forward)
   useEffect(() => {
     const onHashChange = () => {
       const hashTab = getHashTab()
-      if (hashTab) setTab(hashTab)
+      if (!hashTab) return
+      // 현재 visible 탭 목록에서만 허용
+      const visibleTabs = tabsRef.current.filter(t => t.visible)
+      if (visibleTabs.some(t => t.id === hashTab)) {
+        setTab(hashTab)
+      }
     }
     window.addEventListener('hashchange', onHashChange)
-    // Also sync on popstate for browser navigation
     window.addEventListener('popstate', onHashChange)
     return () => {
       window.removeEventListener('hashchange', onHashChange)
@@ -52,41 +107,8 @@ export function Dashboard({ userName, userRole }: Props) {
     }
   }, [])
 
-  // Fetch saved tab order from DB
-  useEffect(() => {
-    fetch('/api/admin/settings')
-      .then(r => r.json())
-      .then(settings => {
-        if (settings.tab_order) {
-          const order = settings.tab_order as { id: string; visible: boolean }[]
-          const ordered = order
-            .map(o => {
-              const t = TABS.find(tab => tab.id === o.id)
-              return t ? { ...t, visible: o.visible } : null
-            })
-            .filter((t): t is TabConfig => t !== null)
-          // Add any new tabs not in saved order
-          TABS.forEach(t => {
-            if (!ordered.find(o => o.id === t.id)) ordered.push(t)
-          })
-          setTabs(ordered)
-          // If current tab is hidden, switch to first visible
-          const visibleTabs = ordered.filter(t => t.visible)
-          const currentHash = getHashTab()
-          const currentTab = currentHash || TABS[0].id
-          if (visibleTabs.length > 0 && !visibleTabs.find(t => t.id === currentTab)) {
-            const first = visibleTabs[0].id
-            setTab(first)
-            window.history.replaceState(null, '', `#${first}`)
-          }
-        }
-      })
-      .catch(() => {})
-  }, [])
-
   const handleTabChange = useCallback((id: string) => {
     setTab(id)
-    // replaceState instead of setting hash to avoid creating extra history entries
     window.history.replaceState(null, '', `#${id}`)
   }, [])
 
@@ -97,6 +119,7 @@ export function Dashboard({ userName, userRole }: Props) {
   }, [router])
 
   const ActiveTab = TAB_COMPONENTS[tab]
+  const visibleTabs = tabs.filter(t => t.visible)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -116,10 +139,10 @@ export function Dashboard({ userName, userRole }: Props) {
         </div>
       </header>
 
-      {/* Tab Navigation */}
+      {/* Tab Navigation — ready 전에는 기본 탭, ready 후에는 DB 탭 순서 */}
       <nav className="bg-white border-b">
         <div className="max-w-[1400px] mx-auto px-4 flex gap-0 overflow-x-auto">
-          {tabs.filter(t => t.visible).map(t => (
+          {visibleTabs.map(t => (
             <button
               key={t.id}
               onClick={() => handleTabChange(t.id)}

@@ -440,7 +440,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                       )}
                       <span className="text-xs font-mono">{p.sku_code}</span>
                     </div>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{p.title}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{p.title}</p>
                   </td>
                   {/* 날짜별 셀 */}
                   {dates.map(d => {
