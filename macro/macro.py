@@ -209,6 +209,25 @@ def find_and_click_image(image_path: str, confidence: float = 0.8, timeout: int 
     return False
 
 
+def open_search() -> bool:
+    """카카오톡 검색창 열기 — 단축키 우선, 실패 시 이미지 매칭"""
+    # 방법 1: Ctrl+F 단축키
+    pyautogui.hotkey("ctrl", "f")
+    time.sleep(0.5)
+
+    # 방법 2: 이미지 매칭 (단축키가 안 먹힐 경우 대비)
+    if SEARCH_ICON.exists():
+        try:
+            location = pyautogui.locateOnScreen(str(SEARCH_ICON), confidence=0.8)
+            if location:
+                pyautogui.click(pyautogui.center(location))
+                time.sleep(0.5)
+        except Exception:
+            pass  # 이미지 못 찾아도 Ctrl+F가 이미 열었을 수 있음
+
+    return True
+
+
 def search_friend(name: str) -> bool:
     """카카오톡에서 친구 이름 검색 → 1:1 채팅방 열기
 
@@ -216,14 +235,14 @@ def search_friend(name: str) -> bool:
     - chat_criteria: "친구이름" (친구 탭에서 이름 검색)
     - 검색 아이콘 클릭 → 이름 입력 → 아래 키로 선택 → Enter
     """
-    # 검색 아이콘 클릭
-    if not find_and_click_image(str(SEARCH_ICON), timeout=5):
-        log.warning("검색 아이콘을 찾을 수 없습니다")
+    # 검색창 열기 (단축키 + 이미지 매칭 폴백)
+    if not open_search():
+        log.warning("검색창을 열 수 없습니다")
         return False
 
-    time.sleep(random.uniform(0.5, 1.0))
+    time.sleep(random.uniform(0.3, 0.5))
 
-    # 기존 검색어 지우기 (X 아이콘 또는 Ctrl+A → Delete)
+    # 기존 검색어 지우기
     pyautogui.hotkey("ctrl", "a")
     pyautogui.press("delete")
     time.sleep(0.3)

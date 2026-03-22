@@ -163,10 +163,10 @@ Write-Host "  - 절전 / 화면 꺼짐 비활성화"
 Write-Host "  - 카카오톡 시작프로그램"
 Write-Host "  - 매일 22:00 재부팅 + 04:00 매크로"
 Write-Host ""
-Write-Host "  [직접 해야 할 것]" -ForegroundColor Yellow
-Write-Host "  images_ui/ 폴더에 카카오톡 UI 캡처 이미지 2개:"
+Write-Host "  [선택사항]" -ForegroundColor Yellow
+Write-Host "  단축키(Ctrl+F, ESC)로 기본 동작합니다."
+Write-Host "  더 안정적으로 하려면 images_ui/ 폴더에 캡처 이미지 추가:"
 Write-Host "    search.png — 카카오톡 검색 아이콘 캡처"
-Write-Host "    close.png  — 카카오톡 X 닫기 아이콘 캡처"
 Write-Host ""
 Write-Host "  [테스트 실행]" -ForegroundColor Yellow
 Write-Host "  cd $installDir"
