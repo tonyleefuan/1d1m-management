@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { cn } from '@/lib/utils'
-import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle } from 'lucide-react'
+import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2 } from 'lucide-react'
 import type { Product, Message, DailyMessage, NoticeTemplate } from '@/lib/types'
 
 // --- 메시지 편집 모달 ---
@@ -325,6 +325,131 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
   )
 }
 
+// --- 오늘의 메시지 보드 ---
+function TodayMessageBoard({
+  products, todayStatus, onRefresh, onSelectProduct,
+}: {
+  products: Product[]
+  todayStatus: { date: string; status: Record<string, string> } | null
+  onRefresh: () => void
+  onSelectProduct: (id: string) => void
+}) {
+  const { showSuccess, showError } = useToast()
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState<Record<string, boolean>>({})
+
+  if (!todayStatus) return <Skeleton className="h-40 w-full" />
+
+  const todayDate = todayStatus.date
+  const doneCount = products.filter(p => todayStatus.status[p.id]).length
+
+  const handleSave = async (productId: string) => {
+    const content = drafts[productId]?.trim()
+    if (!content) return
+    setSaving(s => ({ ...s, [productId]: true }))
+    try {
+      const res = await fetch('/api/daily-messages/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: productId, send_date: todayDate, content }),
+      })
+      if (!res.ok) throw new Error('실패')
+      showSuccess('저장되었습니다')
+      setDrafts(d => { const n = { ...d }; delete n[productId]; return n })
+      onRefresh()
+    } catch {
+      showError('저장에 실패했습니다')
+    } finally {
+      setSaving(s => ({ ...s, [productId]: false }))
+    }
+  }
+
+  // 미작성을 먼저, 작성 완료를 나중에
+  const sorted = [...products].sort((a, b) => {
+    const aDone = todayStatus.status[a.id] ? 1 : 0
+    const bDone = todayStatus.status[b.id] ? 1 : 0
+    return aDone - bDone
+  })
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">오늘의 메시지</span>
+          <span className="text-xs text-muted-foreground font-mono">{todayDate}</span>
+          <span className={cn(
+            'text-xs font-medium px-1.5 py-0.5 rounded',
+            doneCount === products.length
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-destructive/10 text-destructive'
+          )}>
+            {doneCount}/{products.length}
+          </span>
+        </div>
+      </div>
+      <div className="space-y-3 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
+        {sorted.map(p => {
+          const existing = todayStatus.status[p.id]
+          const isDone = !!existing
+          return (
+            <div
+              key={p.id}
+              className={cn(
+                'rounded-lg border p-4',
+                isDone ? 'bg-card' : 'bg-destructive/5 border-destructive/20'
+              )}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                {isDone ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+                )}
+                <span className="text-xs font-mono text-muted-foreground">{p.sku_code}</span>
+                <span className="text-sm font-medium">{p.title}</span>
+                {isDone && (
+                  <button
+                    className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => onSelectProduct(p.id)}
+                  >
+                    수정 →
+                  </button>
+                )}
+              </div>
+              {isDone ? (
+                <p className="text-[13px] text-muted-foreground line-clamp-2 pl-6">{existing}</p>
+              ) : (
+                <div className="pl-6 space-y-2">
+                  <Textarea
+                    placeholder="오늘의 메시지를 입력하세요..."
+                    className="min-h-[80px] text-[13px]"
+                    value={drafts[p.id] || ''}
+                    onChange={(e) => setDrafts(d => ({ ...d, [p.id]: e.target.value }))}
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={() => handleSave(p.id)}
+                      disabled={!drafts[p.id]?.trim() || saving[p.id]}
+                    >
+                      {saving[p.id] ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      저장
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // --- 실시간 메시지 패널 ---
 function RealtimeMessagesPanel({ products }: { products: Product[] }) {
   const rtProducts = products.filter(p => p.message_type === 'realtime')
@@ -379,56 +504,12 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
       />
       <div className="flex-1">
         {!selectedProduct ? (
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-sm font-medium">오늘의 메시지 현황</span>
-              {todayStatus && (
-                <span className="text-xs text-muted-foreground font-mono">{todayStatus.date}</span>
-              )}
-            </div>
-            {todayStatus ? (
-              <div className="space-y-2">
-                {rtProducts.map(p => {
-                  const hasMessage = !!todayStatus.status[p.id]
-                  const preview = todayStatus.status[p.id]
-                  return (
-                    <div
-                      key={p.id}
-                      className={cn(
-                        'flex items-start gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors',
-                        hasMessage
-                          ? 'bg-card hover:bg-muted/50'
-                          : 'bg-destructive/5 border-destructive/20 hover:bg-destructive/10'
-                      )}
-                      onClick={() => setSelectedProduct(p.id)}
-                    >
-                      {hasMessage ? (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono text-muted-foreground">{p.sku_code}</span>
-                          <span className="text-sm font-medium">{p.title}</span>
-                        </div>
-                        {hasMessage ? (
-                          <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{preview}</p>
-                        ) : (
-                          <p className="text-xs text-destructive mt-0.5">미작성</p>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-                <p className="text-xs text-muted-foreground pt-2">
-                  {rtProducts.filter(p => todayStatus.status[p.id]).length}/{rtProducts.length}개 작성 완료
-                </p>
-              </div>
-            ) : (
-              <Skeleton className="h-40 w-full" />
-            )}
-          </div>
+          <TodayMessageBoard
+            products={rtProducts}
+            todayStatus={todayStatus}
+            onRefresh={refreshTodayStatus}
+            onSelectProduct={setSelectedProduct}
+          />
         ) : loading ? (
           <MessageListSkeleton />
         ) : (
