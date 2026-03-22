@@ -175,6 +175,17 @@ function MessageEditModal({
           />
         </div>
 
+        {(msg?.image_path as string | null) && (
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground">이미지</label>
+            <img
+              src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/messages/${msg?.image_path as string}`}
+              alt="preview"
+              className="max-w-[200px] max-h-[200px] rounded border object-contain"
+            />
+          </div>
+        )}
+
         {/* AI features for daily messages */}
         {isDailyMessage && !!(msg?.id) && (
           <div className="space-y-3 border-t pt-3">
@@ -429,7 +440,19 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
                             </span>
                           )}
                         </div>
-                        <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                        {m.image_path ? (
+                          <div className="flex items-center gap-2 flex-1">
+                            <img
+                              src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/messages/${m.image_path}`}
+                              alt={m.image_path}
+                              className="w-10 h-10 object-cover rounded border"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                            <span className="text-xs text-muted-foreground">{m.image_path}</span>
+                          </div>
+                        ) : (
+                          <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                        )}
                       </div>
                     )
                   })}
@@ -775,7 +798,19 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
                     <span className="shrink-0 font-mono text-xs font-semibold bg-primary text-primary-foreground px-2 py-0.5 rounded">
                       {m.send_date?.slice(5)}
                     </span>
-                    <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                    {m.image_path ? (
+                      <div className="flex items-center gap-2 flex-1">
+                        <img
+                          src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/messages/${m.image_path}`}
+                          alt={m.image_path}
+                          className="w-10 h-10 object-cover rounded border"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                        <span className="text-xs text-muted-foreground">{m.image_path}</span>
+                      </div>
+                    ) : (
+                      <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
+                    )}
                   </div>
                 ))}
               </div>
