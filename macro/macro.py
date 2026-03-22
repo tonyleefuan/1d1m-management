@@ -1012,9 +1012,9 @@ def run_test():
         print("  ❌ 채팅방이 안 닫혔습니다")
         all_ok = False
 
-    # === 2차: 다시 검색 → 2건 전송 → 닫기 ===
+    # === 2차: 다시 검색 → 텍스트 1건 + 이미지 1건 + 텍스트 1건 → 닫기 ===
     print("")
-    print(f"  ── 2차 테스트: 다시 검색 + 메시지 2건 ──")
+    print(f"  ── 2차 테스트: 재검색 + 텍스트 + 이미지 + 텍스트 ──")
     time.sleep(2)
     print(f"  친구 재검색 중...")
     found2 = kakao.search_friend(test_name)
@@ -1029,19 +1029,49 @@ def run_test():
             print("  ❌ 2차 메시지 입력창을 찾을 수 없습니다")
             all_ok = False
         else:
-            test_messages_2 = [
-                "[1D1M 테스트 4/5] 2차 테스트 — 채팅방 다시 열기 성공!",
-                "[1D1M 테스트 5/5] 모든 테스트 완료! 매크로 정상 동작 확인 ✅",
-            ]
-            for i, msg in enumerate(test_messages_2):
-                try:
-                    kakao.send_text_message(msg)
-                    print(f"  ✅ 메시지 {i+4}/5 전송 완료")
-                    time.sleep(2)
-                except Exception as e:
-                    print(f"  ❌ 메시지 {i+4}/5 전송 실패: {e}")
-                    all_ok = False
-                    break
+            # 텍스트 1건
+            try:
+                kakao.send_text_message("[1D1M 테스트 4/6] 2차 테스트 시작 — 다음은 이미지입니다")
+                print("  ✅ 메시지 4/6 전송 완료 (텍스트)")
+                time.sleep(2)
+            except Exception as e:
+                print(f"  ❌ 메시지 4/6 전송 실패: {e}")
+                all_ok = False
+
+            # 이미지 1건 — 테스트용 이미지 자동 생성
+            try:
+                test_img_path = IMAGES_DIR / "test_image.bmp"
+                # 간단한 BMP 파일 생성 (100x50 빨간색)
+                import struct
+                width, height = 100, 50
+                row_size = (width * 3 + 3) & ~3
+                pixel_data = b''
+                for y in range(height):
+                    row = b'\x00\x00\xff' * width  # BGR = 빨간색
+                    row += b'\x00' * (row_size - width * 3)
+                    pixel_data += row
+                file_size = 54 + len(pixel_data)
+                bmp = struct.pack('<2sIHHI', b'BM', file_size, 0, 0, 54)
+                bmp += struct.pack('<IIIHHIIIIII', 40, width, height, 1, 24, 0, len(pixel_data), 0, 0, 0, 0)
+                bmp += pixel_data
+                test_img_path.write_bytes(bmp)
+                print("  테스트 이미지 생성 완료")
+
+                kakao.send_image_file(str(test_img_path), file_delay=3)
+                print("  ✅ 메시지 5/6 전송 완료 (이미지)")
+                time.sleep(2)
+            except Exception as e:
+                print(f"  ❌ 메시지 5/6 이미지 전송 실패: {e}")
+                all_ok = False
+
+            # 텍스트 1건
+            try:
+                kakao.send_text_message("[1D1M 테스트 6/6] 모든 테스트 완료! 텍스트+이미지 정상 ✅")
+                print("  ✅ 메시지 6/6 전송 완료 (텍스트)")
+                time.sleep(2)
+            except Exception as e:
+                print(f"  ❌ 메시지 6/6 전송 실패: {e}")
+                all_ok = False
 
         # 채팅방 닫기
         print("  채팅방 닫는 중...")
@@ -1052,6 +1082,11 @@ def run_test():
         else:
             print("  ❌ 채팅방이 안 닫혔습니다")
             all_ok = False
+
+    # 테스트 이미지 정리
+    test_img_cleanup = IMAGES_DIR / "test_image.bmp"
+    if test_img_cleanup.exists():
+        test_img_cleanup.unlink()
 
     # 결과
     print("")
