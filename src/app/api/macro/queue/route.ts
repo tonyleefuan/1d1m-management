@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { generateQueueForDevice } from '@/lib/queue-generator'
+import { todayKST } from '@/lib/day'
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
@@ -12,7 +13,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     data: result.data,
     total: result.data.length,
-    date: new Date().toISOString().slice(0, 10),
+    date: todayKST(),
     generated: result.generated,
   })
 }
