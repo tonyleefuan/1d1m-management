@@ -952,27 +952,16 @@ export function SubscriptionsTab() {
                             }
                           }
                         >
-                          <SelectTrigger className="h-6 w-[80px] text-xs border-0 bg-transparent px-1">
+                          <SelectTrigger className="h-6 w-[90px] text-xs border-0 bg-transparent px-1">
                             <SelectValue>
-                              <span className="flex items-center gap-1.5">
-                                <span className={cn(
-                                  "inline-block w-2 h-2 rounded-full shrink-0",
-                                  {
-                                    'bg-red-500': (sub.send_priority || 3) === 1,
-                                    'bg-orange-400': (sub.send_priority || 3) === 2,
-                                    'bg-gray-400': (sub.send_priority || 3) === 3,
-                                    'bg-blue-400': (sub.send_priority || 3) === 4,
-                                  }
-                                )} />
-                                {({ 1: '아주빨리', 2: '빨리', 3: '보통', 4: '늦게' } as Record<number, string>)[(sub.send_priority || 3)]}
-                              </span>
+                              {({ 1: '🐆 아주빨리', 2: '🐇 빨리', 3: '🚶 보통', 4: '🐢 늦게' } as Record<number, string>)[(sub.send_priority || 3)]}
                             </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="1"><span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-red-500" />아주빨리</span></SelectItem>
-                            <SelectItem value="2"><span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-orange-400" />빨리</span></SelectItem>
-                            <SelectItem value="3"><span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-gray-400" />보통</span></SelectItem>
-                            <SelectItem value="4"><span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-blue-400" />늦게</span></SelectItem>
+                            <SelectItem value="1">🐆 아주빨리</SelectItem>
+                            <SelectItem value="2">🐇 빨리</SelectItem>
+                            <SelectItem value="3">🚶 보통</SelectItem>
+                            <SelectItem value="4">🐢 늦게</SelectItem>
                           </SelectContent>
                         </Select>
                       </TableCell>
