@@ -111,7 +111,7 @@ const STATUS_MAP: Record<string, { status: StatusType; label: string; className?
   cancel: { status: 'error', label: '취소' },
 }
 
-const PAGE_SIZE = 50
+const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
 
 function getDeviceColor(device: DeviceOption | null, devices: DeviceOption[]): string | undefined {
   if (!device) return undefined
@@ -170,6 +170,7 @@ export function SubscriptionsTab() {
     product_id: '',
     search: '',
     page: 1,
+    pageSize: 50 as number,
     sort: 'start_date',
     order: 'desc' as 'asc' | 'desc',
   })
@@ -234,7 +235,7 @@ export function SubscriptionsTab() {
     }
     const params = new URLSearchParams()
     params.set('page', String(filters.page))
-    params.set('limit', String(PAGE_SIZE))
+    params.set('limit', String(filters.pageSize))
     if (filters.status) params.set('status', filters.status)
     if (filters.device_id) params.set('device_id', filters.device_id)
     if (filters.product_id) params.set('product_id', filters.product_id)
@@ -465,7 +466,7 @@ export function SubscriptionsTab() {
 
   // ─── Pagination ──────────────────────────────────────
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
+  const totalPages = Math.ceil(total / filters.pageSize)
 
   // ─── Sort helpers ──────────────────────────────────────
 
@@ -982,29 +983,44 @@ export function SubscriptionsTab() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setFilters((f) => ({ ...f, page: Math.max(1, f.page - 1) }))}
-                disabled={filters.page === 1}
-              >
-                이전
-              </Button>
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {filters.page} / {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
-                disabled={filters.page >= totalPages}
-              >
-                다음
-              </Button>
+          <div className="flex items-center justify-between pt-2">
+            <div className="flex items-center gap-1">
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <Button
+                  key={size}
+                  variant={filters.pageSize === size ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setFilters((f) => ({ ...f, pageSize: size, page: 1 }))}
+                >
+                  {size}개
+                </Button>
+              ))}
             </div>
-          )}
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFilters((f) => ({ ...f, page: Math.max(1, f.page - 1) }))}
+                  disabled={filters.page === 1}
+                >
+                  이전
+                </Button>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {filters.page} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
+                  disabled={filters.page >= totalPages}
+                >
+                  다음
+                </Button>
+              </div>
+            )}
+          </div>
         </>
       )}
 
