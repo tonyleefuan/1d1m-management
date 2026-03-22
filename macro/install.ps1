@@ -163,9 +163,15 @@ Write-Host "  - 절전 / 화면 꺼짐 비활성화"
 Write-Host "  - 카카오톡 시작프로그램"
 Write-Host "  - 매일 22:00 재부팅 + 04:00 매크로"
 Write-Host ""
+Write-Host "  자동 테스트를 실행합니다..." -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  [테스트 실행]" -ForegroundColor Yellow
-Write-Host "  cd $installDir"
-Write-Host "  python macro.py"
+
+# 자동 테스트 실행
+Set-Location $installDir
+& python macro.py --test
+
+Write-Host ""
+Write-Host "  위 결과에 ❌ 가 있으면 설정을 확인하세요." -ForegroundColor Yellow
+Write-Host "  모두 ✅ 이면 정상입니다!" -ForegroundColor Green
 Write-Host ""
 pause

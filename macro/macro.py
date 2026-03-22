@@ -836,5 +836,94 @@ def _run_macro_inner(config: dict, api: ServerAPI):
         PROGRESS_PATH.unlink()
 
 
+def run_test():
+    """설치 후 자동 테스트 — 실제 메시지 발송 없이 연결 상태만 확인"""
+    config = load_config()
+    print("")
+    print("=" * 50)
+    print("  1D1M 매크로 설치 테스트")
+    print("=" * 50)
+    print("")
+
+    # 1. 서버 연결 테스트
+    print("[1/5] 서버 연결 테스트...")
+    api = ServerAPI(config)
+    try:
+        res = requests.get(
+            f"{api.base_url}/api/macro/queue",
+            params={"device_id": config["device_id"]},
+            headers=api.headers, timeout=10,
+        )
+        if res.status_code == 200:
+            data = res.json()
+            print(f"  ✅ 서버 연결 성공 (대기열 {data.get('total', 0)}건)")
+        elif res.status_code == 401:
+            print(f"  ❌ API 키가 잘못되었습니다")
+            return False
+        elif res.status_code == 404:
+            print(f"  ❌ device_id '{config['device_id']}'가 서버에 등록되지 않았습니다")
+            return False
+        else:
+            print(f"  ❌ 서버 응답 오류: {res.status_code}")
+            return False
+    except requests.ConnectionError:
+        print(f"  ❌ 서버에 연결할 수 없습니다: {api.base_url}")
+        return False
+    except Exception as e:
+        print(f"  ❌ 서버 연결 실패: {e}")
+        return False
+
+    # 2. 카카오톡 실행 확인
+    print("[2/5] 카카오톡 실행 확인...")
+    if is_kakao_running():
+        print("  ✅ 카카오톡 실행 중")
+    else:
+        print("  ⚠️ 카카오톡이 꺼져있습니다 (매크로 실행 시 자동 실행됩니다)")
+
+    # 3. 카카오톡 창 찾기
+    print("[3/5] 카카오톡 창 탐색...")
+    kakao = KakaoController()
+    if kakao.find_main_window():
+        print(f"  ✅ 카카오톡 메인 창 발견 (hwnd: {kakao.main_hwnd})")
+    else:
+        if not is_kakao_running():
+            print("  ⚠️ 카카오톡이 꺼져있어 창을 찾을 수 없음 (정상)")
+        else:
+            print("  ❌ 카카오톡은 실행 중인데 창을 찾을 수 없습니다")
+            return False
+
+    # 4. 검색 입력창 찾기
+    print("[4/5] 검색 입력창 탐색...")
+    if kakao.main_hwnd:
+        search_edit = kakao.find_search_edit()
+        if search_edit:
+            print(f"  ✅ 검색 입력창 발견 (hwnd: {search_edit})")
+        else:
+            print("  ⚠️ 검색 입력창을 찾을 수 없음 (Ctrl+F 폴백 사용)")
+    else:
+        print("  ⏭️ 카카오톡 창 없어서 스킵")
+
+    # 5. 이미지 폴더 확인
+    print("[5/5] 이미지 폴더 확인...")
+    if IMAGES_DIR.exists():
+        count = len(list(IMAGES_DIR.glob("*")))
+        print(f"  ✅ images/ 폴더 존재 ({count}개 파일)")
+    else:
+        print("  ⚠️ images/ 폴더 없음 (자동 생성됩니다)")
+
+    print("")
+    print("=" * 50)
+    print("  테스트 완료!")
+    print("=" * 50)
+    print("")
+    print("  매크로 실행: python macro.py")
+    print("  (대시보드에서 대기열 생성 후 실행하세요)")
+    print("")
+    return True
+
+
 if __name__ == "__main__":
-    run_macro()
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        run_test()
+    else:
+        run_macro()
