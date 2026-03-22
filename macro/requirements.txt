@@ -1,2 +1,4 @@
 pywin32==308
 requests==2.32.3
+pyautogui==0.9.54
+pyperclip==1.9.0

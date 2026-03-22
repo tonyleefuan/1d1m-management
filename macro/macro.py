@@ -22,6 +22,12 @@ import win32con
 import win32api
 import win32clipboard
 import win32process
+import pyautogui
+import pyperclip
+
+# pyautogui 설정
+pyautogui.FAILSAFE = False
+pyautogui.PAUSE = 0.05
 
 # ─── 설정 ───
 
@@ -353,40 +359,11 @@ class KakaoController:
         log.warning("클립보드 접근 실패 (5회 시도)")
 
     def send_ctrl_key(self, hwnd: int, char: str):
-        """Ctrl+문자 전송 — MosesP0124 패턴 (Alt 키 안 씀, 시스템 메뉴 안 뜸)"""
-        _user32 = ctypes.windll.user32
-        _kernel32 = ctypes.windll.kernel32
-
-        # WM_ACTIVATE로 창 활성화
-        win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
-
-        tid_self = _kernel32.GetCurrentThreadId()
-        tid_target = _user32.GetWindowThreadProcessId(hwnd, None)
-
-        _user32.AttachThreadInput(tid_self, tid_target, True)
-        try:
-            vk = ord(char.upper())
-            scan_code = _user32.MapVirtualKeyA(vk, 0)
-            lparam = win32api.MAKELONG(0, scan_code)
-
-            # Ctrl 키 상태 설정
-            key_state = (ctypes.c_ubyte * 256)()
-            _user32.GetKeyboardState(ctypes.byref(key_state))
-            key_state[win32con.VK_CONTROL] = 0x80
-            _user32.SetKeyboardState(ctypes.byref(key_state))
-            time.sleep(0.01)
-
-            win32api.PostMessage(hwnd, win32con.WM_KEYDOWN, vk, lparam)
-            time.sleep(0.01)
-            win32api.PostMessage(hwnd, win32con.WM_KEYUP, vk, lparam | 0xC0000000)
-            time.sleep(0.01)
-
-            # Ctrl 키 상태 복원
-            key_state[win32con.VK_CONTROL] = 0x00
-            _user32.SetKeyboardState(ctypes.byref(key_state))
-        finally:
-            _user32.AttachThreadInput(tid_self, tid_target, False)
-        time.sleep(0.1)
+        """Ctrl+문자 전송 — pyautogui 사용"""
+        self.bring_to_front(hwnd)
+        time.sleep(0.2)
+        pyautogui.hotkey('ctrl', char.lower())
+        time.sleep(0.3)
 
     # ─── 카카오톡 동작 ───
 
@@ -448,24 +425,20 @@ class KakaoController:
         return self.find_chat_window(name)
 
     def send_text_message(self, text: str):
-        """현재 열린 채팅방에 텍스트 전송
-
-        WM_SETTEXT + MosesP0124 방식 PostMessage Enter
-        (모니터 없이 동작, Alt 키 시스템 메뉴 안 뜸)
-        """
+        """현재 열린 채팅방에 텍스트 전송 — pyautogui 방식"""
         if not self.chat_hwnd:
             raise Exception("채팅방 창이 없습니다")
 
-        chat_edit = self.find_chat_edit()
-        if not chat_edit:
-            raise Exception("메시지 입력창(RichEdit50W)을 찾을 수 없습니다")
+        # 1. 채팅방을 포그라운드로
+        self.bring_to_front(self.chat_hwnd)
+        time.sleep(0.3)
 
-        # 1. 텍스트 직접 설정 (WM_SETTEXT — 포그라운드 불필요)
-        win32api.SendMessage(chat_edit, win32con.WM_SETTEXT, 0, text)
-        time.sleep(0.2)
-
-        # 2. Enter 전송 (MosesP0124 패턴 — SetKeyboardState + PostMessage)
-        self._post_key_with_attach(chat_edit, win32con.VK_RETURN)
+        # 2. 클립보드 → Ctrl+V → Enter
+        pyperclip.copy(text)
+        time.sleep(0.1)
+        pyautogui.hotkey('ctrl', 'v')
+        time.sleep(0.3)
+        pyautogui.press('enter')
         time.sleep(0.3)
 
     def _post_key_with_attach(self, hwnd: int, vk_key: int):
@@ -567,17 +540,12 @@ class KakaoController:
                     raise Exception("이미지 클립보드 설정 실패 (3회 시도)")
                 time.sleep(0.1)
 
-        # 2. WM_PASTE를 채팅 입력창에 전송
-        chat_edit = self.find_chat_edit()
-        if chat_edit:
-            win32api.SendMessage(chat_edit, win32con.WM_PASTE, 0, 0)
-        else:
-            win32api.SendMessage(self.chat_hwnd, win32con.WM_PASTE, 0, 0)
-
-        # 3. 전송 확인 — Enter 키
-        time.sleep(1.0)
-        target = chat_edit if chat_edit else self.chat_hwnd
-        self._post_key_with_attach(target, win32con.VK_RETURN)
+        # 2. 채팅방 포그라운드 → Ctrl+V → Enter
+        self.bring_to_front(self.chat_hwnd)
+        time.sleep(0.3)
+        pyautogui.hotkey('ctrl', 'v')
+        time.sleep(1.5)
+        pyautogui.press('enter')
         time.sleep(file_delay)
 
     def go_to_friend_tab(self):

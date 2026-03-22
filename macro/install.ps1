@@ -139,6 +139,19 @@ Write-Host "       절전 모드 / 화면 꺼짐 비활성화" -ForegroundColor 
 powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c 2>$null
 Write-Host "       고성능 전원 모드" -ForegroundColor Gray
 
+# RDP 끊어도 세션 유지 (pyautogui가 동작하려면 데스크톱 세션 필요)
+# disconnect.bat: tscon으로 세션 끊기 (잠금 안 됨 → 데스크톱 활성 유지)
+$disconnectBat = "$installDir\disconnect.bat"
+@"
+@echo off
+for /f "skip=1 tokens=3" %%s in ('query user %USERNAME%') do (
+    tscon %%s /dest:console
+    goto :done
+)
+:done
+"@ | Set-Content -Path $disconnectBat -Encoding ASCII
+Write-Host "       RDP 세션 유지 스크립트 (disconnect.bat)" -ForegroundColor Gray
+
 # ─── 카카오톡 시작프로그램 ───
 $kakaoExe = "C:\Program Files (x86)\Kakao\KakaoTalk\KakaoTalk.exe"
 $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
