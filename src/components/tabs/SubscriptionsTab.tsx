@@ -17,6 +17,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -205,6 +207,10 @@ export function SubscriptionsTab() {
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  // Pause popover state
+  const [pausePopoverId, setPausePopoverId] = useState<string | null>(null)
+  const [pauseResumeDate, setPauseResumeDate] = useState('')
 
   // Detail sheet state
   const [detailSub, setDetailSub] = useState<SubRow | null>(null)
@@ -975,24 +981,98 @@ export function SubscriptionsTab() {
 
                       {/* 14. 정지/재개 */}
                       <TableCell className="py-1 text-xs" onClick={(e) => e.stopPropagation()}>
-                        {sub.computed_status === 'paused' ? (
-                          <button
-                            className="text-purple-600 hover:underline cursor-pointer text-xs"
-                            onClick={() => {
-                              optimisticUpdate(sub.id, { paused_at: null, resume_date: null } as unknown as Partial<SubRow>, { status: 'live' }, '정지 해제')
+                        {(sub.computed_status === 'paused' || sub.computed_status === 'active') ? (
+                          <Popover
+                            open={pausePopoverId === sub.id}
+                            onOpenChange={(open) => {
+                              if (!open) {
+                                setPausePopoverId(null)
+                                setPauseResumeDate('')
+                              }
                             }}
                           >
-                            {sub.resume_date ? `~${sub.resume_date.slice(5)} 재개` : '무기한'}
-                          </button>
-                        ) : sub.computed_status === 'active' ? (
-                          <button
-                            className="text-muted-foreground hover:text-foreground cursor-pointer text-xs"
-                            onClick={() => {
-                              optimisticUpdate(sub.id, { status: 'pause' as SubscriptionStatus } as Partial<SubRow>, { status: 'pause', paused_at: new Date().toISOString() }, '정지')
-                            }}
-                          >
-                            정지
-                          </button>
+                            <div className="flex items-center gap-1.5">
+                              <PopoverTrigger asChild>
+                                <div>
+                                  <Switch
+                                    size="sm"
+                                    checked={sub.computed_status !== 'paused'}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        // 재개: pause → live (바로 실행)
+                                        optimisticUpdate(
+                                          sub.id,
+                                          { status: 'live' as SubscriptionStatus, computed_status: 'active', paused_at: null, resume_date: null } as unknown as Partial<SubRow>,
+                                          { status: 'live' },
+                                          '정지 해제'
+                                        )
+                                      } else {
+                                        // 정지: 팝오버 열어서 재개예정일 입력
+                                        setPausePopoverId(sub.id)
+                                        setPauseResumeDate('')
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              </PopoverTrigger>
+                              <span className={cn('text-[11px]', sub.computed_status === 'paused' ? 'text-purple-600' : 'text-muted-foreground')}>
+                                {sub.computed_status === 'paused'
+                                  ? (sub.resume_date ? `~${sub.resume_date.slice(5)}` : '정지')
+                                  : '발송중'}
+                              </span>
+                            </div>
+                            <PopoverContent align="start" className="w-56 p-3">
+                              <div className="space-y-3">
+                                <p className="text-xs font-medium">재개예정일 (선택)</p>
+                                <Input
+                                  type="date"
+                                  className="h-8 text-xs"
+                                  value={pauseResumeDate}
+                                  min={new Date().toISOString().slice(0, 10)}
+                                  onChange={(e) => setPauseResumeDate(e.target.value)}
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="flex-1 h-7 text-xs"
+                                    onClick={() => {
+                                      setPausePopoverId(null)
+                                      setPauseResumeDate('')
+                                    }}
+                                  >
+                                    취소
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    className="flex-1 h-7 text-xs"
+                                    onClick={() => {
+                                      const now = new Date().toISOString()
+                                      optimisticUpdate(
+                                        sub.id,
+                                        {
+                                          status: 'pause' as SubscriptionStatus,
+                                          computed_status: 'paused',
+                                          paused_at: now,
+                                          ...(pauseResumeDate ? { resume_date: pauseResumeDate } : {}),
+                                        } as unknown as Partial<SubRow>,
+                                        {
+                                          status: 'pause',
+                                          paused_at: now,
+                                          ...(pauseResumeDate ? { resume_date: pauseResumeDate } : {}),
+                                        },
+                                        pauseResumeDate ? `${pauseResumeDate}까지 정지` : '무기한 정지'
+                                      )
+                                      setPausePopoverId(null)
+                                      setPauseResumeDate('')
+                                    }}
+                                  >
+                                    정지
+                                  </Button>
+                                </div>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
                         ) : (
                           <span className="text-muted-foreground">-</span>
                         )}
