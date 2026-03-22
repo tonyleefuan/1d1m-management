@@ -279,11 +279,18 @@ class KakaoController:
         return self.chat_hwnd is not None
 
     def find_chat_edit(self) -> int:
-        """현재 채팅방의 메시지 입력창(RichEdit50W) 핸들 찾기"""
+        """현재 채팅방의 메시지 입력창 핸들 찾기
+
+        카카오톡 버전에 따라 클래스명이 다를 수 있음:
+        - "RichEdit50W" (일반적)
+        - "RICHEDIT50W" (일부 버전)
+        """
         if not self.chat_hwnd:
             return 0
         try:
             edit = win32gui.FindWindowEx(self.chat_hwnd, None, "RichEdit50W", None)
+            if not edit:
+                edit = win32gui.FindWindowEx(self.chat_hwnd, None, "RICHEDIT50W", None)
             return edit or 0
         except Exception:
             return 0
