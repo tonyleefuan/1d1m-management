@@ -918,11 +918,11 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   const { dates, today, grid } = gridData
   const doneCount = rtProducts.filter(p => grid[p.id]?.[today]?.content).length
 
-  // 내일 날짜 계산
+  // 내일 날짜 계산 (UTC 기반으로 타임존 영향 제거)
   const tomorrowDate = (() => {
-    const d = new Date(today + 'T00:00:00')
-    d.setDate(d.getDate() + 1)
-    return d.toISOString().slice(0, 10)
+    const [y, m, d] = today.split('-').map(Number)
+    const dt = new Date(Date.UTC(y, m - 1, d + 1))
+    return dt.toISOString().slice(0, 10)
   })()
 
   const handleSave = async (productId: string, date: string) => {
