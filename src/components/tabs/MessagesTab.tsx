@@ -866,6 +866,8 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   const [generating, setGenerating] = useState(false)
   const [genProgress, setGenProgress] = useState<{ current: number; total: number; sku: string; title: string; done: string[] } | null>(null)
   const [editingCell, setEditingCell] = useState<{ productId: string; sku: string; title: string; date: string; cell?: GridCell } | null>(null)
+  // 상단 퀵 입력 섹션 — 상품별 소스 텍스트
+  const [quickSources, setQuickSources] = useState<Record<string, string>>({})
   // 백그라운드 생성 중인 셀 추적 (key: `${productId}:${date}`)
   const [bgGenerating, setBgGenerating] = useState<Set<string>>(new Set())
   const bgPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -915,6 +917,13 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
 
   const { dates, today, grid } = gridData
   const doneCount = rtProducts.filter(p => grid[p.id]?.[today]?.content).length
+
+  // 내일 날짜 계산
+  const tomorrowDate = (() => {
+    const d = new Date(today + 'T00:00:00')
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().slice(0, 10)
+  })()
 
   const handleSave = async (productId: string, date: string) => {
     const key = `${productId}:${date}`
@@ -1013,6 +1022,44 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
     setBgGenerating(prev => new Set(prev).add(`${pid}:${dt}`))
   }
 
+  // 퀵 입력에서 개별 상품 백그라운드 생성
+  const handleQuickGenerate = (productId: string, targetDate: string) => {
+    const src = quickSources[productId]?.trim()
+    if (!src) { showError('소스를 입력해주세요'); return }
+    const key = `${productId}:${targetDate}`
+    setBgGenerating(prev => new Set(prev).add(key))
+
+    fetch('/api/ai/generate-with-source', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_id: productId,
+        date: targetDate,
+        sources: [{ type: 'text', content: src }],
+      }),
+    }).then(async res => {
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        showError(d.error || '생성 실패')
+        setBgGenerating(prev => { const n = new Set(prev); n.delete(key); return n })
+      }
+    }).catch(() => {
+      showError('네트워크 오류')
+      setBgGenerating(prev => { const n = new Set(prev); n.delete(key); return n })
+    })
+
+    showSuccess(`${rtProducts.find(p => p.id === productId)?.sku_code} AI 생성 시작`)
+  }
+
+  // 전체 퀵 생성 — 소스가 입력된 상품 모두 백그라운드 생성
+  const handleQuickGenerateAll = (targetDate: string) => {
+    const entries = rtProducts.filter(p => quickSources[p.id]?.trim())
+    if (entries.length === 0) { showError('소스를 입력한 상품이 없습니다'); return }
+    for (const p of entries) {
+      handleQuickGenerate(p.id, targetDate)
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
@@ -1072,6 +1119,81 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
           </div>
         </div>
       )}
+
+      {/* --- 퀵 입력: 상품별 소스 + 백그라운드 AI 생성 --- */}
+      <div className="border rounded-lg bg-card mb-4">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/30">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">내일 ({tomorrowDate.slice(5)}) 메시지 소스 입력</span>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => handleQuickGenerateAll(tomorrowDate)}
+            disabled={bgGenerating.size > 0 && [...bgGenerating].some(k => k.endsWith(`:${tomorrowDate}`))}
+          >
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+            전체 AI 생성
+          </Button>
+        </div>
+        <div className="grid gap-3 p-4" style={{ gridTemplateColumns: `repeat(${Math.min(rtProducts.length, 4)}, 1fr)` }}>
+          {rtProducts.map(p => {
+            const key = `${p.id}:${tomorrowDate}`
+            const isBusy = bgGenerating.has(key)
+            const hasTomorrowMsg = !!grid[p.id]?.[tomorrowDate]?.content
+            return (
+              <div key={p.id} className={cn(
+                'border rounded-lg p-3 space-y-2 transition-colors',
+                hasTomorrowMsg ? 'bg-emerald-50/50 border-emerald-200' : isBusy ? 'bg-primary/5 border-primary/20' : 'bg-background'
+              )}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    {hasTomorrowMsg ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    ) : isBusy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                    ) : (
+                      <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                    <span className="font-mono text-xs font-semibold">{p.sku_code}</span>
+                  </div>
+                  {hasTomorrowMsg && (
+                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">완료</Badge>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground line-clamp-1">{p.title}</p>
+                {hasTomorrowMsg ? (
+                  <p className="text-[11px] text-muted-foreground line-clamp-3 whitespace-pre-wrap">{grid[p.id][tomorrowDate].content.slice(0, 150)}...</p>
+                ) : isBusy ? (
+                  <div className="flex items-center gap-2 py-3">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span className="text-xs text-primary font-medium">AI 생성 중...</span>
+                  </div>
+                ) : (
+                  <>
+                    <Textarea
+                      placeholder="기사 링크 또는 키워드..."
+                      className="text-xs min-h-[60px] resize-none"
+                      value={quickSources[p.id] || ''}
+                      onChange={e => setQuickSources(s => ({ ...s, [p.id]: e.target.value }))}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full h-7"
+                      onClick={() => handleQuickGenerate(p.id, tomorrowDate)}
+                      disabled={!quickSources[p.id]?.trim()}
+                    >
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      AI 생성
+                    </Button>
+                  </>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
 
       <div className="overflow-auto max-h-[calc(100vh-300px)]">
         <table className="w-full border-collapse">
