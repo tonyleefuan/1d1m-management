@@ -23,7 +23,7 @@ import type { Product, Message, DailyMessage, NoticeTemplate } from '@/lib/types
 // --- 소스 기반 메시지 생성 다이얼로그 ---
 function SourceGenerateDialog({
   productId, productSku, productTitle, date, existingContent, existingStatus, existingId,
-  onClose, onSaved,
+  onClose, onSaved, onBgGenerate,
 }: {
   productId: string
   productSku: string
@@ -34,6 +34,7 @@ function SourceGenerateDialog({
   existingId?: string
   onClose: () => void
   onSaved: () => void
+  onBgGenerate?: () => void
 }) {
   const [sourceText, setSourceText] = useState('')
   const [images, setImages] = useState<{ data: string; media_type: string; name: string }[]>([])
@@ -66,6 +67,36 @@ function SourceGenerateDialog({
     e.target.value = ''
   }
 
+  // 백그라운드 생성 — 요청만 보내고 폴링으로 결과 확인
+  const abortRef = useRef<AbortController | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // 컴포넌트 unmount 시 폴링 정리 (생성은 서버에서 계속 진행됨)
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
+
+  const startPolling = useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/daily-messages/list?product_id=${productId}`)
+        if (!res.ok) return
+        const msgs = await res.json()
+        const msg = msgs.find((m: Record<string, unknown>) => m.send_date === date)
+        if (msg?.content) {
+          setContent(msg.content as string)
+          setGenerating(false)
+          showSuccess('AI 메시지가 생성되었습니다')
+          if (pollRef.current) clearInterval(pollRef.current)
+          pollRef.current = null
+        }
+      } catch { /* ignore polling errors */ }
+    }, 3000)
+  }, [productId, date, showSuccess])
+
   const handleGenerate = async () => {
     if (!sourceText.trim() && images.length === 0) {
       showError('기사 링크, 검색어, 이미지 등 소스를 입력해주세요')
@@ -81,10 +112,12 @@ function SourceGenerateDialog({
         sources.push({ type: 'image', content: img.data, media_type: img.media_type })
       }
 
+      abortRef.current = new AbortController()
       const res = await fetch('/api/ai/generate-with-source', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ product_id: productId, date, sources }),
+        signal: abortRef.current.signal,
       })
       if (!res.ok) {
         const d = await res.json()
@@ -94,12 +127,46 @@ function SourceGenerateDialog({
       if (data.content) {
         setContent(data.content)
         showSuccess('메시지가 생성되었습니다')
+      } else {
+        showError('메시지 생성 결과가 비어있습니다. 다시 시도해주세요.')
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // 다이얼로그 닫으면서 abort — 서버에서는 계속 진행 중
+        return
+      }
       showError(err instanceof Error ? err.message : '생성에 실패했습니다')
     } finally {
       setGenerating(false)
     }
+  }
+
+  // "백그라운드 생성" — 요청 보내고 다이얼로그 닫아도 서버에서 계속 생성
+  const handleGenerateBackground = async () => {
+    if (!sourceText.trim() && images.length === 0) {
+      showError('기사 링크, 검색어, 이미지 등 소스를 입력해주세요')
+      return
+    }
+    setGenerating(true)
+
+    const sources: { type: string; content: string; media_type?: string }[] = []
+    if (sourceText.trim()) {
+      sources.push({ type: 'text', content: sourceText.trim() })
+    }
+    for (const img of images) {
+      sources.push({ type: 'image', content: img.data, media_type: img.media_type })
+    }
+
+    // fire-and-forget: 서버에 요청만 보내고 폴링으로 결과 확인
+    fetch('/api/ai/generate-with-source', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product_id: productId, date, sources }),
+    }).catch(() => {})  // 서버 에러는 DB에 기록됨
+
+    showSuccess('AI 생성이 백그라운드에서 진행됩니다. 다른 작업을 하셔도 됩니다.')
+    onBgGenerate?.()
+    startPolling()
   }
 
   const handleSave = async () => {
@@ -239,15 +306,31 @@ function SourceGenerateDialog({
               <Button
                 type="button"
                 size="sm"
-                onClick={handleGenerate}
+                variant="outline"
+                onClick={handleGenerateBackground}
                 disabled={generating || (!sourceText.trim() && images.length === 0)}
+                title="생성 요청 후 다이얼로그를 닫아도 서버에서 계속 생성됩니다"
               >
                 {generating ? (
                   <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                 ) : (
                   <Sparkles className="h-3.5 w-3.5 mr-1.5" />
                 )}
-                {generating ? 'AI 생성 중...' : 'AI 생성'}
+                {generating ? '생성 중...' : 'AI 생성 (백그라운드)'}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleGenerate}
+                disabled={generating || (!sourceText.trim() && images.length === 0)}
+                title="생성 완료까지 이 창에서 대기합니다"
+              >
+                {generating ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Wand2 className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                {generating ? 'AI 생성 중...' : 'AI 생성 (대기)'}
               </Button>
             </div>
           </div>
@@ -783,13 +866,48 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   const [generating, setGenerating] = useState(false)
   const [genProgress, setGenProgress] = useState<{ current: number; total: number; sku: string; title: string; done: string[] } | null>(null)
   const [editingCell, setEditingCell] = useState<{ productId: string; sku: string; title: string; date: string; cell?: GridCell } | null>(null)
+  // 백그라운드 생성 중인 셀 추적 (key: `${productId}:${date}`)
+  const [bgGenerating, setBgGenerating] = useState<Set<string>>(new Set())
+  const bgPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // 백그라운드 생성 셀 폴링
+  useEffect(() => {
+    if (bgGenerating.size === 0) {
+      if (bgPollRef.current) { clearInterval(bgPollRef.current); bgPollRef.current = null }
+      return
+    }
+    if (bgPollRef.current) return // 이미 폴링 중
+    bgPollRef.current = setInterval(() => {
+      refresh()
+    }, 4000)
+    return () => { if (bgPollRef.current) { clearInterval(bgPollRef.current); bgPollRef.current = null } }
+  }, [bgGenerating.size])
 
   const refresh = useCallback(() => {
     fetch('/api/daily-messages/today-status')
       .then(r => r.ok ? r.json() : null)
-      .then(d => d && setGridData(d))
+      .then((d: GridData | null) => {
+        if (!d) return
+        setGridData(d)
+        // 생성 완료된 셀을 bgGenerating에서 제거
+        setBgGenerating(prev => {
+          const next = new Set(prev)
+          let changed = false
+          for (const key of prev) {
+            const [pid, dt] = key.split(':')
+            if (d.grid[pid]?.[dt]?.content) {
+              next.delete(key)
+              changed = true
+            }
+          }
+          if (changed && next.size > 0) {
+            showSuccess('AI 메시지가 생성되었습니다')
+          }
+          return changed ? next : prev
+        })
+      })
       .catch(() => {})
-  }, [])
+  }, [showSuccess])
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -888,6 +1006,11 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
     setEditingCell(null)
     refresh()
     showSuccess('메시지가 저장되었습니다')
+  }
+
+  // 다이얼로그에서 백그라운드 생성 시작 시 호출
+  const handleBgGenerateStarted = (pid: string, dt: string) => {
+    setBgGenerating(prev => new Set(prev).add(`${pid}:${dt}`))
   }
 
   return (
@@ -1023,12 +1146,19 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                           </div>
                         ) : editable ? (
                           <div className="space-y-1.5">
-                            <Textarea
-                              placeholder={`${formatDate(d).short} 메시지 직접 입력...`}
-                              className={cn('text-[12px] leading-relaxed', isToday ? 'min-h-[100px]' : 'min-h-[60px]')}
-                              value={drafts[key] || ''}
-                              onChange={(e) => setDrafts(dr => ({ ...dr, [key]: e.target.value }))}
-                            />
+                            {bgGenerating.has(key) ? (
+                              <div className="flex items-center gap-2 p-3 rounded-lg border border-primary/20 bg-primary/5 animate-pulse">
+                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                <span className="text-xs text-primary font-medium">AI 생성 중...</span>
+                              </div>
+                            ) : (
+                              <Textarea
+                                placeholder={`${formatDate(d).short} 메시지 직접 입력...`}
+                                className={cn('text-[12px] leading-relaxed', isToday ? 'min-h-[100px]' : 'min-h-[60px]')}
+                                value={drafts[key] || ''}
+                                onChange={(e) => setDrafts(dr => ({ ...dr, [key]: e.target.value }))}
+                              />
+                            )}
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] text-muted-foreground tabular-nums">
                                 {(drafts[key] || '').length}자
@@ -1039,8 +1169,13 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                                   variant="outline"
                                   className="h-7"
                                   onClick={() => setEditingCell({ productId: p.id, sku: p.sku_code, title: p.title, date: d })}
+                                  disabled={bgGenerating.has(key)}
                                 >
-                                  <Sparkles className="h-3 w-3 mr-1" />
+                                  {bgGenerating.has(key) ? (
+                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                  ) : (
+                                    <Sparkles className="h-3 w-3 mr-1" />
+                                  )}
                                   AI
                                 </Button>
                                 <Button
@@ -1084,6 +1219,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
           existingId={editingCell.cell?.id}
           onClose={() => setEditingCell(null)}
           onSaved={handleCellSaved}
+          onBgGenerate={() => handleBgGenerateStarted(editingCell.productId, editingCell.date)}
         />
       )}
 

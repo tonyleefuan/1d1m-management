@@ -67,6 +67,17 @@ export async function POST(req: Request) {
     const combinedText = textSources.join('\n')
     const sourceContext = combinedText ? await fetchSourceContext(combinedText) : ''
 
+    // 기사 접근 실패 감지 — 사용자에게 알려줌
+    const hasUrls = !!combinedText.match(/https?:\/\//)
+    const hasArticleContent = sourceContext.includes('## 기사 원문')
+    if (hasUrls && !hasArticleContent) {
+      console.warn(`[AI] 기사 접근 실패 — URL: ${combinedText.slice(0, 300)}`)
+      return NextResponse.json(
+        { error: '기사 링크에 접근하지 못했습니다. 사이트가 봇을 차단하거나 접속이 불가한 상태입니다. 기사 본문을 직접 복사해서 붙여넣어 주세요.' },
+        { status: 422 }
+      )
+    }
+
     const images = imageSources.map(s => ({
       data: s.content,
       media_type: s.media_type,
