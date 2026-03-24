@@ -6,15 +6,21 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import { StatusBadge, type StatusType } from '@/components/ui/status-badge'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { FilterBar } from '@/components/ui/filter-bar'
+import { Spinner } from '@/components/ui/spinner'
+import { SkeletonTable } from '@/components/ui/skeleton'
+import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/lib/use-toast'
-import { Radio, RefreshCw, Image as ImageIcon, Loader2 } from 'lucide-react'
+import { Radio, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────
@@ -58,10 +64,19 @@ interface SendDevice {
   color: string | null
 }
 
+// ─── Constants ──────────────────────────────────────────
+
+const STATUS_CONFIG: Record<string, { label: string; statusType: StatusType }> = {
+  pending: { label: '대기', statusType: 'neutral' },
+  sent: { label: '성공', statusType: 'success' },
+  failed: { label: '실패', statusType: 'error' },
+}
+
 // ─── Component ──────────────────────────────────────────
 
 export function SendingTab() {
   const { showSuccess, showError } = useToast()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   // 발송 설정
   const [startTime, setStartTime] = useState('04:00')
@@ -82,23 +97,28 @@ export function SendingTab() {
   // ─── Fetch ───
 
   const fetchDevices = useCallback(async () => {
-    const res = await fetch('/api/admin/devices')
-    if (res.ok) {
+    try {
+      const res = await fetch('/api/admin/devices')
+      if (!res.ok) throw new Error('디바이스 목록 로드 실패')
       const json = await res.json()
-      // devices API는 배열을 직접 반환
       setDevices(Array.isArray(json) ? json : json.data || [])
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '디바이스 목록을 불러오는데 실패했습니다')
     }
-  }, [])
+  }, [showError])
 
   const fetchSettings = useCallback(async () => {
-    const res = await fetch('/api/sending/settings')
-    if (res.ok) {
+    try {
+      const res = await fetch('/api/sending/settings')
+      if (!res.ok) throw new Error('설정 로드 실패')
       const data = await res.json()
       setStartTime(data.send_start_time || '04:00')
       setMsgDelay(Number(data.send_message_delay) || 3)
       setFileDelay(Number(data.send_file_delay) || 6)
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '발송 설정을 불러오는데 실패했습니다')
     }
-  }, [])
+  }, [showError])
 
   const fetchQueue = useCallback(async () => {
     setLoading(true)
@@ -107,15 +127,12 @@ export function SendingTab() {
       if (selectedDevice) params.set('device_id', selectedDevice)
       if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
       const res = await fetch(`/api/sending/queue?${params}`)
-      if (res.ok) {
-        const json = await res.json()
-        setQueue(json.data || [])
-        setSummary(json.summary || {})
-      } else {
-        showError('발송 대기열을 불러오는데 실패했습니다')
-      }
-    } catch {
-      showError('발송 대기열을 불러오는데 실패했습니다')
+      if (!res.ok) throw new Error('발송 대기열 로드 실패')
+      const json = await res.json()
+      setQueue(json.data || [])
+      setSummary(json.summary || {})
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '발송 대기열을 불러오는데 실패했습니다')
     }
     setLoading(false)
   }, [selectedDevice, statusFilter, showError])
@@ -127,33 +144,35 @@ export function SendingTab() {
 
   const saveSettings = async () => {
     setSavingSettings(true)
-    const res = await fetch('/api/sending/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        send_start_time: startTime,
-        send_message_delay: msgDelay,
-        send_file_delay: fileDelay,
-      }),
-    })
-    if (res.ok) {
+    try {
+      const res = await fetch('/api/sending/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          send_start_time: startTime,
+          send_message_delay: msgDelay,
+          send_file_delay: fileDelay,
+        }),
+      })
+      if (!res.ok) throw new Error('설정 저장 실패')
       showSuccess('발송 설정이 저장되었습니다')
       setSettingsDirty(false)
-    } else {
-      showError('설정 저장에 실패했습니다')
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '설정 저장에 실패했습니다')
     }
     setSavingSettings(false)
   }
 
   const generateQueue = async () => {
     setGenerating(true)
-    const res = await fetch('/api/sending/generate', { method: 'POST' })
-    const json = await res.json()
-    if (res.ok) {
+    try {
+      const res = await fetch('/api/sending/generate', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || '대기열 생성 실패')
       showSuccess(`대기열 ${json.generated}건 생성 완료`)
       fetchQueue()
-    } else {
-      showError(json.error || '대기열 생성 실패')
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '대기열 생성 실패')
     }
     setGenerating(false)
   }
@@ -161,42 +180,52 @@ export function SendingTab() {
   const clearQueue = async (deviceId?: string) => {
     const target = deviceId || selectedDevice || undefined
     const label = target ? getDeviceName(target) : '전체'
-    if (!confirm(`${label} 대기열을 삭제하시겠습니까?`)) return
-    const res = await fetch('/api/sending/clear', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_id: target || null }),
+    const ok = await confirm({
+      title: '대기열 삭제',
+      description: `${label} 대기열을 삭제하시겠습니까?`,
+      variant: 'destructive',
+      confirmLabel: '삭제',
     })
-    if (res.ok) {
+    if (!ok) return
+    try {
+      const res = await fetch('/api/sending/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: target || null }),
+      })
+      if (!res.ok) throw new Error('대기열 삭제 실패')
       showSuccess(`${label} 대기열 삭제 완료`)
       fetchQueue()
-    } else {
-      showError('대기열 삭제에 실패했습니다')
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '대기열 삭제에 실패했습니다')
     }
   }
 
   const handleRegenerate = async () => {
-    if (!confirm('기존 대기열을 삭제하고 다시 생성하시겠습니까?')) return
-    setGenerating(true)
-    // 기존 대기열 삭제
-    const clearRes = await fetch('/api/sending/clear', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_id: null }),
+    const ok = await confirm({
+      title: '대기열 재생성',
+      description: '기존 대기열을 삭제하고 다시 생성하시겠습니까?',
+      variant: 'warning',
+      confirmLabel: '재생성',
     })
-    if (!clearRes.ok) {
-      showError('대기열 삭제 실패')
-      setGenerating(false)
-      return
-    }
-    // 크론 API로 재생성
-    const genRes = await fetch('/api/cron/generate-queue', { method: 'POST' })
-    const json = await genRes.json()
-    if (genRes.ok) {
+    if (!ok) return
+    setGenerating(true)
+    try {
+      // 기존 대기열 삭제
+      const clearRes = await fetch('/api/sending/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: null }),
+      })
+      if (!clearRes.ok) throw new Error('대기열 삭제 실패')
+      // 크론 API로 재생성
+      const genRes = await fetch('/api/cron/generate-queue', { method: 'POST' })
+      const json = await genRes.json()
+      if (!genRes.ok) throw new Error(json.error || '대기열 재생성 실패')
       showSuccess(`대기열 재생성 완료: ${json.total}건`)
       fetchQueue()
-    } else {
-      showError(json.error || '대기열 재생성 실패')
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '대기열 재생성 실패')
     }
     setGenerating(false)
   }
@@ -219,19 +248,6 @@ export function SendingTab() {
   )
 
   const displaySummary = selectedDevice ? (summary[selectedDevice] || { total: 0, pending: 0, sent: 0, failed: 0 }) : totalSummary
-
-  const STATUS_MAP: Record<string, { label: string; className: string }> = {
-    pending: { label: '대기', className: 'bg-muted text-muted-foreground' },
-    sent: { label: '성공', className: 'bg-emerald-100 text-emerald-800' },
-    failed: { label: '실패', className: 'bg-destructive/10 text-destructive' },
-  }
-
-  const PRIORITY_LABELS: Record<number, string> = {
-    1: '아주 빨리',
-    2: '빨리',
-    3: '보통',
-    4: '늦게',
-  }
 
   // Auto-refresh when there are pending items
   useEffect(() => {
@@ -260,7 +276,7 @@ export function SendingTab() {
         <CardContent>
           <div className="flex items-end gap-4">
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">시작 시각</label>
+              <Label className="text-xs text-muted-foreground">시작 시각</Label>
               <Input
                 type="time"
                 value={startTime}
@@ -269,7 +285,7 @@ export function SendingTab() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">메시지 간격 (초)</label>
+              <Label className="text-xs text-muted-foreground">메시지 간격 (초)</Label>
               <Input
                 type="number"
                 min={1}
@@ -280,7 +296,7 @@ export function SendingTab() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">파일 간격 (초)</label>
+              <Label className="text-xs text-muted-foreground">파일 간격 (초)</Label>
               <Input
                 type="number"
                 min={1}
@@ -292,7 +308,7 @@ export function SendingTab() {
             </div>
             {settingsDirty && (
               <Button size="sm" onClick={saveSettings} disabled={savingSettings} className="h-8">
-                {savingSettings ? <Loader2 className="h-3 w-3 animate-spin" /> : '저장'}
+                {savingSettings ? <Spinner size="xs" /> : '저장'}
               </Button>
             )}
             <div className="ml-auto flex gap-2">
@@ -302,7 +318,7 @@ export function SendingTab() {
                 </Button>
               )}
               <Button size="sm" onClick={generateQueue} disabled={generating} className="h-8">
-                {generating ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+                {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
                 대기열 생성
               </Button>
             </div>
@@ -315,7 +331,7 @@ export function SendingTab() {
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium">
             {totalSummary.total > 0 ? (
-              <>대기열: <span className="text-emerald-600">✅ 생성 완료</span> ({totalSummary.total}건)</>
+              <>대기열: <StatusBadge status="success" size="xs">생성 완료 ({totalSummary.total}건)</StatusBadge></>
             ) : (
               <>대기열: <span className="text-muted-foreground">없음</span></>
             )}
@@ -324,7 +340,7 @@ export function SendingTab() {
         <div className="flex gap-2">
           {totalSummary.total > 0 && totalSummary.sent === 0 && (
             <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={generating} className="h-7 text-xs">
-              {generating ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+              {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
               재생성
             </Button>
           )}
@@ -347,13 +363,13 @@ export function SendingTab() {
                   </div>
                   <div className="flex items-baseline gap-2">
                     <span className="text-xs">대기 <span className="font-semibold">{s.pending}</span></span>
-                    <span className="text-xs text-emerald-600">성공 <span className="font-semibold">{s.sent}</span>{s.total > 0 && <span className="text-[10px] ml-0.5">({Math.round((s.sent / s.total) * 100)}%)</span>}</span>
-                    <span className="text-xs text-destructive">실패 <span className="font-semibold">{s.failed}</span>{s.total > 0 && <span className="text-[10px] ml-0.5">({Math.round((s.failed / s.total) * 100)}%)</span>}</span>
+                    <span className="text-xs"><StatusBadge status="success" size="xs" variant="dot">성공 {s.sent}{s.total > 0 && ` (${Math.round((s.sent / s.total) * 100)}%)`}</StatusBadge></span>
+                    <span className="text-xs"><StatusBadge status="error" size="xs" variant="dot">실패 {s.failed}{s.total > 0 && ` (${Math.round((s.failed / s.total) * 100)}%)`}</StatusBadge></span>
                   </div>
                   {s.total > 0 && (
                     <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-emerald-500 transition-all duration-500"
+                        className="h-full bg-primary transition-all duration-500"
                         style={{ width: `${Math.round((s.sent / s.total) * 100)}%` }}
                       />
                     </div>
@@ -366,49 +382,32 @@ export function SendingTab() {
       )}
 
       {/* PC 탭 */}
-      <div className="flex items-center gap-1 border-b overflow-x-auto">
-        <button
-          onClick={() => setSelectedDevice('')}
-          className={cn(
-            'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors',
-            !selectedDevice ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
-          )}
-        >
-          전체 ({totalSummary.total})
-        </button>
-        {devices.filter(d => d.is_active).map((d) => {
-          const s = summary[d.id] || { total: 0, pending: 0, sent: 0, failed: 0 }
-          return (
-            <button
-              key={d.id}
-              onClick={() => setSelectedDevice(d.id)}
-              className={cn(
-                'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
-                selectedDevice === d.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <span className="flex items-center gap-1">
-                {d.color && <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />}
-                {d.phone_number}
-              </span>
-              <span className="block text-muted-foreground">
-                {s.sent}/{s.total}
-                {s.failed > 0 && <span className="text-destructive ml-0.5">({s.failed})</span>}
-              </span>
-            </button>
-          )
-        })}
-      </div>
+      <Tabs value={selectedDevice || '__all__'} onValueChange={(v) => setSelectedDevice(v === '__all__' ? '' : v)}>
+        <TabsList className="w-full justify-start overflow-x-auto h-auto p-1">
+          <TabsTrigger value="__all__" className="text-xs">
+            전체 ({totalSummary.total})
+          </TabsTrigger>
+          {devices.filter(d => d.is_active).map((d) => {
+            const s = summary[d.id] || { total: 0, pending: 0, sent: 0, failed: 0 }
+            return (
+              <TabsTrigger key={d.id} value={d.id} className="text-xs">
+                <span className="flex items-center gap-1">
+                  {d.color && <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />}
+                  {d.phone_number}
+                </span>
+                <span className="block text-muted-foreground ml-1">
+                  {s.sent}/{s.total}
+                  {s.failed > 0 && <span className="text-destructive ml-0.5">({s.failed})</span>}
+                </span>
+              </TabsTrigger>
+            )
+          })}
+        </TabsList>
+      </Tabs>
 
       {/* 요약 + 필터 */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">전체 {displaySummary.total}</span>
-          <Badge variant="secondary" className="text-xs">대기 {displaySummary.pending}</Badge>
-          <Badge variant="default" className="text-xs bg-emerald-500">성공 {displaySummary.sent}</Badge>
-          <Badge variant="destructive" className="text-xs">실패 {displaySummary.failed}</Badge>
-        </div>
-        <div className="ml-auto">
+      <FilterBar
+        filters={
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="h-8 w-[100px] text-xs">
               <SelectValue placeholder="전체 상태" />
@@ -420,16 +419,22 @@ export function SendingTab() {
               <SelectItem value="failed">실패</SelectItem>
             </SelectContent>
           </Select>
-        </div>
-      </div>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">전체 {displaySummary.total}</span>
+            <StatusBadge status="neutral" size="xs">대기 {displaySummary.pending}</StatusBadge>
+            <StatusBadge status="success" size="xs">성공 {displaySummary.sent}</StatusBadge>
+            <StatusBadge status="error" size="xs">실패 {displaySummary.failed}</StatusBadge>
+          </div>
+        }
+      />
 
       {/* 대기열 테이블 */}
       <Card>
         <CardContent className="p-0">
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
+            <SkeletonTable cols={10} rows={8} />
           ) : queue.length === 0 ? (
             <div className="py-12">
               <EmptyState
@@ -457,7 +462,7 @@ export function SendingTab() {
               <TableBody>
                 {queue.map((item) => {
                   const sub = item.subscription
-                  const statusInfo = STATUS_MAP[item.status] || STATUS_MAP.pending
+                  const statusConfig = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending
                   return (
                     <TableRow key={item.id} className={cn(
                       item.status === 'failed' && 'bg-destructive/5',
@@ -493,9 +498,9 @@ export function SendingTab() {
                         }
                       </TableCell>
                       <TableCell className="py-1 text-center">
-                        <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0', statusInfo.className)}>
-                          {statusInfo.label}
-                        </Badge>
+                        <StatusBadge status={statusConfig.statusType} size="xs">
+                          {statusConfig.label}
+                        </StatusBadge>
                       </TableCell>
                       <TableCell className="py-1 text-xs tabular-nums font-mono">
                         {item.sent_at ? new Date(item.sent_at).toLocaleTimeString('ko-KR', { hour12: false }) : '-'}
@@ -508,6 +513,8 @@ export function SendingTab() {
           )}
         </CardContent>
       </Card>
+
+      {ConfirmDialogElement}
     </div>
   )
 }

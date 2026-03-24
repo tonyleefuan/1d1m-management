@@ -105,7 +105,6 @@ function UsersPanel() {
           user={editing}
           onClose={() => setEditing(undefined)}
           onSaved={handleSaved}
-          onError={showError}
         />
       )}
       {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
@@ -113,11 +112,10 @@ function UsersPanel() {
   )
 }
 
-function UserFormModal({ user, onClose, onSaved, onError }: {
+function UserFormModal({ user, onClose, onSaved }: {
   user: any | null
   onClose: () => void
   onSaved: () => void
-  onError: (msg: string) => void
 }) {
   const [username, setUsername] = useState(user?.username || '')
   const [name, setName] = useState(user?.name || '')
@@ -273,7 +271,6 @@ function DevicesPanel() {
           device={editing}
           onClose={() => setEditing(undefined)}
           onSaved={handleSaved}
-          onError={showError}
         />
       )}
       {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
@@ -281,11 +278,10 @@ function DevicesPanel() {
   )
 }
 
-function DeviceFormModal({ device, onClose, onSaved, onError }: {
+function DeviceFormModal({ device, onClose, onSaved }: {
   device: any | null
   onClose: () => void
   onSaved: () => void
-  onError: (msg: string) => void
 }) {
   const [phoneNumber, setPhoneNumber] = useState(device?.phone_number || '')
   const [name, setName] = useState(device?.name || '')
@@ -370,7 +366,10 @@ function TabOrderPanel() {
           setTabList(ordered)
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        showError('탭 설정을 불러오지 못했습니다')
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const moveTab = (index: number, direction: 'up' | 'down') => {
@@ -545,22 +544,25 @@ function PromptManagementPanel() {
           {products.map((p: any) => {
             const hasPrompt = prompts.some((pr: any) => pr.product_id === p.id)
             return (
-              <button
+              <Button
                 key={p.id}
+                variant="ghost"
                 onClick={() => setSelectedProduct(p.id)}
                 className={cn(
-                  'w-full text-left px-4 py-3 text-sm border-b last:border-b-0 hover:bg-muted/50 transition-colors',
+                  'w-full justify-start text-left h-auto px-4 py-3 text-sm rounded-none border-b last:border-b-0 hover:bg-muted/50',
                   selectedProduct === p.id && 'bg-accent text-accent-foreground font-medium border-l-2 border-l-primary'
                 )}
               >
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{p.sku_code}</span>
-                  {hasPrompt && (
-                    <StatusBadge status="success" className="text-[10px]">설정됨</StatusBadge>
-                  )}
+                <div className="w-full">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{p.sku_code}</span>
+                    {hasPrompt && (
+                      <StatusBadge status="success" className="text-[10px]">설정됨</StatusBadge>
+                    )}
+                  </div>
+                  <div className="mt-1 text-xs leading-relaxed">{p.title}</div>
                 </div>
-                <div className="mt-1 text-xs leading-relaxed">{p.title}</div>
-              </button>
+              </Button>
             )
           })}
         </div>

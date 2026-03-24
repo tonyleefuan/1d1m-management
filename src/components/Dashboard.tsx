@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { TABS, TabConfig } from '@/lib/constants'
 import dynamic from 'next/dynamic'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 const ProductsTab = dynamic(() => import('./tabs/ProductsTab').then(m => ({ default: m.ProductsTab })))
 const OrdersTab = dynamic(() => import('./tabs/OrdersTab').then(m => ({ default: m.OrdersTab })))
@@ -119,8 +121,9 @@ export function Dashboard({ userName, userRole }: Props) {
           }
         }
       })
-      .catch(() => {
+      .catch((err) => {
         // 설정 로드 실패 시 기본 TABS 사용 (이미 초기값)
+        console.error('탭 설정 로드 실패:', err)
       })
       .finally(() => setReady(true))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -167,12 +170,14 @@ export function Dashboard({ userName, userRole }: Props) {
           <img src="/logo.png" alt="1Day1Message" className="h-5" />
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">{userName} ({userRole})</span>
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={handleLogout}
-              className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors"
+              className="text-xs text-muted-foreground/60 hover:text-foreground h-auto px-2 py-1"
             >
               로그아웃
-            </button>
+            </Button>
           </div>
         </div>
       </header>
@@ -188,17 +193,19 @@ export function Dashboard({ userName, userRole }: Props) {
             ))
           ) : (
             visibleTabs.map(t => (
-              <button
+              <Button
                 key={t.id}
+                variant="ghost"
                 onClick={() => handleTabChange(t.id)}
-                className={`px-4 py-2.5 text-sm whitespace-nowrap border-b-2 transition-colors ${
+                className={cn(
+                  'px-4 py-2.5 h-auto text-sm whitespace-nowrap rounded-none border-b-2 transition-colors',
                   tab === t.id
                     ? 'border-foreground text-foreground font-medium'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
+                )}
               >
                 {t.label}
-              </button>
+              </Button>
             ))
           )}
         </div>
@@ -212,12 +219,12 @@ export function Dashboard({ userName, userRole }: Props) {
             <div className="text-center py-20">
               <p className="text-lg font-medium mb-2">탭을 불러오는 중 오류가 발생했습니다</p>
               <p className="text-muted-foreground mb-4">다른 탭을 선택하거나 새로고침해 주세요.</p>
-              <button
+              <Button
+                size="sm"
                 onClick={() => window.location.reload()}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm"
               >
                 새로고침
-              </button>
+              </Button>
             </div>
           }
         >

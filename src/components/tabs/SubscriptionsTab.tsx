@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton, SkeletonTable } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -121,7 +122,7 @@ interface ProductOption {
 const STATUS_MAP: Record<string, { status: StatusType; label: string; className?: string }> = {
   live: { status: 'info', label: '발송중' },
   pending: { status: 'warning', label: '대기' },
-  pause: { status: 'neutral', label: '일시정지', className: 'bg-purple-100 text-purple-800' },
+  pause: { status: 'neutral', label: '일시정지', className: 'bg-purple-100/60 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
   archive: { status: 'neutral', label: '종료' },
   cancel: { status: 'error', label: '취소' },
 }
@@ -130,7 +131,7 @@ const COMPUTED_STATUS_MAP: Record<string, { status: StatusType; label: string; c
   active: { status: 'info', label: '활성' },
   pending: { status: 'warning', label: '대기' },
   completed: { status: 'neutral', label: '완료' },
-  paused: { status: 'neutral', label: '정지', className: 'bg-purple-100 text-purple-800' },
+  paused: { status: 'neutral', label: '정지', className: 'bg-purple-100/60 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
   cancelled: { status: 'error', label: '취소' },
 }
 
@@ -186,6 +187,7 @@ export function SubscriptionsTab() {
   const [summary, setSummary] = useState<SummaryData | null>(null)
   const [loading, setLoading] = useState(true) // 초기 로딩 (Skeleton 표시)
   const [dailyUpdating, setDailyUpdating] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [refreshing, setRefreshing] = useState(false) // 리프레시 (Skeleton 미표시)
   const [total, setTotal] = useState(0)
   const isFirstLoad = useRef(true)
@@ -239,8 +241,8 @@ export function SubscriptionsTab() {
       if (!res.ok) return
       const data = await res.json()
       setSummary(data)
-    } catch {
-      // silent
+    } catch (err) {
+      console.error('구독 요약 로딩 실패:', err)
     }
   }, [])
 
@@ -248,15 +250,15 @@ export function SubscriptionsTab() {
     fetch('/api/products/list')
       .then((r) => r.json())
       .then((d) => setProducts(d || []))
-      .catch(() => {})
+      .catch((err) => { console.error('상품 목록 로딩 실패:', err) })
     fetch('/api/admin/devices')
       .then((r) => r.json())
       .then((d) => setDevices(d?.data || d || []))
-      .catch(() => {})
+      .catch((err) => { console.error('디바이스 목록 로딩 실패:', err) })
     fetch('/api/admin/settings')
       .then(r => r.json())
       .then(d => setDefaultDeviceId(d.default_device_id || null))
-      .catch(() => {})
+      .catch((err) => { console.error('설정 로딩 실패:', err) })
     fetchSummary()
   }, [fetchSummary])
 
@@ -341,6 +343,7 @@ export function SubscriptionsTab() {
 
   // ─── Inline update handlers ──────────────────────────
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleStatusChange = async (id: string, status: string) => {
     const ok = await optimisticUpdate(
       id,
@@ -361,6 +364,7 @@ export function SubscriptionsTab() {
     )
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleStartDateChange = async (id: string, startDate: string) => {
     if (!startDate || startDate.length !== 10) return
     const ok = await optimisticUpdate(
@@ -397,6 +401,7 @@ export function SubscriptionsTab() {
     setDetailSub((prev) => (prev ? { ...prev, memo: memoValue } : null))
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleClearFailure = async (sub: SubRow) => {
     const ok = await confirm({
       title: '발송 실패 해소',
@@ -520,7 +525,7 @@ export function SubscriptionsTab() {
       const res = await fetch(`/api/subscriptions/logs?subscription_id=${sub.id}`)
       if (res.ok) setLogs(await res.json())
       else setLogs([])
-    } catch { setLogs([]) } finally { setLogsLoading(false) }
+    } catch (err) { console.error('히스토리 로딩 실패:', err); setLogs([]) } finally { setLogsLoading(false) }
   }
 
   // ─── Pagination ──────────────────────────────────────
@@ -888,7 +893,7 @@ export function SubscriptionsTab() {
                             : sub.d_day !== null && sub.d_day <= 0
                               ? 'text-destructive'
                               : sub.d_day !== null && sub.d_day <= 7
-                                ? 'text-amber-600'
+                                ? 'text-amber-600 dark:text-amber-400'
                                 : '',
                         )}
                       >
@@ -1017,7 +1022,7 @@ export function SubscriptionsTab() {
                                   />
                                 </div>
                               </PopoverTrigger>
-                              <span className={cn('text-[11px]', sub.computed_status === 'paused' ? 'text-purple-600' : 'text-muted-foreground')}>
+                              <span className={cn('text-[11px]', sub.computed_status === 'paused' ? 'text-purple-700 dark:text-purple-300' : 'text-muted-foreground')}>
                                 {sub.computed_status === 'paused'
                                   ? (sub.resume_date ? `~${sub.resume_date.slice(5)}` : '정지')
                                   : '발송중'}
@@ -1350,65 +1355,64 @@ export function SubscriptionsTab() {
       </Sheet>
 
       {/* 6. Failure Resolution Dialog */}
-      {resolveDialogOpen && resolvingSub && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setResolveDialogOpen(false)}>
-          <div className="bg-background rounded-lg shadow-lg p-6 w-[380px] space-y-4" onClick={(e) => e.stopPropagation()}>
-            <div>
-              <h3 className="font-semibold text-sm">{resolvingSub.customer?.kakao_friend_name || resolvingSub.customer?.name} — {resolvingSub.product?.sku_code}</h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Day {resolvingSub.last_sent_day + 1}~{resolvingSub.current_day} 미발송
-              </p>
-              <p className="text-xs text-muted-foreground">
-                사유: {resolvingSub.failure_type === 'friend_not_found' ? '친구 못 찾음' : resolvingSub.failure_type === 'device_error' ? 'PC오류' : resolvingSub.failure_type === 'not_sent' ? '미발송' : resolvingSub.failure_type}
-              </p>
-            </div>
+      <Dialog open={resolveDialogOpen && !!resolvingSub} onOpenChange={(open) => { if (!open) { setResolveDialogOpen(false); setResolvingSub(null) } }}>
+        <DialogContent className="max-w-[380px]">
+          {resolvingSub && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-sm">
+                  {resolvingSub.customer?.kakao_friend_name || resolvingSub.customer?.name} — {resolvingSub.product?.sku_code}
+                </DialogTitle>
+                <DialogDescription asChild>
+                  <div className="space-y-0.5">
+                    <p className="text-xs text-muted-foreground">
+                      Day {resolvingSub.last_sent_day + 1}~{resolvingSub.current_day} 미발송
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      사유: {resolvingSub.failure_type === 'friend_not_found' ? '친구 못 찾음' : resolvingSub.failure_type === 'device_error' ? 'PC오류' : resolvingSub.failure_type === 'not_sent' ? '미발송' : resolvingSub.failure_type}
+                    </p>
+                  </div>
+                </DialogDescription>
+              </DialogHeader>
 
-            <div className="space-y-2">
-              <Button
-                variant="ghost"
-                className="w-full justify-start text-left h-auto px-3 py-2.5"
-                onClick={() => handleResolveFailure(resolvingSub, 'manual_sent')}
-              >
-                <div>
-                  <div className="text-sm font-medium">✅ 직접 보냈어요</div>
-                  <div className="text-xs text-muted-foreground">Day {resolvingSub.current_day + 1}부터 정상 진행</div>
-                </div>
-              </Button>
+              <div className="space-y-2">
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-left h-auto px-3 py-2.5"
+                  onClick={() => handleResolveFailure(resolvingSub, 'manual_sent')}
+                >
+                  <div>
+                    <div className="text-sm font-medium">직접 보냈어요</div>
+                    <div className="text-xs text-muted-foreground">Day {resolvingSub.current_day + 1}부터 정상 진행</div>
+                  </div>
+                </Button>
 
-              <Button
-                variant="ghost"
-                className="w-full justify-start text-left h-auto px-3 py-2.5"
-                onClick={() => handleResolveFailure(resolvingSub, 'bulk')}
-              >
-                <div>
-                  <div className="text-sm font-medium">🔄 밀린 것 몰아서 보내기</div>
-                  <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}~{resolvingSub.current_day + 1} 한번에 발송</div>
-                </div>
-              </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-left h-auto px-3 py-2.5"
+                  onClick={() => handleResolveFailure(resolvingSub, 'bulk')}
+                >
+                  <div>
+                    <div className="text-sm font-medium">밀린 것 몰아서 보내기</div>
+                    <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}~{resolvingSub.current_day + 1} 한번에 발송</div>
+                  </div>
+                </Button>
 
-              <Button
-                variant="ghost"
-                className="w-full justify-start text-left h-auto px-3 py-2.5"
-                onClick={() => handleResolveFailure(resolvingSub, 'sequential')}
-              >
-                <div>
-                  <div className="text-sm font-medium">▶️ 밀린 것부터 하루씩 보내기</div>
-                  <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}, 모레 Day{resolvingSub.last_sent_day + 2}, ... 종료일 연장</div>
-                </div>
-              </Button>
-            </div>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => setResolveDialogOpen(false)}
-            >
-              닫기
-            </Button>
-          </div>
-        </div>
-      )}
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start text-left h-auto px-3 py-2.5"
+                  onClick={() => handleResolveFailure(resolvingSub, 'sequential')}
+                >
+                  <div>
+                    <div className="text-sm font-medium">밀린 것부터 하루씩 보내기</div>
+                    <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}, 모레 Day{resolvingSub.last_sent_day + 2}, ... 종료일 연장</div>
+                  </div>
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* 7. Confirm Dialog */}
       {ConfirmDialogElement}

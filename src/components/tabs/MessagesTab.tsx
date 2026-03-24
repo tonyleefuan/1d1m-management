@@ -14,8 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
-import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck, Sparkles, RotateCcw, Check, Wand2, Paperclip, X, Image as ImageIcon, Copy } from 'lucide-react'
+import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck, Sparkles, RotateCcw, Check, Wand2, X, Image as ImageIcon, Copy } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
@@ -23,12 +22,11 @@ import type { Product, Message, DailyMessage, NoticeTemplate } from '@/lib/types
 
 // --- 소스 기반 메시지 생성 다이얼로그 ---
 function SourceGenerateDialog({
-  productId, productSku, productTitle, date, existingContent, existingStatus, existingId,
+  productId, productSku, date, existingContent, existingStatus, existingId,
   onClose, onSaved, onBgGenerate,
 }: {
   productId: string
   productSku: string
-  productTitle: string
   date: string
   existingContent?: string
   existingStatus?: string
@@ -244,9 +242,9 @@ function SourceGenerateDialog({
               <div className="flex items-center gap-1.5 mb-1.5">
                 <span className="text-[11px] text-muted-foreground">현재 메시지</span>
                 {existingStatus === 'approved' ? (
-                  <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">승인됨</Badge>
+                  <StatusBadge status="success" size="xs">승인됨</StatusBadge>
                 ) : (
-                  <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">초안</Badge>
+                  <StatusBadge status="warning" size="xs">초안</StatusBadge>
                 )}
               </div>
               <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-6">{existingContent}</p>
@@ -273,12 +271,14 @@ function SourceGenerateDialog({
                       alt={img.name}
                       className="h-16 w-16 object-cover rounded border"
                     />
-                    <button
+                    <Button
+                      variant="destructive"
+                      size="sm"
                       onClick={() => setImages(prev => prev.filter((_, j) => j !== i))}
-                      className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute -top-1.5 -right-1.5 rounded-full h-auto w-auto p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <X className="h-3 w-3" />
-                    </button>
+                    </Button>
                     <span className="text-[9px] text-muted-foreground block text-center mt-0.5 truncate max-w-[64px]">{img.name}</span>
                   </div>
                 ))}
@@ -363,7 +363,7 @@ function SourceGenerateDialog({
                     size="sm"
                     onClick={handleApprove}
                     disabled={approving || !content.trim()}
-                    className="bg-emerald-600 hover:bg-emerald-700"
+                    className="bg-primary hover:bg-primary/90"
                   >
                     {approving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1.5" />}
                     승인
@@ -566,7 +566,7 @@ function MessageEditModal({
                 variant="outline"
                 onClick={handleApprove}
                 disabled={approving}
-                className="text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+                className="text-primary border-primary/30 hover:bg-primary/5"
               >
                 {approving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1" />}
                 승인
@@ -657,19 +657,22 @@ function ProductSidebar({
         {filtered.length === 0 ? (
           <p className="text-xs text-muted-foreground p-3 text-center">검색 결과 없음</p>
         ) : filtered.map(p => (
-          <button
+          <Button
             key={p.id}
+            variant="ghost"
             onClick={() => onSelect(p.id)}
             className={cn(
-              'w-full text-left px-4 py-3 text-sm border-b last:border-b-0 hover:bg-muted/50 transition-colors',
+              'w-full text-left justify-start h-auto px-4 py-3 text-sm rounded-none border-b last:border-b-0 hover:bg-muted/50',
               selectedProduct === p.id && 'bg-accent text-accent-foreground font-medium border-l-2 border-l-primary'
             )}
           >
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{p.sku_code}</span>
+            <div className="flex flex-col items-start">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{p.sku_code}</span>
+              </div>
+              <div className="mt-1 text-xs leading-relaxed">{p.title}</div>
             </div>
-            <div className="mt-1 text-xs leading-relaxed">{p.title}</div>
-          </button>
+          </Button>
         ))}
       </div>
     </Card>
@@ -788,7 +791,7 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
             ) : (
               <>
                 <div className="space-y-1.5 max-h-[calc(100vh-380px)] overflow-y-auto pr-1">
-                  {messages.map((m, idx) => {
+                  {messages.map((m) => {
                     const hasMultiple = (dayCounts.get(m.day_number) || 0) > 1
                     // 같은 day_number 내에서 몇 번째인지
                     const sameDay = messages.filter(x => x.day_number === m.day_number)
@@ -885,6 +888,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
       refresh()
     }, 4000)
     return () => { if (bgPollRef.current) { clearInterval(bgPollRef.current); bgPollRef.current = null } }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bgGenerating.size])
 
   const refresh = useCallback(() => {
@@ -985,7 +989,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
               const successCount = event.results.filter((r: any) => r.status === 'success').length
               showSuccess(`${successCount}개 메시지 생성 완료`)
             }
-          } catch { /* skip malformed */ }
+          } catch (err) { console.error('SSE parse error:', err) }
         }
       }
       refresh()
@@ -1041,7 +1045,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
       }),
     }).then(async res => {
       if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
+        const d = await res.json().catch((err) => { console.error('Failed to parse error response:', err); return {} })
         showError(d.error || '생성 실패')
         setBgGenerating(prev => { const n = new Set(prev); n.delete(key); return n })
       }
@@ -1067,14 +1071,12 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
       <div className="flex items-center gap-2 mb-4">
         <span className="text-sm font-medium">오늘의 메시지</span>
         <span className="text-xs text-muted-foreground font-mono">{today}</span>
-        <span className={cn(
-          'text-xs font-medium px-1.5 py-0.5 rounded',
-          doneCount === rtProducts.length
-            ? 'bg-emerald-100 text-emerald-700'
-            : 'bg-destructive/10 text-destructive'
-        )}>
+        <StatusBadge
+          status={doneCount === rtProducts.length ? 'success' : 'error'}
+          size="xs"
+        >
           {doneCount}/{rtProducts.length}
-        </span>
+        </StatusBadge>
         <div className="flex-1" />
         <Button
           size="sm"
@@ -1109,14 +1111,14 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
           </div>
           <div className="flex flex-wrap gap-1.5">
             {genProgress.done.map(sku => (
-              <span key={sku} className="text-[11px] bg-green-100 text-green-800 px-1.5 py-0.5 rounded">
+              <StatusBadge key={sku} status="success" size="xs">
                 {sku} ✓
-              </span>
+              </StatusBadge>
             ))}
             {genProgress.sku && !genProgress.done.includes(genProgress.sku) && (
-              <span className="text-[11px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded animate-pulse">
+              <StatusBadge status="warning" size="xs" className="animate-pulse">
                 {genProgress.sku} 생성 중...
-              </span>
+              </StatusBadge>
             )}
           </div>
         </div>
@@ -1146,12 +1148,12 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
             return (
               <div key={p.id} className={cn(
                 'border rounded-lg p-3 space-y-2 transition-colors',
-                hasTomorrowMsg ? 'bg-emerald-50/50 border-emerald-200' : isBusy ? 'bg-primary/5 border-primary/20' : 'bg-background'
+                hasTomorrowMsg ? 'bg-muted/50 border-primary/30' : isBusy ? 'bg-primary/5 border-primary/20' : 'bg-background'
               )}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     {hasTomorrowMsg ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
                     ) : isBusy ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                     ) : (
@@ -1160,7 +1162,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                     <span className="font-mono text-xs font-semibold">{p.sku_code}</span>
                   </div>
                   {hasTomorrowMsg && (
-                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">완료</Badge>
+                    <StatusBadge status="success" size="xs">완료</StatusBadge>
                   )}
                 </div>
                 <p className="text-[11px] text-muted-foreground line-clamp-1">{p.title}</p>
@@ -1179,7 +1181,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                         })
                       }}
                     >
-                      {copiedSku === p.id ? <><Check className="h-3 w-3 mr-1 text-green-600" />복사됨</> : <><Copy className="h-3 w-3 mr-1" />메시지 복사</>}
+                      {copiedSku === p.id ? <><Check className="h-3 w-3 mr-1 text-primary" />복사됨</> : <><Copy className="h-3 w-3 mr-1" />메시지 복사</>}
                     </Button>
                   </div>
                 ) : isBusy ? (
@@ -1213,18 +1215,18 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
         </div>
       </div>
 
-      <div className="overflow-auto max-h-[calc(100vh-300px)]">
-        <table className="w-full border-collapse">
-          <thead className="sticky top-0 z-10 bg-background">
-            <tr>
-              <th className="text-left text-xs font-medium text-muted-foreground p-2 border-b min-w-[180px] sticky left-0 bg-background z-20">상품</th>
+      <div className="max-h-[calc(100vh-300px)]">
+        <Table className="border-collapse">
+          <TableHeader className="sticky top-0 z-10 bg-background">
+            <TableRow>
+              <TableHead className="text-left text-xs font-medium p-2 min-w-[180px] sticky left-0 bg-background z-20">상품</TableHead>
               {dates.map(d => {
                 const label = getDateLabel(d)
                 const isToday = d === today
                 return (
-                  <th key={d} className={cn(
-                    'text-center text-xs font-medium p-2 border-b',
-                    isToday ? 'min-w-[500px] bg-primary/5' : isEditable(d) ? 'min-w-[500px] bg-emerald-50/50' : 'min-w-[500px]',
+                  <TableHead key={d} className={cn(
+                    'text-center text-xs font-medium p-2',
+                    isToday ? 'min-w-[500px] bg-primary/5' : isEditable(d) ? 'min-w-[500px] bg-muted/30' : 'min-w-[500px]',
                   )}>
                     <span className={cn(isToday && 'text-primary font-semibold')}>
                       {formatDate(d).short}
@@ -1232,28 +1234,28 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                     <span className="text-muted-foreground ml-1">
                       ({formatDate(d).day}){label && ` ${label}`}
                     </span>
-                  </th>
+                  </TableHead>
                 )
               })}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rtProducts.map(p => {
               const hasTodayMsg = !!grid[p.id]?.[today]?.content
               return (
-                <tr key={p.id} className={cn(!hasTodayMsg && 'bg-destructive/5')}>
+                <TableRow key={p.id} className={cn(!hasTodayMsg && 'bg-destructive/5')}>
                   {/* 상품명 */}
-                  <td className="p-2 border-b align-top sticky left-0 bg-background z-10">
+                  <TableCell className="p-2 align-top sticky left-0 bg-background z-10">
                     <div className="flex items-center gap-1">
                       {hasTodayMsg ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
                       ) : (
                         <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
                       )}
                       <span className="text-xs font-mono">{p.sku_code}</span>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{p.title}</p>
-                  </td>
+                  </TableCell>
                   {/* 날짜별 셀 */}
                   {dates.map(d => {
                     const cell = grid[p.id]?.[d]
@@ -1263,9 +1265,9 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                     const isToday = d === today
                     const key = `${p.id}:${d}`
                     return (
-                      <td key={d} className={cn(
-                        'p-2 border-b align-top',
-                        isToday ? 'bg-primary/5' : editable ? 'bg-emerald-50/50' : '',
+                      <TableCell key={d} className={cn(
+                        'p-2 align-top',
+                        isToday ? 'bg-primary/5' : editable ? 'bg-muted/30' : '',
                       )}>
                         {content ? (
                           <div
@@ -1274,9 +1276,9 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                           >
                             <div className="flex items-center gap-1.5 mb-1">
                               {status === 'approved' ? (
-                                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">승인됨</Badge>
+                                <StatusBadge status="success" size="xs">승인됨</StatusBadge>
                               ) : status === 'draft' ? (
-                                <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">초안</Badge>
+                                <StatusBadge status="warning" size="xs">초안</StatusBadge>
                               ) : null}
                             </div>
                             <p className={cn(
@@ -1337,14 +1339,14 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                         ) : (
                           <span className="text-[11px] text-muted-foreground">-</span>
                         )}
-                      </td>
+                      </TableCell>
                     )
                   })}
-                </tr>
+                </TableRow>
               )
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {/* 소스 기반 생성 다이얼로그 */}
@@ -1352,7 +1354,6 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
         <SourceGenerateDialog
           productId={editingCell.productId}
           productSku={editingCell.sku}
-          productTitle={editingCell.title}
           date={editingCell.date}
           existingContent={editingCell.cell?.content}
           existingStatus={editingCell.cell?.status}
@@ -1474,6 +1475,7 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
 }
 
 // --- 알림 템플릿 패널 ---
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function NoticesPanel({ products }: { products: Product[] }) {
   const [notices, setNotices] = useState<NoticeTemplate[]>([])
   const [loading, setLoading] = useState(true)
@@ -1724,22 +1726,25 @@ function PromptManagementPanel() {
           {products.map((p) => {
             const hasPrompt = prompts.some((pr: any) => pr.product_id === p.id)
             return (
-              <button
+              <Button
                 key={p.id}
+                variant="ghost"
                 onClick={() => setSelectedProduct(p.id)}
                 className={cn(
-                  'w-full text-left px-4 py-3 text-sm border-b last:border-b-0 hover:bg-muted/50 transition-colors',
+                  'w-full text-left justify-start h-auto px-4 py-3 text-sm rounded-none border-b last:border-b-0 hover:bg-muted/50',
                   selectedProduct === p.id && 'bg-accent text-accent-foreground font-medium border-l-2 border-l-primary'
                 )}
               >
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{p.sku_code}</span>
-                  {hasPrompt && (
-                    <StatusBadge status="success" className="text-[10px]">설정됨</StatusBadge>
-                  )}
+                <div className="flex flex-col items-start">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{p.sku_code}</span>
+                    {hasPrompt && (
+                      <StatusBadge status="success" className="text-[10px]">설정됨</StatusBadge>
+                    )}
+                  </div>
+                  <div className="mt-1 text-xs leading-relaxed">{p.title}</div>
                 </div>
-                <div className="mt-1 text-xs leading-relaxed">{p.title}</div>
-              </button>
+              </Button>
             )
           })}
         </div>
@@ -1808,7 +1813,7 @@ export function MessagesTab() {
   const [products, setProducts] = useState<Product[]>([])
 
   useEffect(() => {
-    fetch('/api/products/list').then(r => r.json()).then(d => setProducts(d || [])).catch(() => {})
+    fetch('/api/products/list').then(r => r.json()).then(d => setProducts(d || [])).catch((err) => { console.error('Failed to load products:', err) })
   }, [])
 
   return (

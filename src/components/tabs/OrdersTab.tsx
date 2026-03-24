@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { Upload, Package, ShoppingCart, Search, Trash2 } from 'lucide-react'
+import { Upload, Package, ShoppingCart, Trash2 } from 'lucide-react'
 import { FilterBar } from '@/components/ui/filter-bar'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
@@ -16,15 +16,33 @@ import { useToast } from '@/lib/use-toast'
 import { MetricCard } from '@/components/ui/metric-card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
+import { Spinner } from '@/components/ui/spinner'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
+import type { Order, OrderItem, Product, Customer } from '@/lib/types'
+
+interface UploadPreviewItem {
+  imweb_order_no: string
+  customer_name: string
+  customer_phone: string
+  product_sku: string
+  duration_days: number
+  allocated_amount: number
+  is_addon: boolean
+}
 
 interface UploadResult {
   total: number
   new_count: number
   duplicate_count: number
   unknown_skus: string[]
-  items: any[]
+  items: UploadPreviewItem[]
   duplicates: string[]
+}
+
+/** OrderItem with joined order (including customer) and product from the list API */
+interface OrderItemWithRelations extends OrderItem {
+  order?: Order & { customer?: Customer }
+  product?: Product
 }
 
 /* ── FileUploadArea ────────────────────────────────── */
@@ -80,18 +98,27 @@ function FileUploadArea({
             if (f) handleFile(f)
           }}
           onClick={() => inputRef.current?.click()}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click() } }}
+          role="button"
+          tabIndex={0}
+          aria-label="파일 업로드 영역"
         >
           <input
             ref={inputRef}
             type="file"
             accept=".xlsx,.xls,.csv"
+            aria-label="주문 엑셀 파일 선택"
             className="hidden"
             onChange={e => {
               const f = e.target.files?.[0]
               if (f) handleFile(f)
             }}
           />
-          <Upload className="mx-auto h-8 w-8 text-muted-foreground mb-3" />
+          {uploading ? (
+            <Spinner size="lg" className="mx-auto mb-3" />
+          ) : (
+            <Upload className="mx-auto h-8 w-8 text-muted-foreground mb-3" />
+          )}
           <p className="text-sm text-muted-foreground">
             {uploading ? '업로드 중...' : '아임웹 주문 엑셀 파일을 드래그하거나 클릭하여 선택'}
           </p>
@@ -178,7 +205,7 @@ function UploadPreview({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {result.items.map((item: any, i: number) => (
+                  {result.items.map((item, i) => (
                     <TableRow key={i}>
                       <TableCell className="font-mono text-xs py-2">{item.imweb_order_no}</TableCell>
                       <TableCell className="text-xs py-2">{item.customer_name}</TableCell>
@@ -209,7 +236,7 @@ function UploadPreview({
           onClick={handleConfirm}
           disabled={saving || result.new_count === 0}
         >
-          {saving ? '저장 중...' : `${result.new_count}건 저장 + 구독 생성`}
+          {saving ? <><Spinner size="sm" className="mr-1.5" /> 저장 중...</> : `${result.new_count}건 저장 + 구독 생성`}
         </Button>
       </div>
     </div>
@@ -218,7 +245,7 @@ function UploadPreview({
 
 /* ── OrderList ─────────────────────────────────────── */
 function OrderList() {
-  const [orders, setOrders] = useState<any[]>([])
+  const [orders, setOrders] = useState<OrderItemWithRelations[]>([])
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -233,14 +260,14 @@ function OrderList() {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const toggleSelect = (id: string, event?: React.MouseEvent) => {
-    const currentIdx = orders.findIndex((o: any) => o.id === id)
+    const currentIdx = orders.findIndex((o) => o.id === id)
 
     if (event?.shiftKey && lastClickedIdx.current !== null && currentIdx !== -1) {
       const start = Math.min(lastClickedIdx.current, currentIdx)
       const end = Math.max(lastClickedIdx.current, currentIdx)
       setSelectedIds(prev => {
         const next = new Set(prev)
-        orders.slice(start, end + 1).forEach((o: any) => next.add(o.id))
+        orders.slice(start, end + 1).forEach((o) => next.add(o.id))
         return next
       })
     } else {
@@ -258,7 +285,7 @@ function OrderList() {
     if (selectedIds.size === orders.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(orders.map((o: any) => o.id)))
+      setSelectedIds(new Set(orders.map((o) => o.id)))
     }
   }
 
@@ -376,7 +403,7 @@ function OrderList() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {orders.map((item: any) => (
+                {orders.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell
                       className="py-1.5 cursor-pointer"

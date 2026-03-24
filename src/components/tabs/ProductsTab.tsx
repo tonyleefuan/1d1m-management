@@ -15,7 +15,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { SkeletonTable } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
-import { cn } from '@/lib/utils'
+import { Card } from '@/components/ui/card'
 import { Package, Plus, X } from 'lucide-react'
 import type { Product, ProductPrice } from '@/lib/types'
 
@@ -29,12 +29,10 @@ function ProductFormModal({
   product,
   onClose,
   onSaved,
-  onError,
 }: {
   product: ProductWithMeta | null // null = 신규
   onClose: () => void
   onSaved: () => void
-  onError: (msg: string) => void
 }) {
   const [skuCode, setSkuCode] = useState(product?.sku_code || '')
   const [title, setTitle] = useState(product?.title || '')
@@ -81,8 +79,14 @@ function ProductFormModal({
     })
 
     if (!res.ok) {
-      const data = await res.json()
-      throw new Error(data.error || '저장에 실패했습니다')
+      let errorMsg = '저장에 실패했습니다'
+      try {
+        const data = await res.json()
+        errorMsg = data.error || errorMsg
+      } catch (parseErr) {
+        console.warn('에러 응답 JSON 파싱 실패:', parseErr)
+      }
+      throw new Error(errorMsg)
     }
 
     onSaved()
@@ -236,9 +240,11 @@ export function ProductsTab() {
     setLoading(true)
     try {
       const res = await fetch('/api/products/list')
+      if (!res.ok) throw new Error('불러오기 실패')
       const data = await res.json()
       setProducts(data)
-    } catch {
+    } catch (err) {
+      console.error('상품 목록 조회 실패:', err)
       showError('상품 목록을 불러오지 못했습니다')
     } finally {
       setLoading(false)
@@ -275,7 +281,7 @@ export function ProductsTab() {
           action={{ label: '상품 추가', onClick: () => setEditingProduct(null) }}
         />
       ) : (
-        <div className="rounded-lg border">
+        <Card className="overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -327,7 +333,7 @@ export function ProductsTab() {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </Card>
       )}
 
       {/* Modal */}
@@ -336,7 +342,6 @@ export function ProductsTab() {
           product={editingProduct}
           onClose={() => setEditingProduct(undefined)}
           onSaved={handleSaved}
-          onError={showError}
         />
       )}
 
