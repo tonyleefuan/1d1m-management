@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge'
 import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck, Sparkles, RotateCcw, Check, Wand2, Paperclip, X, Image as ImageIcon, Copy } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import type { Product, Message, DailyMessage, NoticeTemplate } from '@/lib/types'
 
 // --- 소스 기반 메시지 생성 다이얼로그 ---
@@ -93,7 +94,7 @@ function SourceGenerateDialog({
           if (pollRef.current) clearInterval(pollRef.current)
           pollRef.current = null
         }
-      } catch { /* ignore polling errors */ }
+      } catch (err) { console.error('Polling error:', err) }
     }, 3000)
   }, [productId, date, showSuccess])
 
@@ -162,7 +163,7 @@ function SourceGenerateDialog({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ product_id: productId, date, sources }),
-    }).catch(() => {})  // 서버 에러는 DB에 기록됨
+    }).catch((err) => { console.error('Background generation error:', err) })  // 서버 에러는 DB에 기록됨
 
     showSuccess('AI 생성이 백그라운드에서 진행됩니다. 다른 작업을 하셔도 됩니다.')
     onBgGenerate?.()
@@ -870,6 +871,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   const [quickSources, setQuickSources] = useState<Record<string, string>>({})
   // 백그라운드 생성 중인 셀 추적 (key: `${productId}:${date}`)
   const [bgGenerating, setBgGenerating] = useState<Set<string>>(new Set())
+  const [copiedSku, setCopiedSku] = useState<string | null>(null)
   const bgPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 백그라운드 생성 셀 폴링
@@ -908,7 +910,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
           return changed ? next : prev
         })
       })
-      .catch(() => {})
+      .catch((err) => { console.error('Refresh today-status error:', err) })
   }, [showSuccess])
 
   useEffect(() => { refresh() }, [refresh])
@@ -1163,7 +1165,23 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                 </div>
                 <p className="text-[11px] text-muted-foreground line-clamp-1">{p.title}</p>
                 {hasTomorrowMsg ? (
-                  <p className="text-[11px] text-muted-foreground line-clamp-3 whitespace-pre-wrap">{grid[p.id][tomorrowDate].content.slice(0, 150)}...</p>
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-muted-foreground line-clamp-3 whitespace-pre-wrap">{grid[p.id][tomorrowDate].content.slice(0, 150)}...</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full h-6 text-[11px]"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        navigator.clipboard.writeText(grid[p.id][tomorrowDate].content).then(() => {
+                          setCopiedSku(p.id)
+                          setTimeout(() => setCopiedSku(null), 1500)
+                        })
+                      }}
+                    >
+                      {copiedSku === p.id ? <><Check className="h-3 w-3 mr-1 text-green-600" />복사됨</> : <><Copy className="h-3 w-3 mr-1" />메시지 복사</>}
+                    </Button>
+                  </div>
                 ) : isBusy ? (
                   <div className="flex items-center gap-2 py-3">
                     <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -1357,7 +1375,6 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
   const [messages, setMessages] = useState<DailyMessage[]>([])
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<DailyMessage | null | undefined>(undefined)
-  const [copiedId, setCopiedId] = useState<string | null>(null)
   const { toast, showSuccess, showError, clearToast } = useToast()
 
   const fetchMessages = useCallback(async () => {
@@ -1416,7 +1433,7 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
                 {messages.map(m => (
                   <div
                     key={m.id}
-                    className="group flex items-start gap-3 px-4 py-3 rounded-lg border bg-card hover:bg-muted/50 cursor-pointer transition-colors"
+                    className="flex items-start gap-3 px-4 py-3 rounded-lg border bg-card hover:bg-muted/50 cursor-pointer transition-colors"
                     onClick={() => setEditing(m)}
                   >
                     <span className="shrink-0 font-mono text-xs font-semibold bg-primary text-primary-foreground px-2 py-0.5 rounded">
@@ -1434,22 +1451,6 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
                       </div>
                     ) : (
                       <p className="text-[13px] text-foreground line-clamp-2 flex-1 leading-relaxed">{m.content}</p>
-                    )}
-                    {m.content && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0 h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          navigator.clipboard.writeText(m.content || '').then(() => {
-                            setCopiedId(m.id)
-                            setTimeout(() => setCopiedId(null), 1500)
-                          })
-                        }}
-                      >
-                        {copiedId === m.id ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
-                      </Button>
                     )}
                   </div>
                 ))}
