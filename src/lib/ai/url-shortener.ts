@@ -24,6 +24,23 @@ export async function shortenUrl(url: string): Promise<string> {
 }
 
 /**
+ * URL 목록을 축약하고 원본→축약 매핑을 반환.
+ * 이미 축약된 URL은 건너뜀.
+ */
+export async function shortenUrls(urls: string[]): Promise<Record<string, string>> {
+  const skipDomains = ['bit.ly', 'bitly.com', 'tinyurl.com', 't.co', 'havehad.info']
+  const mapping: Record<string, string> = {}
+  for (const url of urls) {
+    if (skipDomains.some(d => url.includes(d))) continue
+    const shortened = await shortenUrl(url)
+    if (shortened !== url) {
+      mapping[url] = shortened
+    }
+  }
+  return mapping
+}
+
+/**
  * 텍스트 내 모든 URL을 축약 URL로 치환.
  * 이미 축약된 URL(bit.ly, tinyurl.com 등)은 건너뜀.
  */

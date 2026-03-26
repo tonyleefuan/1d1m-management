@@ -3,7 +3,7 @@ import { getSession } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { generateFromSource, type SourceItem } from '@/lib/ai/claude'
 import { fetchSourceContext } from '@/lib/ai/news-fetcher'
-import { shortenUrlsInText } from '@/lib/ai/url-shortener'
+import { shortenUrls, shortenUrlsInText } from '@/lib/ai/url-shortener'
 
 export const maxDuration = 300
 
@@ -70,7 +70,8 @@ export async function POST(req: Request) {
     // 기사 접근 실패 감지 — 사용자에게 알려줌
     const hasUrls = !!combinedText.match(/https?:\/\//)
     const hasArticleContent = sourceContext.includes('## 기사 원문')
-    if (hasUrls && !hasArticleContent) {
+    const hasAccessFailure = sourceContext.includes('[기사 접속 실패')
+    if (hasUrls && (!hasArticleContent || hasAccessFailure)) {
       console.warn(`[AI] 기사 접근 실패 — URL: ${combinedText.slice(0, 300)}`)
       return NextResponse.json(
         { error: '기사 링크에 접근하지 못했습니다. 사이트가 봇을 차단하거나 접속이 불가한 상태입니다. 기사 본문을 직접 복사해서 붙여넣어 주세요.' },
@@ -87,7 +88,12 @@ export async function POST(req: Request) {
       ? `${prompt.generation_prompt}\n\n## 추가 지시\n${prompt.additional_prompt}`
       : prompt.generation_prompt
 
-    // AI 생성
+    // 사용자 소스에서 URL 추출 → Bitly로 미리 축약
+    const urlRegex = /https?:\/\/[^\s\]\)]+/g
+    const sourceUrls = combinedText.match(urlRegex) || []
+    const urlMapping = sourceUrls.length > 0 ? await shortenUrls(sourceUrls) : {}
+
+    // AI 생성 (축약 URL 매핑 전달)
     let message = await generateFromSource(
       prompt.search_prompt,
       fullGenPrompt,
@@ -95,7 +101,9 @@ export async function POST(req: Request) {
       images,
       recentHistory,
       date,
+      urlMapping,
     )
+    // 폴백: Claude가 웹 검색으로 추가한 URL도 축약
     message = await shortenUrlsInText(message)
 
     // DB 저장 (draft)

@@ -177,17 +177,26 @@ export async function fetchArticleContent(url: string): Promise<string> {
       if (text.length > 20) paragraphs.push(text)
     }
 
+    // 본문 콘텐츠 결정
+    let bodyText = ''
+    if (paragraphs.length > 0) {
+      bodyText = paragraphs.slice(0, 50).join('\n\n')
+    } else {
+      // p 태그가 없으면 전체 텍스트에서 추출
+      const allText = cleaned.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      bodyText = allText.slice(0, 5000)
+    }
+
+    // 본문이 너무 짧으면 접근 실패로 판단 (봇 차단, JS-only 페이지 등)
+    if (bodyText.length < 100 && !title && !h1) {
+      return `[기사 접속 실패: 본문 추출 불가 — 봇 차단 또는 JavaScript 전용 페이지일 수 있습니다]`
+    }
+
     const result: string[] = []
     result.push(`## 기사 원문 (${url})`)
     if (title || h1) result.push(`제목: ${h1 || title}`)
     result.push('')
-    if (paragraphs.length > 0) {
-      result.push(paragraphs.slice(0, 50).join('\n\n'))
-    } else {
-      // p 태그가 없으면 전체 텍스트에서 추출
-      const allText = cleaned.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-      result.push(allText.slice(0, 5000))
-    }
+    result.push(bodyText)
 
     return result.join('\n')
   } catch (err) {

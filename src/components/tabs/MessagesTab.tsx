@@ -14,9 +14,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { cn } from '@/lib/utils'
-import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck, Sparkles, RotateCcw, Check, Wand2, X, Image as ImageIcon, Copy } from 'lucide-react'
+import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck, Sparkles, RotateCcw, Check, Wand2, X, Image as ImageIcon, Copy, RefreshCw } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
 import type { Product, Message, DailyMessage, NoticeTemplate } from '@/lib/types'
 
@@ -875,6 +876,8 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   // 백그라운드 생성 중인 셀 추적 (key: `${productId}:${date}`)
   const [bgGenerating, setBgGenerating] = useState<Set<string>>(new Set())
   const [copiedSku, setCopiedSku] = useState<string | null>(null)
+  const [deletingDraft, setDeletingDraft] = useState<string | null>(null)
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const bgPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 백그라운드 생성 셀 폴링
@@ -918,6 +921,32 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   }, [showSuccess])
 
   useEffect(() => { refresh() }, [refresh])
+
+  const handleDeleteDraft = async (productId: string, date: string, sku: string) => {
+    const ok = await confirm({
+      title: '메시지 삭제',
+      description: `${sku} (${date.slice(5)}) 메시지를 삭제하고 다시 생성하시겠습니까?`,
+      variant: 'warning',
+      confirmLabel: '다시 생성',
+    })
+    if (!ok) return
+    setDeletingDraft(productId)
+    try {
+      const cell = grid[productId]?.[date]
+      const res = await fetch('/api/daily-messages/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cell?.id ? { id: cell.id } : { product_id: productId, send_date: date }),
+      })
+      if (!res.ok) throw new Error('삭제 실패')
+      showSuccess('메시지가 삭제되었습니다. 소스를 입력하고 다시 생성하세요.')
+      refresh()
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '메시지 삭제에 실패했습니다')
+    } finally {
+      setDeletingDraft(null)
+    }
+  }
 
   if (!gridData) return <Skeleton className="h-60 w-full" />
 
@@ -1169,20 +1198,38 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                 {hasTomorrowMsg ? (
                   <div className="space-y-1.5">
                     <p className="text-[11px] text-muted-foreground line-clamp-3 whitespace-pre-wrap">{grid[p.id][tomorrowDate].content.slice(0, 150)}...</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full h-6 text-[11px]"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        navigator.clipboard.writeText(grid[p.id][tomorrowDate].content).then(() => {
-                          setCopiedSku(p.id)
-                          setTimeout(() => setCopiedSku(null), 1500)
-                        })
-                      }}
-                    >
-                      {copiedSku === p.id ? <><Check className="h-3 w-3 mr-1 text-primary" />복사됨</> : <><Copy className="h-3 w-3 mr-1" />메시지 복사</>}
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 h-6 text-[11px]"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          navigator.clipboard.writeText(grid[p.id][tomorrowDate].content).then(() => {
+                            setCopiedSku(p.id)
+                            setTimeout(() => setCopiedSku(null), 1500)
+                          })
+                        }}
+                      >
+                        {copiedSku === p.id ? <><Check className="h-3 w-3 mr-1 text-primary" />복사됨</> : <><Copy className="h-3 w-3 mr-1" />메시지 복사</>}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-[11px] text-muted-foreground hover:text-foreground"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteDraft(p.id, tomorrowDate, p.sku_code)
+                        }}
+                        disabled={deletingDraft === p.id}
+                      >
+                        {deletingDraft === p.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 ) : isBusy ? (
                   <div className="flex items-center gap-2 py-3">
@@ -1364,6 +1411,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
         />
       )}
 
+      {ConfirmDialogElement}
       {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
     </div>
   )
