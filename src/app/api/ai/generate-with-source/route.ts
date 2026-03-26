@@ -67,16 +67,22 @@ export async function POST(req: Request) {
     const combinedText = textSources.join('\n')
     const sourceContext = combinedText ? await fetchSourceContext(combinedText) : ''
 
-    // 기사 접근 실패 감지 — 사용자에게 알려줌
-    const hasUrls = !!combinedText.match(/https?:\/\//)
-    const hasArticleContent = sourceContext.includes('## 기사 원문')
-    const hasAccessFailure = sourceContext.includes('[기사 접속 실패')
-    if (hasUrls && (!hasArticleContent || hasAccessFailure)) {
-      console.warn(`[AI] 기사 접근 실패 — URL: ${combinedText.slice(0, 300)}`)
-      return NextResponse.json(
-        { error: '기사 링크에 접근하지 못했습니다. 사이트가 봇을 차단하거나 접속이 불가한 상태입니다. 기사 본문을 직접 복사해서 붙여넣어 주세요.' },
-        { status: 422 }
-      )
+    // 기사 접근 실패 감지 — URL 여러 개 중 일부만 실패하면 성공한 것만 사용
+    const sourceUrlList = combinedText.match(/https?:\/\/[^\s,\n<>"']+/g) || []
+    if (sourceUrlList.length > 0) {
+      const successCount = (sourceContext.match(/## 기사 원문/g) || []).length
+      const failCount = (sourceContext.match(/\[기사 접속 실패/g) || []).length
+      if (successCount === 0 && failCount > 0) {
+        // 전부 실패 — 에러 반환
+        console.warn(`[AI] 전체 기사 접근 실패 (${failCount}건) — URL: ${combinedText.slice(0, 300)}`)
+        return NextResponse.json(
+          { error: `기사 링크 ${failCount}건 모두 접근 실패. 사이트가 봇을 차단하거나 접속 불가 상태입니다. 기사 본문을 직접 복사해서 붙여넣어 주세요.` },
+          { status: 422 }
+        )
+      }
+      if (failCount > 0) {
+        console.warn(`[AI] 일부 기사 접근 실패 (성공 ${successCount}건, 실패 ${failCount}건)`)
+      }
     }
 
     const images = imageSources.map(s => ({
