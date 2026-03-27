@@ -3,7 +3,7 @@ import { getSession } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import { generateFromSource, type SourceItem } from '@/lib/ai/claude'
 import { fetchSourceContext } from '@/lib/ai/news-fetcher'
-import { shortenUrls, shortenUrlsInText } from '@/lib/ai/url-shortener'
+import { shortenUrls, shortenUrlsInText, shortenUrl } from '@/lib/ai/url-shortener'
 
 export const maxDuration = 300
 
@@ -109,7 +109,29 @@ export async function POST(req: Request) {
       date,
       urlMapping,
     )
-    // 폴백: Claude가 웹 검색으로 추가한 URL도 축약
+
+    // 1단계: urlMapping에 있는 원본 URL → bit.ly로 강제 치환 (Claude가 원본 URL을 사용한 경우)
+    for (const [original, shortened] of Object.entries(urlMapping)) {
+      message = message.replaceAll(original, shortened)
+    }
+
+    // 2단계: Claude가 만든 가짜 축약 URL(bbc.in, reut.rs 등)을 bit.ly로 교체
+    // urlMapping의 bit.ly URL을 순서대로 매칭
+    const fakeShortDomains = ['bbc.in', 'reut.rs', 'nyti.ms', 'wapo.st', 'cnn.it', 'bloom.bg', 'econ.st']
+    const bitlyUrls = Object.values(urlMapping)
+    if (bitlyUrls.length > 0) {
+      const fakeUrlRegex = new RegExp(`https?://(?:${fakeShortDomains.join('|')})/[^\\s\\]\\)]+`, 'g')
+      const fakeUrls = message.match(fakeUrlRegex) || []
+      let bitlyIdx = 0
+      for (const fakeUrl of fakeUrls) {
+        if (bitlyIdx < bitlyUrls.length) {
+          message = message.replace(fakeUrl, bitlyUrls[bitlyIdx])
+          bitlyIdx++
+        }
+      }
+    }
+
+    // 3단계: 나머지 URL도 Bitly로 축약 (웹 검색으로 찾은 새 URL 등)
     message = await shortenUrlsInText(message)
 
     // DB 저장 (draft)
