@@ -42,6 +42,7 @@ function SourceGenerateDialog({
   const [content, setContent] = useState(existingContent || '')
   const [saving, setSaving] = useState(false)
   const [approving, setApproving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const { showSuccess, showError } = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -225,6 +226,32 @@ function SourceGenerateDialog({
     }
   }
 
+  const handleDelete = async () => {
+    if (existingStatus === 'approved') {
+      showError('승인된 메시지는 삭제할 수 없습니다')
+      return
+    }
+    setDeleting(true)
+    try {
+      const res = await fetch('/api/daily-messages/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: productId, send_date: date }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || '삭제 실패')
+      }
+      setContent('')
+      showSuccess('메시지가 초기화되었습니다')
+      onSaved()
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '삭제에 실패했습니다')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <Dialog open onOpenChange={() => onClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -347,7 +374,21 @@ function SourceGenerateDialog({
                 className="font-mono text-sm min-h-[300px]"
               />
               <div className="flex items-center justify-between">
-                <span className="text-[11px] text-muted-foreground tabular-nums">{content.length}자</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground tabular-nums">{content.length}자</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleDelete}
+                    disabled={deleting || existingStatus === 'approved'}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+                    title="메시지를 삭제하고 처음부터 다시 작성합니다"
+                  >
+                    {deleting ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RotateCcw className="h-3 w-3 mr-1" />}
+                    초기화
+                  </Button>
+                </div>
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"

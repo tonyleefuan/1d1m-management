@@ -128,6 +128,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, content: message, message_id: data.id })
   } catch (err) {
+    console.error('[generate-with-source] Error:', err instanceof Error ? `${err.name}: ${err.message}` : err)
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '서버 오류' },
       { status: 500 }
