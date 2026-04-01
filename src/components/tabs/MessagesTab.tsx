@@ -912,6 +912,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   const [generating, setGenerating] = useState(false)
   const [genProgress, setGenProgress] = useState<{ current: number; total: number; sku: string; title: string; done: string[] } | null>(null)
   const [editingCell, setEditingCell] = useState<{ productId: string; sku: string; title: string; date: string; cell?: GridCell } | null>(null)
+  const [viewingMessage, setViewingMessage] = useState<{ sku: string; title: string; date: string; content: string; status?: string } | null>(null)
   // 상단 퀵 입력 섹션 — 상품별 소스 텍스트
   const [quickSources, setQuickSources] = useState<Record<string, string>>({})
   // 백그라운드 생성 중인 셀 추적 (key: `${productId}:${date}`)
@@ -1360,7 +1361,13 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                         {content ? (
                           <div
                             className={cn('cursor-pointer hover:bg-muted/50 rounded p-1 -m-1 transition-colors', editable && 'hover:ring-1 hover:ring-border')}
-                            onClick={() => editable && setEditingCell({ productId: p.id, sku: p.sku_code, title: p.title, date: d, cell })}
+                            onClick={() => {
+                              if (editable) {
+                                setEditingCell({ productId: p.id, sku: p.sku_code, title: p.title, date: d, cell })
+                              } else {
+                                setViewingMessage({ sku: p.sku_code, title: p.title, date: d, content, status })
+                              }
+                            }}
                           >
                             <div className="flex items-center gap-1.5 mb-1">
                               {status === 'approved' ? (
@@ -1369,10 +1376,13 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                                 <StatusBadge status="warning" size="xs">초안</StatusBadge>
                               ) : null}
                             </div>
-                            <p className={cn(
-                              'whitespace-pre-wrap leading-relaxed',
-                              isToday ? 'text-[12px]' : 'text-[11px] text-muted-foreground'
-                            )}>{content}</p>
+                            <div className="relative max-h-[400px] overflow-hidden">
+                              <p className={cn(
+                                'whitespace-pre-wrap leading-relaxed',
+                                isToday ? 'text-[12px]' : 'text-[11px] text-muted-foreground'
+                              )}>{content}</p>
+                              <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-background/80 to-transparent pointer-events-none" />
+                            </div>
                           </div>
                         ) : editable ? (
                           <div className="space-y-1.5">
@@ -1450,6 +1460,26 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
           onSaved={handleCellSaved}
           onBgGenerate={() => handleBgGenerateStarted(editingCell.productId, editingCell.date)}
         />
+      )}
+
+      {/* 메시지 읽기 전용 팝업 */}
+      {viewingMessage && (
+        <Dialog open onOpenChange={() => setViewingMessage(null)}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <span className="font-mono text-sm bg-primary text-primary-foreground px-2 py-0.5 rounded">{viewingMessage.sku}</span>
+                <span>{viewingMessage.date.slice(5)}</span>
+                {viewingMessage.status === 'approved' ? (
+                  <StatusBadge status="success" size="xs">승인됨</StatusBadge>
+                ) : viewingMessage.status === 'draft' ? (
+                  <StatusBadge status="warning" size="xs">초안</StatusBadge>
+                ) : null}
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm whitespace-pre-wrap leading-relaxed">{viewingMessage.content}</p>
+          </DialogContent>
+        </Dialog>
       )}
 
       {ConfirmDialogElement}
