@@ -12,7 +12,6 @@ export interface RawOrderRow {
   '주문번호': string
   '주문섹션품목번호': string
   '주문자 이름': string
-  '주문자 이메일': string
   '주문자 번호': string
   '상품 SKU': string
   '옵션 SKU': string
@@ -26,7 +25,6 @@ export interface ParsedOrderItem {
   imweb_order_no: string
   imweb_item_no: string
   customer_name: string
-  customer_email: string
   customer_phone: string
   product_sku: string        // 실제 구독할 상품 SKU
   duration_days: number | null  // null이면 해당 상품의 최대 기간 사용
@@ -59,7 +57,7 @@ function parseDurationFromOptionName(optionName: string): number | null {
  * 이전 행의 값을 이어받아 채워 넣는다.
  */
 const CARRY_FORWARD_FIELDS: (keyof RawOrderRow)[] = [
-  '주문번호', '주문자 이름', '주문자 이메일', '주문자 번호', '최종주문금액', '주문일',
+  '주문번호', '주문자 이름', '주문자 번호', '최종주문금액', '주문일',
 ]
 
 function applyCarryForward(rows: RawOrderRow[]): RawOrderRow[] {
@@ -113,7 +111,6 @@ export function parseOrderRows(rows: RawOrderRow[]): ParsedOrderItem[] {
         imweb_order_no: row['주문번호']?.trim() || '',
         imweb_item_no: row['주문섹션품목번호']?.trim() || '',
         customer_name: row['주문자 이름']?.trim() || '',
-        customer_email: row['주문자 이메일']?.trim() || '',
         customer_phone: row['주문자 번호']?.trim() || '',
         channel,
         raw_product_sku: productSku,
@@ -154,7 +151,6 @@ export function parseOrderRows(rows: RawOrderRow[]): ParsedOrderItem[] {
       imweb_order_no: row['주문번호']?.trim() || '',
       imweb_item_no: row['주문섹션품목번호']?.trim() || '',
       customer_name: row['주문자 이름']?.trim() || '',
-      customer_email: row['주문자 이메일']?.trim() || '',
       customer_phone: row['주문자 번호']?.trim() || '',
       product_sku: finalSku,
       duration_days: durationDays,

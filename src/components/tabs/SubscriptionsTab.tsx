@@ -55,7 +55,6 @@ interface SubRow {
     phone: string | null
     phone_last4: string | null
     kakao_friend_name: string | null
-    email: string | null
   }
   product_id: string
   product: {
@@ -1243,8 +1242,6 @@ export function SubscriptionsTab() {
                   <div>{detailSub.customer.phone_last4 || '-'}</div>
                   <div className="text-muted-foreground">카톡이름</div>
                   <div>{detailSub.customer.kakao_friend_name || '-'}</div>
-                  <div className="text-muted-foreground">이메일</div>
-                  <div>{detailSub.customer.email || '-'}</div>
                 </div>
               </section>
 
