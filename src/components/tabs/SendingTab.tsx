@@ -230,7 +230,7 @@ export function SendingTab() {
       const res = await fetch('/api/sending/clear', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: target || null }),
+        body: JSON.stringify({ device_id: target || null, date: sendDate }),
       })
       if (!res.ok) throw new Error('대기열 삭제 실패')
       showSuccess(`${label} 대기열 삭제 완료`)
@@ -253,7 +253,7 @@ export function SendingTab() {
       await fetch('/api/sending/clear', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: null }),
+        body: JSON.stringify({ device_id: null, date: sendDate }),
       })
       const genRes = await fetch('/api/sending/generate', {
         method: 'POST',
@@ -271,8 +271,11 @@ export function SendingTab() {
   }
 
   const handleExportSheet = async () => {
-    // 중복 내보내기 확인
-    if (lastExportAt) {
+    // 같은 날짜에 이미 내보냈으면 확인
+    const lastExportDate = lastExportAt
+      ? new Date(new Date(lastExportAt).getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      : null
+    if (lastExportDate === sendDate) {
       const ok = await confirm({
         title: '구글시트 내보내기',
         description: '이미 내보낸 기록이 있습니다. 시트를 초기화하고 다시 내보내시겠습니까?',
