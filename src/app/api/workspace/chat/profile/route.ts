@@ -9,9 +9,9 @@ const PROFILES: Record<string, object> = {
     model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     starters: [
-      { label: '📋 고객 구독 조회', message: '이연우 고객의 구독 현황을 알려줘' },
-      { label: '✏️ 고객 정보 변경', message: '김윤지 고객의 카톡이름을 변경하고 싶어' },
-      { label: '🔄 PC 배정 변경', message: 'SUB-46 상품 구독자 중 미배정인 것들을 PC 3에 배정해줘' },
+      { label: '📋 고객 구독 조회', message: '특정 고객의 구독 현황을 조회하고 싶어' },
+      { label: '✏️ 고객 정보 변경', message: '특정 고객의 정보를 변경하고 싶어' },
+      { label: '🔄 PC 배정 변경', message: '특정 상품의 구독자들을 다른 PC로 배정하고 싶어' },
     ],
   },
 }
