@@ -54,6 +54,7 @@ interface SubRow {
     kakao_friend_name: string | null
     email: string | null
   }
+  product_id: string
   product: {
     id: string
     sku_code: string
@@ -383,6 +384,18 @@ export function SubscriptionsTab() {
     )
   }
 
+  const handleProductChange = async (subId: string, productId: string) => {
+    const product = products.find(p => p.id === productId)
+    if (!product) return
+    const ok = await updateSubscription(subId, { product_id: productId })
+    if (ok) {
+      showSuccess(`상품이 ${product.sku_code}(으)로 변경되었습니다`)
+      fetchSubs()
+    } else {
+      showError('상품 변경에 실패했습니다')
+    }
+  }
+
   const handleMemoSave = async () => {
     if (!detailSub) return
     await optimisticUpdate(
@@ -613,43 +626,6 @@ export function SubscriptionsTab() {
           <RefreshCw className={cn('mr-1 h-3 w-3', dailyUpdating && 'animate-spin')} />
           상태 업데이트
         </Button>
-        {selectedIds.size > 0 && (
-          <>
-            <Badge variant="secondary" className="text-xs">
-              {selectedIds.size}건 선택
-            </Badge>
-            <Button size="sm" variant="outline" onClick={() => handleBulkStatus('live')}>
-              <Send className="mr-1 h-3 w-3" />
-              발송 시작
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => handleBulkStatus('pause')}>
-              <Pause className="mr-1 h-3 w-3" />
-              일시정지
-            </Button>
-            <Select onValueChange={(v) => handleBulkDevice(v === '__none__' ? '' : v)}>
-              <SelectTrigger className="h-8 w-[160px] text-xs">
-                <SelectValue placeholder="PC 일괄 배정" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">미배정</SelectItem>
-                {devices.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: getDeviceColor(d, devices) }}
-                      />
-                      {d.phone_number}{d.name ? ` (${d.name})` : ''}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button size="sm" variant="destructive" onClick={() => handleBulkStatus('cancel')}>
-              취소
-            </Button>
-          </>
-        )}
       </PageHeader>
 
       {/* 2. Stat Group */}
@@ -737,6 +713,48 @@ export function SubscriptionsTab() {
         }
         layout="stacked"
       />
+
+      {/* Bulk action bar — 테이블 바로 위 */}
+      {selectedIds.size > 0 && (
+        <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 bg-muted/80 backdrop-blur rounded-lg border">
+          <Badge variant="secondary" className="text-xs">
+            {selectedIds.size}건 선택
+          </Badge>
+          <Button size="sm" variant="outline" onClick={() => handleBulkStatus('live')}>
+            <Send className="mr-1 h-3 w-3" />
+            발송 시작
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => handleBulkStatus('pause')}>
+            <Pause className="mr-1 h-3 w-3" />
+            일시정지
+          </Button>
+          <Select onValueChange={(v) => handleBulkDevice(v === '__none__' ? '' : v)}>
+            <SelectTrigger className="h-8 w-[160px] text-xs">
+              <SelectValue placeholder="PC 일괄 배정" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">미배정</SelectItem>
+              {devices.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: getDeviceColor(d, devices) }}
+                    />
+                    {d.phone_number}{d.name ? ` (${d.name})` : ''}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button size="sm" variant="destructive" onClick={() => handleBulkStatus('cancel')}>
+            취소
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())} className="ml-auto">
+            선택 해제
+          </Button>
+        </div>
+      )}
 
       {/* 4. Table */}
       {loading ? (
@@ -848,8 +866,22 @@ export function SubscriptionsTab() {
                       </TableCell>
 
                       {/* 5. 상품 */}
-                      <TableCell className="py-1 font-mono text-xs">
-                        {sub.product?.sku_code}
+                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={sub.product_id}
+                          onValueChange={(v) => handleProductChange(sub.id, v)}
+                        >
+                          <SelectTrigger className="h-6 w-[100px] text-xs border-0 bg-transparent px-1 font-mono">
+                            <SelectValue>{sub.product?.sku_code || '-'}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.sku_code} — {p.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </TableCell>
 
                       {/* 5.5 상품명 */}
@@ -873,8 +905,28 @@ export function SubscriptionsTab() {
                       </TableCell>
 
                       {/* 9. Day */}
-                      <TableCell className="py-1 text-center text-xs tabular-nums">
-                        {sub.current_day > 0 ? sub.current_day : '-'}
+                      <TableCell className="py-1 text-center text-xs tabular-nums" onClick={(e) => e.stopPropagation()}>
+                        <span
+                          className="cursor-pointer hover:text-foreground hover:underline"
+                          title="클릭하여 Day 변경"
+                          onClick={() => {
+                            const input = prompt(`Day를 직접 지정합니다.\n현재 Day: ${sub.current_day}\nLast Sent Day: ${sub.last_sent_day ?? 0}\n\nDay 30부터 보내려면 29를 입력하세요.\n(0~${sub.duration_days} 범위)`)
+                            if (input === null) return
+                            const num = parseInt(input, 10)
+                            if (isNaN(num) || num < 0 || num > sub.duration_days) {
+                              showError(`0~${sub.duration_days} 범위의 숫자를 입력하세요`)
+                              return
+                            }
+                            updateSubscription(sub.id, { last_sent_day: num }).then(ok => {
+                              if (ok) {
+                                showSuccess(`Day ${num}으로 변경. 다음 발송부터 Day ${num + 1} 메시지 발송`)
+                                fetchSubs()
+                              }
+                            })
+                          }}
+                        >
+                          {sub.current_day > 0 ? sub.current_day : '-'}
+                        </span>
                       </TableCell>
 
                       {/* 10. D-Day */}

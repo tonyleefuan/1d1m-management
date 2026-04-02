@@ -192,6 +192,7 @@ export async function PATCH(req: Request) {
         }
       }
     }
+    if (updates.product_id !== undefined) updateData.product_id = updates.product_id
     if (updates.memo !== undefined) updateData.memo = updates.memo
     if (updates.send_priority !== undefined) updateData.send_priority = updates.send_priority
     if (updates.resume_date !== undefined) {
@@ -301,6 +302,10 @@ export async function PATCH(req: Request) {
       if (updates.kakao_friend_name !== undefined) {
         await logChange(subId, 'kakao_name_change', 'kakao_friend_name',
           null, updates.kakao_friend_name, session.userId)
+      }
+      if (updates.product_id !== undefined) {
+        await logChange(subId, 'product_change', 'product_id',
+          null, updates.product_id, session.userId)
       }
       if (updates.day_adjust !== undefined) {
         await logChange(subId, 'day_adjust', 'day',
