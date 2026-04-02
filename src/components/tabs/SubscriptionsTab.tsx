@@ -25,6 +25,7 @@ import { PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Timeline } from '@/components/ui/timeline'
 import { Send, Pause, Clock, FileText, MessageSquare, RefreshCw } from 'lucide-react'
+import { FloatingChatButton } from '@/components/ui/floating-chat'
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -1494,6 +1495,9 @@ export function SubscriptionsTab() {
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={clearToast} />
       )}
+
+      {/* 8. AI Chat */}
+      <FloatingChatButton tabId="subscriptions" userEmail="admin" />
     </div>
   )
 }
