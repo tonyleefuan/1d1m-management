@@ -113,7 +113,7 @@ export async function PATCH(req: Request) {
     }
 
     if (updates.status !== undefined) {
-      const today = new Date().toISOString().slice(0, 10)
+      const today = todayKST()
       for (const subId of targetIds) {
         const prev = prevMap.get(subId)
         if (!prev) continue

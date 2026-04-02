@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { todayKST } from '@/lib/day'
 
 export async function GET() {
   const session = await getSession()
@@ -17,7 +18,7 @@ export async function GET() {
   })
 
   // 오늘 발송 수
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayKST()
   const { count: todaySent } = await supabase
     .from('send_queues')
     .select('id', { count: 'exact', head: true })

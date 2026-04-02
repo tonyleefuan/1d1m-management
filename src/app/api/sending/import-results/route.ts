@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { todayKST } from '@/lib/day'
 import { readSheetData } from '@/lib/google-sheets'
-
-// KST 오늘 날짜
-function getKSTToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
 
 /**
  * 처리일시 파싱: "26.04.02 04:00:01" → "2026-04-02T04:00:01+09:00"
@@ -39,7 +35,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => ({}))
-    const date = body.date || getKSTToday()
+    const date = body.date || todayKST()
 
     // --- 활성 디바이스 조회 ---
     const { data: devices, error: devErr } = await supabase
