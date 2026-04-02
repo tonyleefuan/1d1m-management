@@ -28,6 +28,7 @@ export async function POST(req: Request) {
     const force = body.force === true
 
     // --- 이전 미수집 결과 자동 import ---
+    // 이전 날짜에 pending 상태인 큐가 있으면 시트에서 결과를 먼저 가져옴
     const { count: pendingPrevCount } = await supabase
       .from('send_queues')
       .select('id', { count: 'exact', head: true })
@@ -36,19 +37,40 @@ export async function POST(req: Request) {
 
     let autoImported = false
     if (pendingPrevCount && pendingPrevCount > 0) {
-      // 내부에서 import-results API 호출
-      const origin = new URL(req.url).origin
-      const importRes = await fetch(`${origin}/api/sending/import-results`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          cookie: req.headers.get('cookie') || '',
-        },
-        body: JSON.stringify({}),
-      })
-      if (importRes.ok) {
-        autoImported = true
+      // 시트에서 현재 데이터를 읽어서 pending인 큐만 업데이트
+      // (시트에는 이전 내보내기 데이터가 아직 남아있을 수 있음)
+      const { readSheetData: readSheet } = await import('@/lib/google-sheets')
+      const { data: prevDevices } = await supabase
+        .from('send_devices').select('phone_number').eq('is_active', true)
+
+      for (const dev of prevDevices || []) {
+        let rows: string[][]
+        try { rows = await readSheet(dev.phone_number) } catch { continue }
+        if (rows.length <= 1) continue
+
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i]
+          if (!row || row.length < 7) continue
+          const queueId = (row[6] || '').trim()
+          const resultStr = (row[4] || '').trim()
+          const resultTimeStr = (row[5] || '').trim()
+          if (!queueId || !resultStr) continue
+
+          const status = resultStr === '성공' ? 'sent' : resultStr === '실패' ? 'failed' : null
+          if (!status) continue
+
+          // 파싱: "26.04.02 04:00:01" → ISO
+          const match = resultTimeStr.match(/^(\d{2})\.(\d{2})\.(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/)
+          const sentAt = match ? `20${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}+09:00` : null
+
+          await supabase
+            .from('send_queues')
+            .update({ status, sent_at: sentAt, ...(status === 'failed' ? { error_message: '수동 발송 실패' } : {}) })
+            .eq('id', queueId)
+            .eq('status', 'pending')  // 이미 처리된 건 건너뜀
+        }
       }
+      autoImported = true
     }
 
     // --- 중복 내보내기 확인 ---
