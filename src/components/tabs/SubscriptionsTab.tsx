@@ -36,10 +36,6 @@ interface SubRow {
   duration_days: number
   day: number
   d_day: number | null
-  friend_confirmed: boolean
-  friend_confirmed_at: string | null
-  auto_confirmed: boolean
-  last_send_failure: string | null
   resume_date: string | null
   memo: string | null
   device_id: string | null
@@ -77,7 +73,7 @@ interface SubRow {
   missed_days: number
   // New DB fields
   last_sent_day: number
-  failure_type: 'friend_not_found' | 'device_error' | 'not_sent' | 'other' | null
+  failure_type: 'failed' | null
   failure_date: string | null
   recovery_mode: 'bulk' | 'sequential' | null
   paused_days: number
@@ -136,10 +132,7 @@ const COMPUTED_STATUS_MAP: Record<string, { status: StatusType; label: string; c
 }
 
 const FAILURE_BADGE_MAP: Record<string, { status: StatusType; label: string; className?: string }> = {
-  friend_not_found: { status: 'error', label: '⚠️ 친구없음' },
-  device_error: { status: 'warning', label: '🔄 자동재시도' },
-  not_sent: { status: 'error', label: '🔴 미발송' },
-  other: { status: 'error', label: '⚠️ 기타' },
+  failed: { status: 'error', label: '🔴 실패' },
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
@@ -405,12 +398,12 @@ export function SubscriptionsTab() {
   const handleClearFailure = async (sub: SubRow) => {
     const ok = await confirm({
       title: '발송 실패 해소',
-      description: `발송 실패를 해소하시겠습니까?\n(사유: ${sub.last_send_failure})`,
+      description: `발송 실패를 해소하시겠습니까?\n(실패일: ${sub.failure_date || '알 수 없음'})`,
       variant: 'warning',
       confirmLabel: '해소',
     })
     if (!ok) return
-    const success = await updateSubscription(sub.id, { last_send_failure: null })
+    const success = await updateSubscription(sub.id, { failure_type: null, failure_date: null })
     if (success) {
       showSuccess('발송 실패가 해소되었습니다')
       fetchSubs()
@@ -911,7 +904,33 @@ export function SubscriptionsTab() {
                         </StatusBadge>
                       </TableCell>
 
-                      {/* 12. PC */}
+                      {/* 12. 발송상태 */}
+                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
+                        {sub.failure_type ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto p-0 cursor-pointer"
+                            title={`${sub.failure_date || ''} 발송 실패`}
+                            onClick={() => {
+                              setResolvingSub(sub)
+                              setResolveDialogOpen(true)
+                            }}
+                          >
+                            <StatusBadge
+                              status={FAILURE_BADGE_MAP[sub.failure_type]?.status ?? 'error'}
+                              size="xs"
+                              className={FAILURE_BADGE_MAP[sub.failure_type]?.className}
+                            >
+                              {FAILURE_BADGE_MAP[sub.failure_type]?.label ?? sub.failure_type}
+                            </StatusBadge>
+                          </Button>
+                        ) : (
+                          <StatusBadge status="success" size="xs">✅ 정상</StatusBadge>
+                        )}
+                      </TableCell>
+
+                      {/* 13. PC */}
                       <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
                         <Select
                           value={sub.device_id || '__none__'}
@@ -958,32 +977,6 @@ export function SubscriptionsTab() {
                             ))}
                           </SelectContent>
                         </Select>
-                      </TableCell>
-
-                      {/* 13. 발송상태 */}
-                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
-                        {sub.failure_type ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto p-0 cursor-pointer"
-                            title={`${sub.failure_date || ''} ${sub.failure_type === 'friend_not_found' ? '친구 못 찾음' : sub.failure_type === 'device_error' ? 'PC오류' : sub.failure_type === 'not_sent' ? '미발송' : sub.failure_type}`}
-                            onClick={() => {
-                              setResolvingSub(sub)
-                              setResolveDialogOpen(true)
-                            }}
-                          >
-                            <StatusBadge
-                              status={FAILURE_BADGE_MAP[sub.failure_type]?.status ?? 'error'}
-                              size="xs"
-                              className={FAILURE_BADGE_MAP[sub.failure_type]?.className}
-                            >
-                              {FAILURE_BADGE_MAP[sub.failure_type]?.label ?? sub.failure_type}
-                            </StatusBadge>
-                          </Button>
-                        ) : (
-                          <StatusBadge status="success" size="xs">✅ 정상</StatusBadge>
-                        )}
                       </TableCell>
 
                       {/* 14. 정지/재개 */}
@@ -1369,7 +1362,7 @@ export function SubscriptionsTab() {
                       Day {resolvingSub.last_sent_day + 1}~{resolvingSub.current_day} 미발송
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      사유: {resolvingSub.failure_type === 'friend_not_found' ? '친구 못 찾음' : resolvingSub.failure_type === 'device_error' ? 'PC오류' : resolvingSub.failure_type === 'not_sent' ? '미발송' : resolvingSub.failure_type}
+                      사유: 발송 실패
                     </p>
                   </div>
                 </DialogDescription>

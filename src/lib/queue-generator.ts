@@ -64,7 +64,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
 
   // Filter and compute
   const activeSubs = subs.filter(sub => {
-    if (sub.failure_type === 'friend_not_found' || sub.failure_type === 'other') return false
+    if (sub.failure_type === 'failed') return false
 
     const computed = computeSubscription({
       start_date: sub.start_date,

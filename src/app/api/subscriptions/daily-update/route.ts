@@ -17,14 +17,14 @@ export async function POST(req: Request) {
   const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)
   const results = { pending_to_live: 0, live_to_archive: 0, pause_to_live: 0 }
 
-  // 1. pending -> live: start_date <= today AND last_send_failure IS NULL
+  // 1. pending -> live: start_date <= today AND failure_type IS NULL
   // day를 1로 세팅 (발송 시작)
   const { data: pendingToLive, error: e1 } = await supabase
     .from('subscriptions')
     .update({ status: 'live', day: 1, updated_at: new Date().toISOString() })
     .eq('status', 'pending')
     .lte('start_date', today)
-    .is('last_send_failure', null)
+    .is('failure_type', null)
     .select('id')
   if (!e1) results.pending_to_live = pendingToLive?.length || 0
 
