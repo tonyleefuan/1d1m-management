@@ -112,8 +112,8 @@ async function executeSql(query: string): Promise<string> {
   })
   if (error) return JSON.stringify({ error: error.message })
   const result = JSON.stringify(data, null, 2)
-  return result.length > 4000
-    ? result.slice(0, 4000) + '\n... (결과가 잘림, LIMIT 추가 권장)'
+  return result.length > 2000
+    ? result.slice(0, 2000) + '\n... (결과가 잘림, LIMIT 추가 권장)'
     : result
 }
 
@@ -153,12 +153,12 @@ export async function POST(req: Request) {
 
         try {
           let currentMessages = [...apiMessages]
-          let maxIterations = 5
+          let maxIterations = 3
 
           while (maxIterations-- > 0) {
             const response = await anthropic.messages.create({
-              model: 'claude-sonnet-4-6',
-              max_tokens: 4096,
+              model: 'claude-haiku-4-6',
+              max_tokens: 2048,
               system: SYSTEM_PROMPT,
               tools,
               messages: currentMessages,
