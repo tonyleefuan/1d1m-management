@@ -21,20 +21,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `오늘(${today}) 대기열이 이미 ${existing}건 존재합니다. 삭제 후 재생성하세요.` }, { status: 400 })
     }
 
-    // live + PC 배정된 구독 조회
-    const { data: subs, error: subErr } = await supabase
-      .from('subscriptions')
-      .select(`
-        id, customer_id, product_id, device_id, day, duration_days, send_priority,
-        customer:customers(kakao_friend_name),
-        product:products(sku_code, message_type),
-        order_item:order_items(order:orders(ordered_at))
-      `)
-      .eq('status', 'live')
-      .not('device_id', 'is', null)
+    // live + PC 배정된 구독 조회 (페이지네이션: Supabase 기본 1000행 제한 우회)
+    const PAGE_SIZE = 1000
+    const subs: any[] = []
+    let from = 0
+    while (true) {
+      const { data: page, error: subErr } = await supabase
+        .from('subscriptions')
+        .select(`
+          id, customer_id, product_id, device_id, day, duration_days, send_priority,
+          customer:customers(kakao_friend_name),
+          product:products(sku_code, message_type),
+          order_item:order_items(order:orders(ordered_at))
+        `)
+        .eq('status', 'live')
+        .not('device_id', 'is', null)
+        .range(from, from + PAGE_SIZE - 1)
 
-    if (subErr) return NextResponse.json({ error: subErr.message }, { status: 500 })
-    if (!subs?.length) return NextResponse.json({ ok: true, generated: 0, message: '발송 대상이 없습니다' })
+      if (subErr) return NextResponse.json({ error: subErr.message }, { status: 500 })
+      if (!page?.length) break
+      subs.push(...page)
+      if (page.length < PAGE_SIZE) break
+      from += PAGE_SIZE
+    }
+
+    if (!subs.length) return NextResponse.json({ ok: true, generated: 0, message: '발송 대상이 없습니다' })
 
     // 정렬: send_priority ASC → ordered_at ASC
     const sorted = subs.sort((a, b) => {
