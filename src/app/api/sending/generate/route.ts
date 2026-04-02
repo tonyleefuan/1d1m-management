@@ -2,13 +2,14 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 
-export async function POST() {
+export async function POST(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
-    const today = new Date().toISOString().slice(0, 10)
+    const body = await req.json().catch(() => ({}))
+    const today = body.date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 
     // 이미 오늘 대기열이 있는지 확인 + 삭제 (race condition 방지)
     const { count: existing } = await supabase
