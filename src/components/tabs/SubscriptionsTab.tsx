@@ -1252,8 +1252,32 @@ export function SubscriptionsTab() {
                       <StatusBadge status="success" size="xs">✅ 정상</StatusBadge>
                     )}
                   </div>
-                  <div className="text-muted-foreground">마지막 발송</div>
-                  <div className="tabular-nums">Day {detailSub.last_sent_day || '-'}</div>
+                  <div className="text-muted-foreground">마지막 발송 Day</div>
+                  <div className="flex items-center gap-2">
+                    <span className="tabular-nums">Day {detailSub.last_sent_day ?? 0}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-5 text-[10px] px-1.5"
+                      onClick={async () => {
+                        const input = prompt(`Day를 직접 지정합니다.\n현재: Day ${detailSub.last_sent_day ?? 0}\n\n다음 발송부터 적용됩니다.\nDay 30부터 보내려면 29를 입력하세요.\n\n(0~${detailSub.duration_days} 범위)`)
+                        if (input === null) return
+                        const num = parseInt(input, 10)
+                        if (isNaN(num) || num < 0 || num > detailSub.duration_days) {
+                          showError(`0~${detailSub.duration_days} 범위의 숫자를 입력하세요`)
+                          return
+                        }
+                        const ok = await updateSubscription(detailSub.id, { last_sent_day: num })
+                        if (ok) {
+                          showSuccess(`Day ${num}으로 변경되었습니다. 다음 발송부터 Day ${num + 1} 메시지가 발송됩니다.`)
+                          fetchSubs()
+                          setDetailSub({ ...detailSub, last_sent_day: num })
+                        }
+                      }}
+                    >
+                      변경
+                    </Button>
+                  </div>
                   {detailSub.computed_status === 'paused' && (
                     <>
                       <div className="text-muted-foreground">재개예정일</div>

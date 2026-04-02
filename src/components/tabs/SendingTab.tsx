@@ -20,7 +20,8 @@ import { Spinner } from '@/components/ui/spinner'
 import { SkeletonTable } from '@/components/ui/skeleton'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/lib/use-toast'
-import { Radio, RefreshCw, Upload, Download } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Radio, RefreshCw, Upload, Download, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────
@@ -72,17 +73,13 @@ const STATUS_CONFIG: Record<string, { label: string; statusType: StatusType }> =
   failed: { label: '실패', statusType: 'error' },
 }
 
-/** send_start_time 기준 스마트 디폴트 날짜 (KST) */
-function getDefaultSendDate(sendStartTime: string): string {
+/** 18시(KST) 기준 디폴트 날짜: 18시 이전 → 오늘, 18시 이후 → 내일 */
+function getDefaultSendDate(): string {
   const now = new Date()
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
-  const [startH, startM] = sendStartTime.split(':').map(Number)
   const kstH = kst.getUTCHours()
-  const kstM = kst.getUTCMinutes()
 
-  // send_start_time 이후 → 내일, 이전 → 오늘
-  const isAfterStart = kstH > startH || (kstH === startH && kstM >= startM)
-  if (isAfterStart) {
+  if (kstH >= 18) {
     kst.setUTCDate(kst.getUTCDate() + 1)
   }
   return kst.toISOString().slice(0, 10)
@@ -112,6 +109,10 @@ export function SendingTab() {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [statusFilter, setStatusFilter] = useState('all')
+
+  // 체크박스 + 검색
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [searchQuery, setSearchQuery] = useState('')
 
   // 구글시트 연동
   const [exporting, setExporting] = useState(false)
@@ -143,7 +144,7 @@ export function SendingTab() {
       setFileDelay(Number(data.send_file_delay) || 6)
       // 설정 로드 후 디폴트 날짜 계산
       if (!sendDate) {
-        setSendDate(getDefaultSendDate(st))
+        setSendDate(getDefaultSendDate())
       }
       // 구글시트 연동 시각
       setLastExportAt(data.last_sheet_export_at || null)
@@ -308,6 +309,27 @@ export function SendingTab() {
     setExporting(false)
   }
 
+  const handleExportSelected = async () => {
+    if (selectedIds.size === 0) return
+    setExporting(true)
+    try {
+      const res = await fetch('/api/sending/export-sheet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: sendDate, queue_ids: Array.from(selectedIds), force: true }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || '선택 내보내기 실패')
+      showSuccess(`선택 내보내기 완료: ${json.total}건 (${json.devices}개 PC)${json.appended ? ' — 시트에 추가됨' : ''}`)
+      setLastExportAt(new Date().toISOString())
+      setSelectedIds(new Set())
+      fetchQueue()
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '선택 내보내기에 실패했습니다')
+    }
+    setExporting(false)
+  }
+
   const handleImportResults = async () => {
     setImporting(true)
     try {
@@ -345,6 +367,34 @@ export function SendingTab() {
   )
 
   const displaySummary = selectedDevice ? (summary[selectedDevice] || { total: 0, pending: 0, sent: 0, failed: 0 }) : totalSummary
+
+  // 검색 필터링
+  const filteredQueue = searchQuery
+    ? queue.filter(item => {
+        const q = searchQuery.toLowerCase()
+        return item.kakao_friend_name?.toLowerCase().includes(q) ||
+          item.message_content?.toLowerCase().includes(q) ||
+          item.subscription?.product?.sku_code?.toLowerCase().includes(q)
+      })
+    : queue
+
+  // 전체 선택/해제
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(filteredQueue.map(item => item.id)))
+    } else {
+      setSelectedIds(new Set())
+    }
+  }
+
+  const handleSelectOne = (id: string, checked: boolean) => {
+    const next = new Set(selectedIds)
+    if (checked) next.add(id)
+    else next.delete(id)
+    setSelectedIds(next)
+  }
+
+  const isAllSelected = filteredQueue.length > 0 && filteredQueue.every(item => selectedIds.has(item.id))
 
   const formatTime = (isoStr: string | null) => {
     if (!isoStr) return '-'
@@ -445,6 +495,18 @@ export function SendingTab() {
               {exporting ? <Spinner size="xs" className="mr-1" /> : <Upload className="mr-1 h-3 w-3" />}
               구글시트 내보내기
             </Button>
+            {selectedIds.size > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleExportSelected}
+                disabled={exporting}
+                className="h-8"
+              >
+                {exporting ? <Spinner size="xs" className="mr-1" /> : <Upload className="mr-1 h-3 w-3" />}
+                선택 내보내기 ({selectedIds.size}건)
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -548,17 +610,28 @@ export function SendingTab() {
       {/* 요약 + 필터 */}
       <FilterBar
         filters={
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-8 w-[100px] text-xs">
-              <SelectValue placeholder="전체 상태" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">전체</SelectItem>
-              <SelectItem value="pending">대기</SelectItem>
-              <SelectItem value="sent">성공</SelectItem>
-              <SelectItem value="failed">실패</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-8 w-[100px] text-xs">
+                <SelectValue placeholder="전체 상태" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">전체</SelectItem>
+                <SelectItem value="pending">대기</SelectItem>
+                <SelectItem value="sent">성공</SelectItem>
+                <SelectItem value="failed">실패</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+              <Input
+                placeholder="이름/상품 검색"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 w-[180px] text-xs pl-7"
+              />
+            </div>
+          </div>
         }
         actions={
           <div className="flex items-center gap-2">
@@ -587,6 +660,12 @@ export function SendingTab() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[40px]">
+                    <Checkbox
+                      checked={isAllSelected}
+                      onCheckedChange={(checked) => handleSelectAll(!!checked)}
+                    />
+                  </TableHead>
                   <TableHead className="whitespace-nowrap">예약시간</TableHead>
                   {!selectedDevice && <TableHead className="whitespace-nowrap">PC</TableHead>}
                   <TableHead className="whitespace-nowrap">카톡이름</TableHead>
@@ -600,14 +679,21 @@ export function SendingTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {queue.map((item) => {
+                {filteredQueue.map((item) => {
                   const sub = item.subscription
                   const statusConfig = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending
                   return (
                     <TableRow key={item.id} className={cn(
                       item.status === 'failed' && 'bg-destructive/5',
                       item.status === 'sent' && 'text-muted-foreground',
+                      selectedIds.has(item.id) && 'bg-primary/5',
                     )}>
+                      <TableCell className="py-1">
+                        <Checkbox
+                          checked={selectedIds.has(item.id)}
+                          onCheckedChange={(checked) => handleSelectOne(item.id, !!checked)}
+                        />
+                      </TableCell>
                       <TableCell className="py-1 text-xs tabular-nums font-mono whitespace-nowrap">
                         {item.estimated_time}
                       </TableCell>

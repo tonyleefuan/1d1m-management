@@ -78,6 +78,30 @@ export async function writeSheetData(sheetName: string, rows: string[][]): Promi
 }
 
 /**
+ * 시트 탭에 데이터 이어 붙이기 (기존 데이터 유지)
+ */
+export async function appendSheetData(sheetName: string, rows: string[][]): Promise<void> {
+  if (rows.length === 0) return
+
+  const sheets = getSheetsClient()
+  const spreadsheetId = await getSpreadsheetId()
+
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `'${sheetName}'!A1`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: {
+        values: rows,
+      },
+    })
+  } catch (err: any) {
+    throw new Error(`시트 '${sheetName}' 이어 붙이기 실패: ${err.message}`)
+  }
+}
+
+/**
  * 시트 데이터 읽기
  */
 export async function readSheetData(sheetName: string, range?: string): Promise<string[][]> {

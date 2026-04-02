@@ -1,18 +1,15 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-import { ensureSheetTab, writeSheetData } from '@/lib/google-sheets'
+import { ensureSheetTab, writeSheetData, appendSheetData } from '@/lib/google-sheets'
 
 // KST 오늘 날짜
 function getKSTToday(): string {
-  const now = new Date()
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
-  return kst.toISOString().slice(0, 10)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 }
 
 // 날짜를 YYMMDD 형식으로 변환
 function toYYMMDD(dateStr: string): string {
-  // dateStr: "2026-04-02"
   const [y, m, d] = dateStr.split('-')
   return `${y.slice(2)}${m}${d}`
 }
@@ -26,9 +23,9 @@ export async function POST(req: Request) {
     const body = await req.json()
     const date = body.date || getKSTToday()
     const force = body.force === true
+    const queueIds: string[] | null = body.queue_ids || null // 선택 내보내기용
 
     // --- 이전 미수집 결과 자동 import ---
-    // 이전 날짜에 pending 상태인 큐가 있으면 시트에서 결과를 먼저 가져옴
     const { count: pendingPrevCount } = await supabase
       .from('send_queues')
       .select('id', { count: 'exact', head: true })
@@ -37,8 +34,6 @@ export async function POST(req: Request) {
 
     let autoImported = false
     if (pendingPrevCount && pendingPrevCount > 0) {
-      // 시트에서 현재 데이터를 읽어서 pending인 큐만 업데이트
-      // (시트에는 이전 내보내기 데이터가 아직 남아있을 수 있음)
       const { readSheetData: readSheet } = await import('@/lib/google-sheets')
       const { data: prevDevices } = await supabase
         .from('send_devices').select('phone_number').eq('is_active', true)
@@ -59,7 +54,6 @@ export async function POST(req: Request) {
           const status = resultStr === '성공' ? 'sent' : resultStr === '실패' ? 'failed' : null
           if (!status) continue
 
-          // 파싱: "26.04.02 04:00:01" → ISO
           const match = resultTimeStr.match(/^(\d{2})\.(\d{2})\.(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/)
           const sentAt = match ? `20${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}+09:00` : null
 
@@ -67,31 +61,33 @@ export async function POST(req: Request) {
             .from('send_queues')
             .update({ status, sent_at: sentAt, ...(status === 'failed' ? { error_message: '수동 발송 실패' } : {}) })
             .eq('id', queueId)
-            .eq('status', 'pending')  // 이미 처리된 건 건너뜀
+            .eq('status', 'pending')
         }
       }
       autoImported = true
     }
 
-    // --- 중복 내보내기 확인 ---
-    if (!force) {
-      const { data: lastExport } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'last_sheet_export_date')
-        .single()
+    // --- 이어 붙이기 vs 초기화 판단 ---
+    const { data: lastExportSetting } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'last_sheet_export_date')
+      .single()
 
-      if (lastExport) {
-        const lastDate = typeof lastExport.value === 'string'
-          ? lastExport.value.replace(/^"|"$/g, '')
-          : String(lastExport.value)
-        if (lastDate === date) {
-          return NextResponse.json({
-            warning: `오늘(${date}) 이미 시트로 내보냈습니다. 다시 내보내려면 force: true를 전달하세요.`,
-            already_exported: true,
-          }, { status: 409 })
-        }
-      }
+    const lastExportDate = lastExportSetting
+      ? (typeof lastExportSetting.value === 'string'
+          ? lastExportSetting.value.replace(/^"|"$/g, '')
+          : String(lastExportSetting.value))
+      : null
+
+    const isAppend = lastExportDate === date // 같은 날짜면 이어 붙이기
+
+    // 같은 날짜에 전체 내보내기(선택 아님)를 또 하려는 경우 경고
+    if (isAppend && !queueIds && !force) {
+      return NextResponse.json({
+        warning: `오늘(${date}) 이미 시트로 내보냈습니다. 다시 내보내려면 force: true를 전달하세요.`,
+        already_exported: true,
+      }, { status: 409 })
     }
 
     // --- 발송 설정 조회 ---
@@ -117,14 +113,22 @@ export async function POST(req: Request) {
     const baseSeconds = startH * 3600 + startM * 60
 
     // --- 대기열 조회 ---
-    const { data: queueData, error: queueErr } = await supabase
+    let query = supabase
       .from('send_queues')
       .select('*')
       .eq('send_date', date)
-      .eq('status', 'pending')
       .order('device_id')
       .order('sort_order', { ascending: true })
 
+    if (queueIds && queueIds.length > 0) {
+      // 선택 내보내기: 지정된 ID만
+      query = query.in('id', queueIds)
+    } else {
+      // 전체 내보내기: pending만
+      query = query.eq('status', 'pending')
+    }
+
+    const { data: queueData, error: queueErr } = await query
     if (queueErr) throw new Error(`대기열 조회 실패: ${queueErr.message}`)
     if (!queueData?.length) {
       return NextResponse.json({ ok: true, devices: 0, total: 0, date, message: '내보낼 대기열이 없습니다' })
@@ -138,7 +142,7 @@ export async function POST(req: Request) {
 
     if (devErr) throw new Error(`디바이스 조회 실패: ${devErr.message}`)
 
-    const deviceMap = new Map<string, string>() // device_id → phone_number
+    const deviceMap = new Map<string, string>()
     devices?.forEach(d => deviceMap.set(d.id, d.phone_number))
 
     // --- PC별 그룹화 ---
@@ -162,7 +166,7 @@ export async function POST(req: Request) {
 
       await ensureSheetTab(phoneNumber)
 
-      const rows: string[][] = [HEADER]
+      const dataRows: string[][] = []
       let deviceCounter = 0
 
       for (const item of items) {
@@ -174,20 +178,27 @@ export async function POST(req: Request) {
         const m = Math.floor((estimatedSeconds % 3600) / 60)
         const estimatedTime = `${datePrefix} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 
-        rows.push([
+        dataRows.push([
           item.kakao_friend_name || '',
           isImage ? '' : (item.message_content || ''),
           isImage ? (item.image_path || '') : '',
           estimatedTime,
-          '', // 처리결과 — 사용자가 채움
-          '', // 처리일시 — 사용자가 채움
+          '', // 처리결과
+          '', // 처리일시
           item.id, // queue_id
         ])
 
         deviceCounter++
       }
 
-      await writeSheetData(phoneNumber, rows)
+      if (isAppend) {
+        // 같은 날짜: 이어 붙이기 (헤더 없이 데이터만)
+        await appendSheetData(phoneNumber, dataRows)
+      } else {
+        // 다른 날짜: 초기화 후 헤더 + 데이터
+        await writeSheetData(phoneNumber, [HEADER, ...dataRows])
+      }
+
       totalWritten += items.length
       devicesWritten++
     }
@@ -211,6 +222,7 @@ export async function POST(req: Request) {
       total: totalWritten,
       date,
       autoImported,
+      appended: isAppend,
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || '시트 내보내기 중 오류가 발생했습니다' }, { status: 500 })

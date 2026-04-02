@@ -82,10 +82,8 @@ export async function POST(req: Request) {
           continue
         }
 
-        // 중복 queue_id 방지 (첫 번째 것만 사용)
-        if (!updateMap.has(queueId)) {
-          updateMap.set(queueId, { id: queueId, status, sent_at: parseResultTime(resultTimeStr) })
-        }
+        // 중복 queue_id: 마지막 것을 사용 (이어 붙이기로 같은 ID가 여러 번 나올 수 있음)
+        updateMap.set(queueId, { id: queueId, status, sent_at: parseResultTime(resultTimeStr) })
       }
     }
 
