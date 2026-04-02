@@ -197,6 +197,21 @@ export async function PATCH(req: Request) {
     if (updates.resume_date !== undefined) {
       updateData.resume_date = updates.resume_date
     }
+    // last_sent_day 직접 지정 (Day 수동 지정)
+    if (updates.last_sent_day !== undefined && targetIds.length === 1) {
+      const newLastSentDay = Number(updates.last_sent_day)
+      const prev = prevMap.get(targetIds[0])
+      if (prev) {
+        if (newLastSentDay < 0 || newLastSentDay > prev.duration_days) {
+          return NextResponse.json({ error: `last_sent_day는 0~${prev.duration_days} 범위여야 합니다` }, { status: 400 })
+        }
+        updateData.last_sent_day = newLastSentDay
+        // 실패 상태 초기화 (Day 재지정이므로)
+        updateData.failure_type = null
+        updateData.failure_date = null
+        updateData.recovery_mode = null
+      }
+    }
     // day 수동 조정 (+1 또는 -1)
     if (updates.day_adjust !== undefined && targetIds.length === 1) {
       const adjust = updates.day_adjust // +1 또는 -1
