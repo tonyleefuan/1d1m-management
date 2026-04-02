@@ -44,8 +44,10 @@ interface SubRow {
   order_item?: {
     order?: {
       ordered_at?: string
+      imweb_order_no?: string
     }
   } | null
+  matched_order_no?: string | null
   customer: {
     id: string
     name: string
@@ -765,6 +767,7 @@ export function SubscriptionsTab() {
                   <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('created_at')}>
                     주문일 <SortIcon field="created_at" />
                   </TableHead>
+                  <TableHead className="w-[130px]">주문번호</TableHead>
                   <TableHead className="min-w-[80px]">고객명</TableHead>
                   <TableHead className="min-w-[80px]">카톡이름</TableHead>
                   <TableHead className="w-[90px]">상품</TableHead>
@@ -810,6 +813,11 @@ export function SubscriptionsTab() {
                       {/* 1.5 주문일 */}
                       <TableCell className="py-1 text-xs tabular-nums text-muted-foreground">
                         {sub.order_item?.order?.ordered_at?.slice(0, 10) || sub.created_at?.slice(0, 10) || '-'}
+                      </TableCell>
+
+                      {/* 1.6 주문번호 */}
+                      <TableCell className="py-1 font-mono text-[11px] text-muted-foreground">
+                        {sub.matched_order_no || sub.order_item?.order?.imweb_order_no || '-'}
                       </TableCell>
 
                       {/* 2. 고객명 */}
@@ -1178,12 +1186,8 @@ export function SubscriptionsTab() {
                 <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
                   <div className="text-muted-foreground">이름</div>
                   <div>{detailSub.customer.name}</div>
-                  <div className="text-muted-foreground">연락처</div>
-                  <div>
-                    {detailSub.customer.phone
-                      ? `${detailSub.customer.phone.slice(0, 3)}-••••-${detailSub.customer.phone_last4 ?? '••••'}`
-                      : '-'}
-                  </div>
+                  <div className="text-muted-foreground">뒷4자리</div>
+                  <div>{detailSub.customer.phone_last4 || '-'}</div>
                   <div className="text-muted-foreground">카톡이름</div>
                   <div>{detailSub.customer.kakao_friend_name || '-'}</div>
                   <div className="text-muted-foreground">이메일</div>

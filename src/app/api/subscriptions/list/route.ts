@@ -36,7 +36,7 @@ export async function GET(req: Request) {
       customer:customers(id, name, phone, phone_last4, kakao_friend_name, email),
       product:products(id, sku_code, title, message_type),
       device:send_devices(id, phone_number, name),
-      order_item:order_items(order:orders(ordered_at))
+      order_item:order_items(order:orders(ordered_at, imweb_order_no))
     `, { count: 'exact' })
     .order(sortField, { ascending, nullsFirst: !ascending })
     .range((page - 1) * limit, page * limit - 1)
@@ -65,6 +65,25 @@ export async function GET(req: Request) {
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // order_item이 없는 구독에 대해 customer_id로 최신 주문번호 조회
+  const noOrderItemCustomerIds = Array.from(new Set(
+    data?.filter(sub => !sub.order_item).map(sub => sub.customer_id).filter(Boolean) || []
+  ))
+  const customerOrderMap = new Map<string, string>()
+  if (noOrderItemCustomerIds.length > 0) {
+    const { data: customerOrders } = await supabase
+      .from('orders')
+      .select('customer_id, imweb_order_no')
+      .in('customer_id', noOrderItemCustomerIds)
+      .order('ordered_at', { ascending: false })
+    // 고객별 가장 최신 주문번호만 사용
+    customerOrders?.forEach(o => {
+      if (!customerOrderMap.has(o.customer_id)) {
+        customerOrderMap.set(o.customer_id, o.imweb_order_no)
+      }
+    })
+  }
+
   const today = todayKST()
   const enriched = data?.map(sub => {
     const computed = computeSubscription({
@@ -84,6 +103,11 @@ export async function GET(req: Request) {
       dDay = Math.ceil((new Date(computed.computed_end_date).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24))
     }
 
+    // order_item이 없는 경우 customer_id 기반 주문번호 매칭
+    const matchedOrderNo = sub.order_item?.order?.imweb_order_no
+      || customerOrderMap.get(sub.customer_id)
+      || null
+
     return {
       ...sub,
       d_day: dDay,
@@ -93,6 +117,7 @@ export async function GET(req: Request) {
       computed_end_date: computed.computed_end_date,
       pending_days: computed.pending_days,
       missed_days: computed.missed_days,
+      matched_order_no: matchedOrderNo,
     }
   })
 

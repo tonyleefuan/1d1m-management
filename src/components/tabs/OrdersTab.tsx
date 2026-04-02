@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { Upload, Package, ShoppingCart, Trash2 } from 'lucide-react'
+import { Upload, Package, ShoppingCart, Trash2, Users } from 'lucide-react'
 import { FilterBar } from '@/components/ui/filter-bar'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
@@ -129,6 +129,37 @@ function FileUploadArea({
   )
 }
 
+/* ── syncContactsToDrive (비동기 — 주문 저장 후 백그라운드) ── */
+async function syncContactsToDrive(
+  items: UploadPreviewItem[],
+  showSuccess: (msg: string) => void,
+  showError: (msg: string) => void,
+) {
+  try {
+    const contacts = items.map(item => ({
+      name: item.customer_name,
+      phone: item.customer_phone,
+    }))
+
+    const res = await fetch('/api/orders/sync-contacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contacts }),
+    })
+
+    if (!res.ok) {
+      const d = await res.json()
+      showError(`연락처 동기화 실패: ${d.error}`)
+      return
+    }
+
+    const d = await res.json()
+    showSuccess(`연락처 ${d.contact_count}건 Google Drive 업로드 완료 (${d.file_name})`)
+  } catch {
+    showError('연락처 동기화 중 오류가 발생했습니다')
+  }
+}
+
 /* ── UploadPreview ─────────────────────────────────── */
 function UploadPreview({
   result,
@@ -160,6 +191,10 @@ function UploadPreview({
       }
       const d = await res.json()
       showSuccess(`저장 완료! 주문 ${d.saved_orders}건, 품목 ${d.saved_items}건, 구독 ${d.saved_subscriptions}건 생성`)
+
+      // 연락처 동기화: Google Drive에 CSV 업로드 → Apps Script가 연락처 등록
+      syncContactsToDrive(result.items, showSuccess, showError)
+
       onConfirm()
     } catch {
       showError('서버 연결 실패')
@@ -197,7 +232,6 @@ function UploadPreview({
                   <TableRow>
                     <TableHead className="text-xs">주문번호</TableHead>
                     <TableHead className="text-xs">고객명</TableHead>
-                    <TableHead className="text-xs">전화번호</TableHead>
                     <TableHead className="text-xs">상품</TableHead>
                     <TableHead className="text-xs">기간</TableHead>
                     <TableHead className="text-xs text-right">배분금액</TableHead>
@@ -209,7 +243,6 @@ function UploadPreview({
                     <TableRow key={i}>
                       <TableCell className="font-mono text-xs py-2">{item.imweb_order_no}</TableCell>
                       <TableCell className="text-xs py-2">{item.customer_name}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground py-2">{item.customer_phone}</TableCell>
                       <TableCell className="text-xs py-2">{item.product_sku}</TableCell>
                       <TableCell className="text-xs py-2">{item.duration_days}일</TableCell>
                       <TableCell className="text-xs text-right tabular-nums py-2">

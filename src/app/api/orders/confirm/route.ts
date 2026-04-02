@@ -188,6 +188,15 @@ export async function POST(req: Request) {
       }
     }
 
+    // 구독 생성 완료 후 phone 원본 삭제 (개인정보보호)
+    const customerIdsToClean = Array.from(phoneToId.values()).filter(Boolean) as string[]
+    if (customerIdsToClean.length > 0) {
+      await supabase
+        .from('customers')
+        .update({ phone: null })
+        .in('id', customerIdsToClean)
+    }
+
     return NextResponse.json({
       ok: true,
       saved_orders: orders?.length || 0,
