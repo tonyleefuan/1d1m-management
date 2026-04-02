@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     for (const subId of unreportedSubIds) {
       if (!subId) continue
       await supabase.from('subscriptions').update({
-        failure_type: 'not_sent',
+        failure_type: 'failed',
         failure_date: yesterday,
         updated_at: new Date().toISOString(),
       }).eq('id', subId).is('failure_type', null)
@@ -111,7 +111,7 @@ export async function POST(req: Request) {
     .select('id, start_date, duration_days, last_sent_day, paused_days, paused_at, is_cancelled, failure_type, recovery_mode')
     .eq('is_cancelled', false)
     .is('paused_at', null)
-    .in('failure_type', ['device_error', 'not_sent'])
+    .eq('failure_type', 'failed')
 
   if (allActiveSubs?.length) {
     for (const sub of allActiveSubs) {
@@ -127,7 +127,7 @@ export async function POST(req: Request) {
       if (computed.pending_days.length >= 3) {
         // 2일 이상 연속 미발송 → 관리자 확인 필요
         await supabase.from('subscriptions').update({
-          failure_type: 'not_sent',
+          failure_type: 'failed',
           failure_date: today,
           updated_at: new Date().toISOString(),
         }).eq('id', sub.id)

@@ -94,21 +94,17 @@ export interface Subscription {
   end_date: string | null
   duration_days: number
   day: number
-  auto_confirmed: boolean
-  friend_confirmed: boolean
-  friend_confirmed_at: string | null
   memo: string | null
   paused_at: string | null
   cancelled_at: string | null
   cancel_reason: string | null
-  last_send_failure: string | null
   resume_date: string | null
   send_priority: 1 | 2 | 3 | 4
   // --- Day 시스템 새 필드 ---
   last_sent_day: number
   paused_days: number
   is_cancelled: boolean
-  failure_type: 'friend_not_found' | 'device_error' | 'not_sent' | 'other' | null
+  failure_type: 'failed' | null
   failure_date: string | null
   recovery_mode: 'bulk' | 'sequential' | null
   created_at: string

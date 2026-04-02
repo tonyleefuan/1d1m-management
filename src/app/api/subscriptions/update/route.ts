@@ -99,7 +99,7 @@ export async function PATCH(req: Request) {
     // 변경 전 상태 조회 (로그용 + 검증용)
     const { data: prevSubs } = await supabase
       .from('subscriptions')
-      .select('id, status, device_id, start_date, end_date, day, duration_days, friend_confirmed, memo, customer_id, paused_at')
+      .select('id, status, device_id, start_date, end_date, day, duration_days, memo, customer_id, paused_at')
       .in('id', targetIds)
     const prevMap = new Map(prevSubs?.map(s => [s.id, s]) || [])
 
@@ -192,23 +192,8 @@ export async function PATCH(req: Request) {
         }
       }
     }
-    if (updates.friend_confirmed !== undefined) {
-      updateData.friend_confirmed = updates.friend_confirmed
-      if (updates.friend_confirmed) {
-        updateData.friend_confirmed_at = new Date().toISOString()
-      } else {
-        updateData.friend_confirmed_at = null
-      }
-    }
     if (updates.memo !== undefined) updateData.memo = updates.memo
     if (updates.send_priority !== undefined) updateData.send_priority = updates.send_priority
-    if (updates.last_send_failure !== undefined) {
-      updateData.last_send_failure = updates.last_send_failure
-      // If clearing failure (setting to null), transition back to live
-      if (updates.last_send_failure === null) {
-        updateData.status = 'live'
-      }
-    }
     if (updates.resume_date !== undefined) {
       updateData.resume_date = updates.resume_date
     }
@@ -291,13 +276,6 @@ export async function PATCH(req: Request) {
           session.userId,
         )
       }
-      if (updates.friend_confirmed !== undefined && prev.friend_confirmed !== updates.friend_confirmed) {
-        await logChange(subId, 'friend_confirmed', 'friend_confirmed',
-          prev.friend_confirmed ? '확인' : '미확인',
-          updates.friend_confirmed ? '확인' : '미확인',
-          session.userId,
-        )
-      }
       if (updates.memo !== undefined && prev.memo !== updates.memo) {
         await logChange(subId, 'memo_update', 'memo', prev.memo, updates.memo, session.userId)
       }
@@ -313,23 +291,6 @@ export async function PATCH(req: Request) {
         await logChange(subId, 'day_adjust', 'day',
           String(prev.day), String(prev.day + updates.day_adjust),
           session.userId)
-      }
-    }
-
-    // 친구확인 시 customer phone_expires_at
-    if (updates.friend_confirmed === true) {
-      const { data: subs } = await supabase
-        .from('subscriptions')
-        .select('customer_id')
-        .in('id', targetIds)
-      if (subs?.length) {
-        const customerIds = Array.from(new Set(subs.map(s => s.customer_id)))
-        const expiresAt = new Date()
-        expiresAt.setDate(expiresAt.getDate() + 7)
-        await supabase
-          .from('customers')
-          .update({ phone_expires_at: expiresAt.toISOString() })
-          .in('id', customerIds)
       }
     }
 

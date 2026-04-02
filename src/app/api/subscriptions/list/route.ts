@@ -15,8 +15,6 @@ export async function GET(req: Request) {
   const deviceId = searchParams.get('device_id') || ''
   const productId = searchParams.get('product_id') || ''
   const search = searchParams.get('search') || ''
-  const friendConfirmed = searchParams.get('friend_confirmed')
-
   const sortBy = searchParams.get('sort') || 'created_at'
   const sortOrder = searchParams.get('order') || 'desc'
   const ascending = sortOrder === 'asc'
@@ -46,9 +44,6 @@ export async function GET(req: Request) {
   if (status) query = query.eq('status', status)
   if (deviceId) query = query.eq('device_id', deviceId)
   if (productId) query = query.eq('product_id', productId)
-  if (friendConfirmed === 'true') query = query.eq('friend_confirmed', true)
-  if (friendConfirmed === 'false') query = query.eq('friend_confirmed', false)
-
   if (search) {
     const s = sanitizeSearch(search)
     if (!s) return NextResponse.json({ data: [], total: 0, page, limit })
