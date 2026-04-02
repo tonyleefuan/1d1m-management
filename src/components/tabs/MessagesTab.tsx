@@ -433,7 +433,7 @@ function MessageEditModal({
   const isFixed = type === 'fixed'
   const msg = message as Record<string, unknown> | null
   const [dayNumber, setDayNumber] = useState(msg?.day_number?.toString() || '')
-  const [sendDate, setSendDate] = useState((msg?.send_date as string) || new Date().toISOString().slice(0, 10))
+  const [sendDate, setSendDate] = useState((msg?.send_date as string) || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()))
   const [content, setContent] = useState((msg?.content as string) || '')
   const { showSuccess, showError } = useToast()
 

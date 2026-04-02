@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { todayKST } from '@/lib/day'
 
 export async function GET(req: Request) {
   const session = await getSession()
@@ -8,7 +9,7 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const deviceId = searchParams.get('device_id') || ''
-  const date = searchParams.get('date') || new Date().toISOString().slice(0, 10)
+  const date = searchParams.get('date') || todayKST()
   const status = searchParams.get('status') || ''
 
   // 발송 설정 조회 (예상 시간 계산용)

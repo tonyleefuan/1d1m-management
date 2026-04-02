@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { todayKST } from '@/lib/day'
 import { ensureSheetTab, writeSheetData, appendSheetData } from '@/lib/google-sheets'
-
-// KST 오늘 날짜
-function getKSTToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
 
 // 날짜를 YYMMDD 형식으로 변환
 function toYYMMDD(dateStr: string): string {
@@ -21,7 +17,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json()
-    const date = body.date || getKSTToday()
+    const date = body.date || todayKST()
     const force = body.force === true
     const queueIds: string[] | null = body.queue_ids || null // 선택 내보내기용
 

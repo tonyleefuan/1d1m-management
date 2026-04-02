@@ -1088,7 +1088,7 @@ export function SubscriptionsTab() {
                                   type="date"
                                   className="h-8 text-xs"
                                   value={pauseResumeDate}
-                                  min={new Date().toISOString().slice(0, 10)}
+                                  min={new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())}
                                   onChange={(e) => setPauseResumeDate(e.target.value)}
                                 />
                                 <div className="flex gap-2">
