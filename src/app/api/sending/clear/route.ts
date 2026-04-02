@@ -7,13 +7,14 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const { device_id } = await req.json().catch(() => ({ device_id: null }))
-  const today = new Date().toISOString().slice(0, 10)
+  const body = await req.json().catch(() => ({ device_id: null, date: null }))
+  const device_id = body.device_id || null
+  const date = body.date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 
   let query = supabase
     .from('send_queues')
     .delete()
-    .eq('send_date', today)
+    .eq('send_date', date)
 
   if (device_id) query = query.eq('device_id', device_id)
 
@@ -21,5 +22,5 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ ok: true, date: today, device_id: device_id || 'all' })
+  return NextResponse.json({ ok: true, date, device_id: device_id || 'all' })
 }
