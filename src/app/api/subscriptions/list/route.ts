@@ -33,7 +33,7 @@ export async function GET(req: Request) {
     .from('subscriptions')
     .select(`
       *,
-      customer:customers(id, name, phone, phone_last4, kakao_friend_name, email),
+      customer:customers(id, name, phone, phone_last4, kakao_friend_name),
       product:products(id, sku_code, title, message_type),
       device:send_devices(id, phone_number, name),
       order_item:order_items(order:orders(ordered_at))

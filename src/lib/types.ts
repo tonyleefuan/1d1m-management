@@ -44,7 +44,6 @@ export interface Customer {
   phone: string | null
   phone_last4: string | null
   kakao_friend_name: string | null
-  email: string | null
   memo: string | null
   phone_expires_at: string | null
   created_at: string

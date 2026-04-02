@@ -44,7 +44,6 @@ export async function POST(req: Request) {
           phone,
           phone_last4: phone.slice(-4),
           kakao_friend_name: item.customer_name + '/' + phone.slice(-4),
-          email: item.customer_email || null,
         }
       })
 

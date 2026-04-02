@@ -16,7 +16,7 @@ export async function GET(req: Request) {
     .from('order_items')
     .select(`
       *,
-      order:orders!inner(imweb_order_no, total_amount, ordered_at, customer:customers(name, phone, phone_last4, email)),
+      order:orders!inner(imweb_order_no, total_amount, ordered_at, customer:customers(name, phone, phone_last4)),
       product:products(sku_code, title)
     `, { count: 'exact' })
     .order('ordered_at', { referencedTable: 'orders', ascending: false })
