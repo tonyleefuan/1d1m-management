@@ -1,0 +1,196 @@
+import { NextResponse } from 'next/server'
+import { supabase } from '@/lib/supabase'
+import { getSession } from '@/lib/auth'
+import { ensureSheetTab, writeSheetData } from '@/lib/google-sheets'
+
+// KST 오늘 날짜
+function getKSTToday(): string {
+  const now = new Date()
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
+  return kst.toISOString().slice(0, 10)
+}
+
+// 날짜를 YYMMDD 형식으로 변환
+function toYYMMDD(dateStr: string): string {
+  // dateStr: "2026-04-02"
+  const [y, m, d] = dateStr.split('-')
+  return `${y.slice(2)}${m}${d}`
+}
+
+export async function POST(req: Request) {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  try {
+    const body = await req.json()
+    const date = body.date || getKSTToday()
+    const force = body.force === true
+
+    // --- 이전 미수집 결과 자동 import ---
+    const { count: pendingPrevCount } = await supabase
+      .from('send_queues')
+      .select('id', { count: 'exact', head: true })
+      .lt('send_date', date)
+      .eq('status', 'pending')
+
+    let autoImported = false
+    if (pendingPrevCount && pendingPrevCount > 0) {
+      // 내부에서 import-results API 호출
+      const origin = new URL(req.url).origin
+      const importRes = await fetch(`${origin}/api/sending/import-results`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: req.headers.get('cookie') || '',
+        },
+        body: JSON.stringify({}),
+      })
+      if (importRes.ok) {
+        autoImported = true
+      }
+    }
+
+    // --- 중복 내보내기 확인 ---
+    if (!force) {
+      const { data: lastExport } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'last_sheet_export_date')
+        .single()
+
+      if (lastExport) {
+        const lastDate = typeof lastExport.value === 'string'
+          ? lastExport.value.replace(/^"|"$/g, '')
+          : String(lastExport.value)
+        if (lastDate === date) {
+          return NextResponse.json({
+            warning: `오늘(${date}) 이미 시트로 내보냈습니다. 다시 내보내려면 force: true를 전달하세요.`,
+            already_exported: true,
+          }, { status: 409 })
+        }
+      }
+    }
+
+    // --- 발송 설정 조회 ---
+    const { data: settingsData } = await supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', ['send_start_time', 'send_message_delay', 'send_file_delay'])
+
+    const settings: Record<string, unknown> = {
+      send_start_time: '04:00',
+      send_message_delay: 3,
+      send_file_delay: 6,
+    }
+    settingsData?.forEach(row => {
+      const val = row.value
+      settings[row.key] = typeof val === 'string' ? val.replace(/^"|"$/g, '') : val
+    })
+
+    const startTime = String(settings.send_start_time)
+    const msgDelay = Number(settings.send_message_delay) || 3
+    const fileDelay = Number(settings.send_file_delay) || 6
+    const [startH, startM] = startTime.split(':').map(Number)
+    const baseSeconds = startH * 3600 + startM * 60
+
+    // --- 대기열 조회 ---
+    const { data: queueData, error: queueErr } = await supabase
+      .from('send_queues')
+      .select('*')
+      .eq('send_date', date)
+      .eq('status', 'pending')
+      .order('device_id')
+      .order('sort_order', { ascending: true })
+
+    if (queueErr) throw new Error(`대기열 조회 실패: ${queueErr.message}`)
+    if (!queueData?.length) {
+      return NextResponse.json({ ok: true, devices: 0, total: 0, date, message: '내보낼 대기열이 없습니다' })
+    }
+
+    // --- 활성 디바이스 조회 ---
+    const { data: devices, error: devErr } = await supabase
+      .from('send_devices')
+      .select('id, phone_number, is_active')
+      .eq('is_active', true)
+
+    if (devErr) throw new Error(`디바이스 조회 실패: ${devErr.message}`)
+
+    const deviceMap = new Map<string, string>() // device_id → phone_number
+    devices?.forEach(d => deviceMap.set(d.id, d.phone_number))
+
+    // --- PC별 그룹화 ---
+    const deviceGroups = new Map<string, typeof queueData>()
+    for (const item of queueData) {
+      if (!deviceMap.has(item.device_id)) continue
+      const group = deviceGroups.get(item.device_id) || []
+      group.push(item)
+      deviceGroups.set(item.device_id, group)
+    }
+
+    // --- 시트에 쓰기 ---
+    const datePrefix = toYYMMDD(date)
+    const HEADER = ['이름/채팅방명', '텍스트', '파일', '예약시간', '처리결과', '처리일시', 'queue_id']
+    let totalWritten = 0
+    let devicesWritten = 0
+
+    for (const [deviceId, items] of deviceGroups) {
+      const phoneNumber = deviceMap.get(deviceId)
+      if (!phoneNumber) continue
+
+      await ensureSheetTab(phoneNumber)
+
+      const rows: string[][] = [HEADER]
+      let deviceCounter = 0
+
+      for (const item of items) {
+        const isImage = !!item.image_path && !item.message_content
+        const delay = isImage ? fileDelay : msgDelay
+        const elapsedSeconds = deviceCounter > 0 ? deviceCounter * delay : 0
+        const estimatedSeconds = baseSeconds + elapsedSeconds
+        const h = Math.floor(estimatedSeconds / 3600) % 24
+        const m = Math.floor((estimatedSeconds % 3600) / 60)
+        const estimatedTime = `${datePrefix} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+
+        rows.push([
+          item.kakao_friend_name || '',
+          isImage ? '' : (item.message_content || ''),
+          isImage ? (item.image_path || '') : '',
+          estimatedTime,
+          '', // 처리결과 — 사용자가 채움
+          '', // 처리일시 — 사용자가 채움
+          item.id, // queue_id
+        ])
+
+        deviceCounter++
+      }
+
+      await writeSheetData(phoneNumber, rows)
+      totalWritten += items.length
+      devicesWritten++
+    }
+
+    // --- app_settings 업데이트 ---
+    const now = new Date().toISOString()
+    await supabase.from('app_settings').upsert({
+      key: 'last_sheet_export_at',
+      value: JSON.stringify(now),
+      updated_at: now,
+    })
+    await supabase.from('app_settings').upsert({
+      key: 'last_sheet_export_date',
+      value: JSON.stringify(date),
+      updated_at: now,
+    })
+
+    return NextResponse.json({
+      ok: true,
+      devices: devicesWritten,
+      total: totalWritten,
+      date,
+      autoImported,
+    })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || '시트 내보내기 중 오류가 발생했습니다' }, { status: 500 })
+  }
+}

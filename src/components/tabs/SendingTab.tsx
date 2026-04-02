@@ -20,7 +20,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { SkeletonTable } from '@/components/ui/skeleton'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/lib/use-toast'
-import { Radio, RefreshCw } from 'lucide-react'
+import { Radio, RefreshCw, Upload, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────
@@ -72,6 +72,22 @@ const STATUS_CONFIG: Record<string, { label: string; statusType: StatusType }> =
   failed: { label: '실패', statusType: 'error' },
 }
 
+/** send_start_time 기준 스마트 디폴트 날짜 (KST) */
+function getDefaultSendDate(sendStartTime: string): string {
+  const now = new Date()
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
+  const [startH, startM] = sendStartTime.split(':').map(Number)
+  const kstH = kst.getUTCHours()
+  const kstM = kst.getUTCMinutes()
+
+  // send_start_time 이후 → 내일, 이전 → 오늘
+  const isAfterStart = kstH > startH || (kstH === startH && kstM >= startM)
+  if (isAfterStart) {
+    kst.setUTCDate(kst.getUTCDate() + 1)
+  }
+  return kst.toISOString().slice(0, 10)
+}
+
 // ─── Component ──────────────────────────────────────────
 
 export function SendingTab() {
@@ -85,6 +101,9 @@ export function SendingTab() {
   const [settingsDirty, setSettingsDirty] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
 
+  // 발송 날짜
+  const [sendDate, setSendDate] = useState('')
+
   // 대기열
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [summary, setSummary] = useState<Record<string, DeviceSummary>>({})
@@ -93,6 +112,12 @@ export function SendingTab() {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [statusFilter, setStatusFilter] = useState('all')
+
+  // 구글시트 연동
+  const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [lastExportAt, setLastExportAt] = useState<string | null>(null)
+  const [lastImportAt, setLastImportAt] = useState<string | null>(null)
 
   // ─── Fetch ───
 
@@ -112,18 +137,28 @@ export function SendingTab() {
       const res = await fetch('/api/sending/settings')
       if (!res.ok) throw new Error('설정 로드 실패')
       const data = await res.json()
-      setStartTime(data.send_start_time || '04:00')
+      const st = data.send_start_time || '04:00'
+      setStartTime(st)
       setMsgDelay(Number(data.send_message_delay) || 3)
       setFileDelay(Number(data.send_file_delay) || 6)
+      // 설정 로드 후 디폴트 날짜 계산
+      if (!sendDate) {
+        setSendDate(getDefaultSendDate(st))
+      }
+      // 구글시트 연동 시각
+      setLastExportAt(data.last_sheet_export_at || null)
+      setLastImportAt(data.last_sheet_import_at || null)
     } catch (err) {
       showError(err instanceof Error ? err.message : '발송 설정을 불러오는데 실패했습니다')
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showError])
 
   const fetchQueue = useCallback(async () => {
+    if (!sendDate) return
     setLoading(true)
     try {
-      const params = new URLSearchParams()
+      const params = new URLSearchParams({ date: sendDate })
       if (selectedDevice) params.set('device_id', selectedDevice)
       if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
       const res = await fetch(`/api/sending/queue?${params}`)
@@ -135,7 +170,7 @@ export function SendingTab() {
       showError(err instanceof Error ? err.message : '발송 대기열을 불러오는데 실패했습니다')
     }
     setLoading(false)
-  }, [selectedDevice, statusFilter, showError])
+  }, [sendDate, selectedDevice, statusFilter, showError])
 
   useEffect(() => { fetchDevices(); fetchSettings() }, [fetchDevices, fetchSettings])
   useEffect(() => { fetchQueue() }, [fetchQueue])
@@ -166,7 +201,11 @@ export function SendingTab() {
   const generateQueue = async () => {
     setGenerating(true)
     try {
-      const res = await fetch('/api/sending/generate', { method: 'POST' })
+      const res = await fetch('/api/sending/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: sendDate }),
+      })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || '대기열 생성 실패')
       showSuccess(`대기열 ${json.generated}건 생성 완료`)
@@ -211,23 +250,78 @@ export function SendingTab() {
     if (!ok) return
     setGenerating(true)
     try {
-      // 기존 대기열 삭제
-      const clearRes = await fetch('/api/sending/clear', {
+      await fetch('/api/sending/clear', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id: null }),
       })
-      if (!clearRes.ok) throw new Error('대기열 삭제 실패')
-      // 크론 API로 재생성
-      const genRes = await fetch('/api/cron/generate-queue', { method: 'POST' })
+      const genRes = await fetch('/api/sending/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: sendDate }),
+      })
       const json = await genRes.json()
       if (!genRes.ok) throw new Error(json.error || '대기열 재생성 실패')
-      showSuccess(`대기열 재생성 완료: ${json.total}건`)
+      showSuccess(`대기열 재생성 완료: ${json.generated}건`)
       fetchQueue()
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 재생성 실패')
     }
     setGenerating(false)
+  }
+
+  const handleExportSheet = async () => {
+    // 중복 내보내기 확인
+    if (lastExportAt) {
+      const ok = await confirm({
+        title: '구글시트 내보내기',
+        description: '이미 내보낸 기록이 있습니다. 시트를 초기화하고 다시 내보내시겠습니까?',
+        variant: 'warning',
+        confirmLabel: '내보내기',
+      })
+      if (!ok) return
+    }
+
+    setExporting(true)
+    try {
+      const res = await fetch('/api/sending/export-sheet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: sendDate, force: true }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || '시트 내보내기 실패')
+
+      let msg = `구글시트 내보내기 완료: ${json.total}건 (${json.devices}개 PC)`
+      if (json.autoImported) {
+        msg += '\n(이전 미수거 결과를 자동으로 가져왔습니다)'
+      }
+      showSuccess(msg)
+      setLastExportAt(new Date().toISOString())
+      fetchQueue()
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '시트 내보내기에 실패했습니다')
+    }
+    setExporting(false)
+  }
+
+  const handleImportResults = async () => {
+    setImporting(true)
+    try {
+      const res = await fetch('/api/sending/import-results', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: sendDate }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || '결과 가져오기 실패')
+      showSuccess(`결과 가져오기 완료: 성공 ${json.sent}건, 실패 ${json.failed}건, 미처리 ${json.skipped}건`)
+      setLastImportAt(new Date().toISOString())
+      fetchQueue()
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '결과 가져오기에 실패했습니다')
+    }
+    setImporting(false)
   }
 
   // ─── Helpers ───
@@ -249,15 +343,12 @@ export function SendingTab() {
 
   const displaySummary = selectedDevice ? (summary[selectedDevice] || { total: 0, pending: 0, sent: 0, failed: 0 }) : totalSummary
 
-  // Auto-refresh when there are pending items
-  useEffect(() => {
-    if (totalSummary.pending > 0) {
-      const interval = setInterval(() => {
-        fetchQueue()
-      }, 30000) // 30 seconds
-      return () => clearInterval(interval)
-    }
-  }, [totalSummary.pending, fetchQueue])
+  const formatTime = (isoStr: string | null) => {
+    if (!isoStr) return '-'
+    try {
+      return new Date(isoStr).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    } catch { return '-' }
+  }
 
   // ─── Render ───
 
@@ -275,6 +366,15 @@ export function SendingTab() {
         </CardHeader>
         <CardContent>
           <div className="flex items-end gap-4">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">발송 날짜</Label>
+              <Input
+                type="date"
+                value={sendDate}
+                onChange={(e) => setSendDate(e.target.value)}
+                className="w-[150px] h-8 text-xs"
+              />
+            </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">시작 시각</Label>
               <Input
@@ -326,6 +426,40 @@ export function SendingTab() {
         </CardContent>
       </Card>
 
+      {/* 구글시트 연동 */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium">구글시트 연동</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4">
+            <Button
+              size="sm"
+              onClick={handleExportSheet}
+              disabled={exporting || totalSummary.total === 0}
+              className="h-8"
+            >
+              {exporting ? <Spinner size="xs" className="mr-1" /> : <Upload className="mr-1 h-3 w-3" />}
+              구글시트 내보내기
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleImportResults}
+              disabled={importing || totalSummary.total === 0}
+              className="h-8"
+            >
+              {importing ? <Spinner size="xs" className="mr-1" /> : <Download className="mr-1 h-3 w-3" />}
+              결과 가져오기
+            </Button>
+            <div className="ml-auto flex gap-4 text-xs text-muted-foreground">
+              <span>마지막 내보내기: {formatTime(lastExportAt)}</span>
+              <span>마지막 결과 수거: {formatTime(lastImportAt)}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* 대기열 상태 */}
       <div className="flex items-center justify-between px-4 py-2 bg-muted/30 rounded-lg">
         <div className="flex items-center gap-3">
@@ -336,16 +470,19 @@ export function SendingTab() {
               <>대기열: <span className="text-muted-foreground">없음</span></>
             )}
           </span>
+          {sendDate && (
+            <span className="text-xs text-muted-foreground">({sendDate})</span>
+          )}
         </div>
         <div className="flex gap-2">
-          {totalSummary.total > 0 && totalSummary.sent === 0 && (
+          {totalSummary.total > 0 && totalSummary.sent === 0 && totalSummary.failed === 0 && (
             <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={generating} className="h-7 text-xs">
               {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
               재생성
             </Button>
           )}
-          {totalSummary.sent > 0 && (
-            <span className="text-xs text-muted-foreground py-1">발송 중에는 재생성 불가</span>
+          {(totalSummary.sent > 0 || totalSummary.failed > 0) && (
+            <span className="text-xs text-muted-foreground py-1">결과가 있어 재생성 불가</span>
           )}
         </div>
       </div>
@@ -440,7 +577,7 @@ export function SendingTab() {
               <EmptyState
                 icon={Radio}
                 title="대기열이 없습니다"
-                description="'대기열 생성' 버튼을 눌러 오늘 발송 목록을 생성하세요"
+                description="'대기열 생성' 버튼을 눌러 발송 목록을 생성하세요"
               />
             </div>
           ) : (
@@ -456,7 +593,7 @@ export function SendingTab() {
                   <TableHead className="text-center whitespace-nowrap">타입</TableHead>
                   <TableHead className="whitespace-nowrap">내용</TableHead>
                   <TableHead className="text-center whitespace-nowrap">상태</TableHead>
-                  <TableHead className="whitespace-nowrap">실제시간</TableHead>
+                  <TableHead className="whitespace-nowrap">처리시간</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
