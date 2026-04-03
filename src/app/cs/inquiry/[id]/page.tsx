@@ -45,6 +45,8 @@ export default function InquiryDetailPage() {
   const [loading, setLoading] = useState(true)
   const [replyContent, setReplyContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState('')
 
   const fetchInquiry = useCallback(async () => {
@@ -95,6 +97,25 @@ export default function InquiryDetailPage() {
     }
   }
 
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/cs/inquiries/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        setError(data.error || '삭제에 실패했습니다.')
+        setConfirmDelete(false)
+        return
+      }
+      router.push('/cs/dashboard')
+    } catch {
+      setError('서버 연결에 실패했습니다.')
+      setConfirmDelete(false)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   if (loading) {
     return <div className="text-center py-12 text-muted-foreground">불러오는 중...</div>
   }
@@ -111,10 +132,26 @@ export default function InquiryDetailPage() {
 
   return (
     <div className="space-y-4">
-      {/* Back */}
-      <Button variant="ghost" size="sm" onClick={() => router.push('/cs/dashboard')} className="text-muted-foreground -ml-2">
-        &larr; 목록으로
-      </Button>
+      {/* Back + Delete */}
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="sm" onClick={() => router.push('/cs/dashboard')} className="text-muted-foreground -ml-2">
+          &larr; 목록으로
+        </Button>
+        {!confirmDelete ? (
+          <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} className="text-muted-foreground text-xs">
+            삭제
+          </Button>
+        ) : (
+          <div className="flex items-center gap-1">
+            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting} className="text-xs">
+              {deleting ? '삭제 중...' : '삭제 확인'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} disabled={deleting} className="text-xs">
+              취소
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* Header */}
       <div>
