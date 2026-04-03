@@ -138,6 +138,16 @@ export default function CSDashboard() {
       parts.push(`[선택 정보]\n${lines.join('\n')}`)
     }
 
+    // 계좌 정보
+    if (formCategory === 'cancel_refund' && guideSelects['payment_method'] === 'bank_transfer') {
+      const bankLines = [
+        `- 은행명: ${guideSelects['bank_name'] || '미입력'}`,
+        `- 계좌번호: ${guideSelects['account_number'] || '미입력'}`,
+        `- 예금주: ${guideSelects['account_holder'] || '미입력'}`,
+      ]
+      parts.push(`[환불 계좌]\n${bankLines.join('\n')}`)
+    }
+
     if (parts.length > 0) {
       return `${parts.join('\n')}\n\n[문의 내용]\n${formContent.trim()}`
     }
@@ -353,7 +363,7 @@ export default function CSDashboard() {
                         ))}
                       </div>
                       {guide.hint && (
-                        <p className="text-xs text-muted-foreground">{guide.hint}</p>
+                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">{guide.hint}</p>
                       )}
                     </div>
                   )}
@@ -368,8 +378,29 @@ export default function CSDashboard() {
                           <span className="text-sm">{c.label}</span>
                         </label>
                       ))}
+                      {/* 계좌이체 선택 시 환불 계좌 입력 */}
+                      {formCategory === 'cancel_refund' && guideSelects['payment_method'] === 'bank_transfer' && (
+                        <div className="space-y-2 border-t border-border pt-3">
+                          <p className="text-xs font-medium text-foreground">환불 받으실 계좌 정보</p>
+                          <Input
+                            placeholder="은행명 (예: 국민은행)"
+                            value={guideSelects['bank_name'] || ''}
+                            onChange={e => setGuideSelects(prev => ({ ...prev, bank_name: e.target.value }))}
+                          />
+                          <Input
+                            placeholder="계좌번호"
+                            value={guideSelects['account_number'] || ''}
+                            onChange={e => setGuideSelects(prev => ({ ...prev, account_number: e.target.value }))}
+                          />
+                          <Input
+                            placeholder="예금주"
+                            value={guideSelects['account_holder'] || ''}
+                            onChange={e => setGuideSelects(prev => ({ ...prev, account_holder: e.target.value }))}
+                          />
+                        </div>
+                      )}
                       {guide.hint && (
-                        <p className="text-xs text-muted-foreground">{guide.hint}</p>
+                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">{guide.hint}</p>
                       )}
                     </>
                   )}
