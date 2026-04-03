@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -108,6 +108,7 @@ export function SendingTab() {
   const [selectedDevice, setSelectedDevice] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const generatingRef = useRef(false)
   const [generatingProgress, setGeneratingProgress] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -201,6 +202,8 @@ export function SendingTab() {
   }
 
   const generateQueue = async () => {
+    if (generatingRef.current) return
+    generatingRef.current = true
     setGenerating(true)
     setGeneratingProgress('PC 목록 조회 중...')
 
@@ -217,6 +220,7 @@ export function SendingTab() {
       const deviceList = listJson.devices || []
       if (!deviceList.length) {
         showSuccess('발송 대상이 없습니다')
+        generatingRef.current = false
         setGenerating(false)
         setGeneratingProgress(null)
         return
@@ -224,6 +228,7 @@ export function SendingTab() {
 
       // 2단계: PC별 순차 생성
       let totalGenerated = 0
+      let skippedDevices = 0
       for (let i = 0; i < deviceList.length; i++) {
         const device = deviceList[i]
         setGeneratingProgress(`${device.phone_number} 처리 중... (${i + 1}/${deviceList.length} PC, 현재 ${totalGenerated}건)`)
@@ -236,14 +241,21 @@ export function SendingTab() {
         const devJson = await devRes.json()
         if (!devRes.ok) throw new Error(devJson.error || `${device.phone_number} 생성 실패`)
         totalGenerated += devJson.generated || 0
+        if (devJson.skipped) skippedDevices++
       }
 
-      showSuccess(`대기열 ${totalGenerated}건 생성 완료 (${deviceList.length}개 PC)`)
+      if (skippedDevices === deviceList.length) {
+        showError('모든 PC에 이미 대기열이 존재합니다. 삭제 후 재생성하세요.')
+      } else {
+        showSuccess(`대기열 ${totalGenerated}건 생성 완료 (${deviceList.length}개 PC${skippedDevices > 0 ? `, ${skippedDevices}개 스킵` : ''})`
+        )
+      }
       fetchQueue()
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 생성 실패')
     }
 
+    generatingRef.current = false
     setGenerating(false)
     setGeneratingProgress(null)
   }
@@ -280,26 +292,54 @@ export function SendingTab() {
       confirmLabel: '재생성',
     })
     if (!ok) return
+    if (generatingRef.current) return
+    generatingRef.current = true
     setGenerating(true)
+    setGeneratingProgress('기존 대기열 삭제 중...')
     try {
-      await fetch('/api/sending/clear', {
+      const clearRes = await fetch('/api/sending/clear', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id: null, date: sendDate }),
       })
-      const genRes = await fetch('/api/sending/generate', {
+      if (!clearRes.ok) {
+        const clearJson = await clearRes.json().catch(() => ({}))
+        throw new Error(clearJson.error || '기존 대기열 삭제 실패')
+      }
+
+      // PC별 순차 생성 (generateQueue와 동일 로직)
+      setGeneratingProgress('PC 목록 조회 중...')
+      const listRes = await fetch('/api/sending/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: sendDate }),
       })
-      const json = await genRes.json()
-      if (!genRes.ok) throw new Error(json.error || '대기열 재생성 실패')
-      showSuccess(`대기열 재생성 완료: ${json.generated}건`)
+      const listJson = await listRes.json()
+      if (!listRes.ok) throw new Error(listJson.error || '대기열 재생성 실패')
+
+      const deviceList = listJson.devices || []
+      let totalGenerated = 0
+      for (let i = 0; i < deviceList.length; i++) {
+        const device = deviceList[i]
+        setGeneratingProgress(`${device.phone_number} 처리 중... (${i + 1}/${deviceList.length} PC, 현재 ${totalGenerated}건)`)
+        const devRes = await fetch('/api/sending/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: sendDate, device_id: device.id }),
+        })
+        const devJson = await devRes.json()
+        if (!devRes.ok) throw new Error(devJson.error || `${device.phone_number} 생성 실패`)
+        totalGenerated += devJson.generated || 0
+      }
+
+      showSuccess(`대기열 재생성 완료: ${totalGenerated}건 (${deviceList.length}개 PC)`)
       fetchQueue()
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 재생성 실패')
     }
+    generatingRef.current = false
     setGenerating(false)
+    setGeneratingProgress(null)
   }
 
   const handleExportSheet = async () => {
@@ -452,12 +492,21 @@ export function SendingTab() {
           <div className="flex items-end gap-4">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">발송 날짜</Label>
-              <Input
-                type="date"
-                value={sendDate}
-                onChange={(e) => setSendDate(e.target.value)}
-                className="w-[150px] h-8 text-xs"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={sendDate}
+                  onChange={(e) => setSendDate(e.target.value)}
+                  className="w-[150px] h-8 text-xs"
+                />
+                {(() => {
+                  const kstToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+                  const kstTomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
+                  if (sendDate === kstToday) return <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">오늘</span>
+                  if (sendDate === kstTomorrow) return <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">내일</span>
+                  return null
+                })()}
+              </div>
             </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">시작 시각</Label>
@@ -495,21 +544,19 @@ export function SendingTab() {
                 {savingSettings ? <Spinner size="xs" /> : '저장'}
               </Button>
             )}
-            <div className="ml-auto flex gap-2">
+            <div className="ml-auto flex items-center gap-2">
               {queue.length > 0 && (
                 <Button size="sm" variant="outline" onClick={() => clearQueue()} className="h-8 text-destructive hover:text-destructive">
                   {selectedDevice ? '이 PC 대기열 삭제' : '전체 대기열 삭제'}
                 </Button>
               )}
-              <div className="flex items-center gap-2">
-                {generating && generatingProgress && (
-                  <span className="text-xs text-muted-foreground max-w-[300px] truncate">{generatingProgress}</span>
-                )}
-                <Button size="sm" onClick={generateQueue} disabled={generating} className="h-8">
-                  {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
-                  대기열 생성
-                </Button>
-              </div>
+              {generating && generatingProgress && (
+                <span className="text-sm font-medium text-primary animate-pulse">{generatingProgress}</span>
+              )}
+              <Button size="sm" onClick={generateQueue} disabled={generating} className="h-8">
+                {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+                대기열 생성
+              </Button>
             </div>
           </div>
         </CardContent>
