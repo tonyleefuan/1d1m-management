@@ -23,7 +23,7 @@ export async function createCsSession(payload: CsSessionPayload): Promise<string
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge: 60 * 60, // 1 hour
-    path: '/cs',
+    path: '/',
   })
 
   return token
