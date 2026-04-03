@@ -77,8 +77,16 @@ export async function PATCH(
       })
       .eq('id', refund.subscription_id)
 
-    // 문의 상태 종료
+    // 고객에게 환불 완료 안내 댓글
     if (refund.inquiry_id) {
+      await supabase.from('cs_replies').insert({
+        inquiry_id: refund.inquiry_id,
+        author_type: 'system',
+        author_name: null,
+        content: '환불이 정상 처리되었습니다. 이용해 주셔서 감사합니다.',
+      })
+
+      // 문의 상태 종료
       await supabase
         .from('cs_inquiries')
         .update({ status: 'closed' })
@@ -110,6 +118,17 @@ export async function PATCH(
       .eq('id', params.id)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // 고객에게 거절 안내 댓글
+    if (refund.inquiry_id) {
+      await supabase.from('cs_replies').insert({
+        inquiry_id: refund.inquiry_id,
+        author_type: 'admin',
+        author_name: null,
+        content: `환불 요청이 반려되었습니다. 사유: ${reject_reason.trim()}`,
+      })
+    }
+
     return NextResponse.json({ ok: true })
   }
 
