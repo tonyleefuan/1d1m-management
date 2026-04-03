@@ -6,7 +6,7 @@ const SECRET = new TextEncoder().encode(process.env.AUTH_SECRET!)
 
 const PUBLIC_PATHS = ['/login', '/api/auth/login', '/cs', '/api/cs/']
 const MACRO_PATHS = ['/api/macro/']
-const CRON_PATHS = ['/api/cron/']
+const CRON_PATHS = ['/api/cron/', '/api/subscriptions/daily-update', '/api/ai/generate-daily']
 
 // CS 전용 도메인 — 이 호스트에서는 /cs 라우트만 허용
 const CS_HOSTS = ['1d1m.space', 'www.1d1m.space']

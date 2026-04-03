@@ -5,7 +5,16 @@ import { handleCsInquiry, handleCsReply } from '@/lib/ai/cs-engine'
 const BATCH_SIZE = 10 // 한 번에 처리할 최대 문의 수 (타임아웃 방지)
 const STUCK_THRESHOLD_MS = 15 * 60 * 1000 // 15분 이상 processing 상태면 stuck
 
+// Vercel Cron은 GET으로 호출 — GET을 메인 핸들러로, POST는 관리자 수동 트리거용
+export async function GET(req: Request) {
+  return handleCron(req)
+}
+
 export async function POST(req: Request) {
+  return handleCron(req)
+}
+
+async function handleCron(req: Request) {
   // Vercel Cron 또는 관리자 인증
   const cronSecret = req.headers.get('authorization')
   const envSecret = process.env.CRON_SECRET
