@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { getCsSession } from '@/lib/cs-auth'
 import { CS_CATEGORY_LABELS } from '@/lib/constants'
 
-const VALID_CATEGORIES = ['message_not_received', 'pause_resume', 'product_change', 'cancel_refund', 'other']
+const VALID_CATEGORIES = ['message_never_received', 'message_stopped', 'pause_resume', 'product_change', 'cancel_refund', 'other']
 
 export async function GET() {
   const session = await getCsSession()

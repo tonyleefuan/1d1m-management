@@ -318,7 +318,7 @@ export default function CSDashboard() {
                       </Select>
                     </div>
                   ))}
-                  {formCategory === 'message_not_received' && (
+                  {formCategory === 'message_never_received' && (
                     <div className="space-y-3">
                       <p className="text-sm font-medium">연락처 등록 방법</p>
                       <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
@@ -329,7 +329,6 @@ export default function CSDashboard() {
                           </p>
                         )}
                         <li>카카오톡에서 위 번호를 친구 추가해 주세요</li>
-                        <p className="text-xs text-muted-foreground ml-5">연락처로 카카오톡 친구 추가 허용이 꺼져 있다면, 아래 문의 내용에 카카오톡 ID를 함께 적어 주세요.</p>
                         <li>해당 카카오톡 채팅으로 성함과 전화번호 뒷 4자리를 보내 주세요</li>
                         <p className="text-xs text-muted-foreground ml-5">예) 홍길동/1234</p>
                       </ol>
@@ -358,7 +357,7 @@ export default function CSDashboard() {
                       )}
                     </div>
                   )}
-                  {formCategory !== 'message_not_received' && (
+                  {formCategory !== 'message_never_received' && (
                     <>
                       {guide.checklist?.map(c => (
                         <label key={c.key} className="flex items-center gap-2 cursor-pointer">
