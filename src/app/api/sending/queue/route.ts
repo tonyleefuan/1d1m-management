@@ -28,24 +28,34 @@ export async function GET(req: Request) {
     settings[row.key] = typeof val === 'string' ? val.replace(/^"|"$/g, '') : val
   })
 
-  // 대기열 조회
-  let query = supabase
-    .from('send_queues')
-    .select(`
-      *,
-      subscription:subscriptions(
-        id, day, duration_days, send_priority,
-        product:products(sku_code, title)
-      )
-    `)
-    .eq('send_date', date)
-    .order('sort_order', { ascending: true })
+  // 대기열 조회 (페이지네이션: Supabase 기본 1000행 제한 우회)
+  const PAGE_SIZE = 1000
+  const data: any[] = []
+  let from = 0
+  while (true) {
+    let query = supabase
+      .from('send_queues')
+      .select(`
+        *,
+        subscription:subscriptions(
+          id, day, duration_days, send_priority,
+          product:products(sku_code, title)
+        )
+      `)
+      .eq('send_date', date)
+      .order('sort_order', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
 
-  if (deviceId) query = query.eq('device_id', deviceId)
-  if (status) query = query.eq('status', status)
+    if (deviceId) query = query.eq('device_id', deviceId)
+    if (status) query = query.eq('status', status)
 
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const { data: page, error } = await query
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!page?.length) break
+    data.push(...page)
+    if (page.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
 
   // 예상 시간 계산
   const startTime = String(settings.send_start_time)

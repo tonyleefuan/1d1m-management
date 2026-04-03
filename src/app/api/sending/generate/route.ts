@@ -1,7 +1,16 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { todayKST } from '@/lib/day'
 
+export const maxDuration = 60
+
+/**
+ * POST /api/sending/generate
+ *
+ * body.device_id가 있으면 해당 PC만 생성 (프론트에서 순차 호출)
+ * body.device_id가 없으면 PC 목록만 반환 (프론트가 순차 호출할 목록)
+ */
 export async function POST(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -9,19 +18,38 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => ({}))
-    const today = body.date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+    const date = body.date || todayKST()
+    const deviceId = body.device_id || null
 
-    // 이미 오늘 대기열이 있는지 확인 + 삭제 (race condition 방지)
-    const { count: existing } = await supabase
-      .from('send_queues')
-      .select('id', { count: 'exact', head: true })
-      .eq('send_date', today)
+    // ── device_id 없으면: PC 목록 반환 (프론트가 순차 호출할 목록) ──
+    if (!deviceId) {
+      // 이미 대기열 있는지 확인
+      const { count: existing } = await supabase
+        .from('send_queues')
+        .select('id', { count: 'exact', head: true })
+        .eq('send_date', date)
 
-    if (existing && existing > 0) {
-      return NextResponse.json({ error: `오늘(${today}) 대기열이 이미 ${existing}건 존재합니다. 삭제 후 재생성하세요.` }, { status: 400 })
+      if (existing && existing > 0) {
+        return NextResponse.json({ error: `${date} 대기열이 이미 ${existing}건 존재합니다. 삭제 후 재생성하세요.` }, { status: 400 })
+      }
+
+      // 활성 디바이스 목록 반환
+      const { data: devices } = await supabase
+        .from('send_devices')
+        .select('id, phone_number')
+        .eq('is_active', true)
+
+      return NextResponse.json({
+        ok: true,
+        mode: 'device_list',
+        devices: devices || [],
+        date,
+      })
     }
 
-    // live + PC 배정된 구독 조회 (페이지네이션: Supabase 기본 1000행 제한 우회)
+    // ── device_id 있으면: 해당 PC의 대기열 생성 ──
+
+    // 해당 PC의 live 구독 조회 (페이지네이션)
     const PAGE_SIZE = 1000
     const subs: any[] = []
     let from = 0
@@ -35,7 +63,7 @@ export async function POST(req: Request) {
           order_item:order_items(order:orders(ordered_at))
         `)
         .eq('status', 'live')
-        .not('device_id', 'is', null)
+        .eq('device_id', deviceId)
         .range(from, from + PAGE_SIZE - 1)
 
       if (subErr) return NextResponse.json({ error: subErr.message }, { status: 500 })
@@ -45,10 +73,10 @@ export async function POST(req: Request) {
       from += PAGE_SIZE
     }
 
-    if (!subs.length) return NextResponse.json({ ok: true, generated: 0, message: '발송 대상이 없습니다' })
+    if (!subs.length) return NextResponse.json({ ok: true, generated: 0, device_id: deviceId })
 
     // 정렬: send_priority ASC → ordered_at ASC
-    const sorted = subs.sort((a, b) => {
+    subs.sort((a, b) => {
       const pDiff = (a.send_priority || 3) - (b.send_priority || 3)
       if (pDiff !== 0) return pDiff
       const aDate = (a as any).order_item?.order?.ordered_at || ''
@@ -56,7 +84,7 @@ export async function POST(req: Request) {
       return aDate.localeCompare(bDate)
     })
 
-    // 메시지 캐시: product_id+day → messages (N+1 방지)
+    // 메시지 캐시
     const msgCache = new Map<string, { content: string; image_path: string | null; sort_order: number }[]>()
 
     async function getMessages(productId: string, messageType: string, day: number) {
@@ -70,7 +98,7 @@ export async function POST(req: Request) {
           .from('daily_messages')
           .select('content, image_path')
           .eq('product_id', productId)
-          .eq('send_date', today)
+          .eq('send_date', date)
           .eq('status', 'approved')
           .limit(1)
         if (error) throw new Error(`실시간 메시지 조회 실패: ${error.message}`)
@@ -92,124 +120,77 @@ export async function POST(req: Request) {
       return messages
     }
 
-    // 디바이스 정보 조회 (진행 상황 표시용)
-    const { data: deviceList } = await supabase
-      .from('send_devices')
-      .select('id, phone_number')
-      .eq('is_active', true)
-    const deviceNameMap = new Map<string, string>()
-    deviceList?.forEach(d => deviceNameMap.set(d.id, d.phone_number))
-
-    // PC별로 그룹화
-    const deviceGroups = new Map<string, typeof sorted>()
-    for (const sub of sorted) {
-      const group = deviceGroups.get(sub.device_id!) || []
-      group.push(sub)
-      deviceGroups.set(sub.device_id!, group)
-    }
-
-    // 진행 상황 업데이트 헬퍼
-    const totalDevices = deviceGroups.size
-    let deviceIndex = 0
-    async function updateProgress(message: string) {
-      await supabase.from('app_settings').upsert({
-        key: 'queue_generation_progress',
-        value: JSON.stringify({ message, deviceIndex, totalDevices, timestamp: new Date().toISOString() }),
-        updated_at: new Date().toISOString(),
-      })
-    }
-
-    await updateProgress(`구독 ${subs.length}건 조회 완료, ${totalDevices}개 PC 처리 시작...`)
-
     // 대기열 레코드 생성
     const queueRows: any[] = []
+    let sortOrder = 0
 
-    for (const [deviceId, deviceSubs] of deviceGroups) {
-      deviceIndex++
-      const phoneName = deviceNameMap.get(deviceId) || deviceId.slice(0, 8)
-      await updateProgress(`${phoneName} 처리 중... (${deviceIndex}/${totalDevices} PC, 현재 ${queueRows.length}건)`)
-      let sortOrder = 0
+    for (const sub of subs) {
+      const product = sub.product as any
+      const customer = sub.customer as any
+      const kakaoName = customer?.kakao_friend_name || '알 수 없음'
+      const currentDay = sub.day
 
-      for (const sub of deviceSubs) {
-        const product = sub.product as any
-        const customer = sub.customer as any
-        const kakaoName = customer?.kakao_friend_name || '알 수 없음'
-        const currentDay = sub.day
+      if (currentDay < 1 || currentDay > sub.duration_days) continue
 
-        if (currentDay < 1 || currentDay > sub.duration_days) continue
+      const messages = await getMessages(sub.product_id, product?.message_type, currentDay)
+      if (!messages.length) continue
 
-        const messages = await getMessages(sub.product_id, product?.message_type, currentDay)
-        if (!messages.length) continue
+      const totalItems = messages.reduce((n: number, m: any) => n + 1 + (m.image_path ? 1 : 0), 0)
+      let seqNum = 0
 
-        // 총 발송 건수 계산 (텍스트 + 파일)
-        const totalItems = messages.reduce((n, m) => n + 1 + (m.image_path ? 1 : 0), 0)
-        let seqNum = 0
-
-        for (const msg of messages) {
+      for (const msg of messages) {
+        sortOrder++
+        seqNum++
+        queueRows.push({
+          subscription_id: sub.id,
+          device_id: deviceId,
+          send_date: date,
+          day_number: currentDay,
+          kakao_friend_name: kakaoName,
+          message_content: msg.content,
+          image_path: null,
+          sort_order: sortOrder,
+          message_seq: `${seqNum}/${totalItems}`,
+          status: 'pending',
+        })
+        if (msg.image_path) {
           sortOrder++
           seqNum++
           queueRows.push({
             subscription_id: sub.id,
             device_id: deviceId,
-            send_date: today,
+            send_date: date,
             day_number: currentDay,
             kakao_friend_name: kakaoName,
-            message_content: msg.content,
-            image_path: null,
+            message_content: '',
+            image_path: msg.image_path,
             sort_order: sortOrder,
             message_seq: `${seqNum}/${totalItems}`,
             status: 'pending',
           })
-          if (msg.image_path) {
-            sortOrder++
-            seqNum++
-            queueRows.push({
-              subscription_id: sub.id,
-              device_id: deviceId,
-              send_date: today,
-              day_number: currentDay,
-              kakao_friend_name: kakaoName,
-              message_content: '',
-              image_path: msg.image_path,
-              sort_order: sortOrder,
-              message_seq: `${seqNum}/${totalItems}`,
-              status: 'pending',
-            })
-          }
         }
       }
     }
 
     if (!queueRows.length) {
-      return NextResponse.json({ ok: true, generated: 0, message: '매칭되는 메시지가 없습니다' })
+      return NextResponse.json({ ok: true, generated: 0, device_id: deviceId })
     }
 
-    await updateProgress(`메시지 매칭 완료, ${queueRows.length}건 DB에 저장 중...`)
-
-    // 일괄 삽입 (500개씩 배치)
+    // 500개씩 배치 삽입
     let inserted = 0
     for (let i = 0; i < queueRows.length; i += 500) {
       const batch = queueRows.slice(i, i + 500)
       const { error } = await supabase.from('send_queues').insert(batch)
       if (error) return NextResponse.json({ error: `대기열 생성 실패: ${error.message}` }, { status: 500 })
       inserted += batch.length
-      if (i % 2000 === 0 && i > 0) {
-        await updateProgress(`DB 저장 중... (${inserted}/${queueRows.length}건)`)
-      }
     }
-
-    // 진행 상황 초기화
-    await supabase.from('app_settings').upsert({
-      key: 'queue_generation_progress',
-      value: JSON.stringify(null),
-      updated_at: new Date().toISOString(),
-    })
 
     return NextResponse.json({
       ok: true,
       generated: inserted,
-      devices: deviceGroups.size,
-      date: today,
+      device_id: deviceId,
+      subscriptions: subs.length,
+      date,
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || '대기열 생성 중 오류가 발생했습니다' }, { status: 500 })

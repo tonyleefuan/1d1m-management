@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -110,7 +110,6 @@ export function SendingTab() {
   const [generating, setGenerating] = useState(false)
   const [generatingProgress, setGeneratingProgress] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
-  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 체크박스 + 검색
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -203,34 +202,48 @@ export function SendingTab() {
 
   const generateQueue = async () => {
     setGenerating(true)
-    setGeneratingProgress('구독 조회 중...')
-
-    // 2초마다 진행 상황 폴링
-    progressIntervalRef.current = setInterval(async () => {
-      try {
-        const res = await fetch('/api/sending/progress')
-        if (res.ok) {
-          const { progress } = await res.json()
-          if (progress?.message) setGeneratingProgress(progress.message)
-        }
-      } catch { /* ignore */ }
-    }, 2000)
+    setGeneratingProgress('PC 목록 조회 중...')
 
     try {
-      const res = await fetch('/api/sending/generate', {
+      // 1단계: PC 목록 가져오기
+      const listRes = await fetch('/api/sending/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: sendDate }),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || '대기열 생성 실패')
-      showSuccess(`대기열 ${json.generated}건 생성 완료 (${json.devices}개 PC)`)
+      const listJson = await listRes.json()
+      if (!listRes.ok) throw new Error(listJson.error || '대기열 생성 실패')
+
+      const deviceList = listJson.devices || []
+      if (!deviceList.length) {
+        showSuccess('발송 대상이 없습니다')
+        setGenerating(false)
+        setGeneratingProgress(null)
+        return
+      }
+
+      // 2단계: PC별 순차 생성
+      let totalGenerated = 0
+      for (let i = 0; i < deviceList.length; i++) {
+        const device = deviceList[i]
+        setGeneratingProgress(`${device.phone_number} 처리 중... (${i + 1}/${deviceList.length} PC, 현재 ${totalGenerated}건)`)
+
+        const devRes = await fetch('/api/sending/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: sendDate, device_id: device.id }),
+        })
+        const devJson = await devRes.json()
+        if (!devRes.ok) throw new Error(devJson.error || `${device.phone_number} 생성 실패`)
+        totalGenerated += devJson.generated || 0
+      }
+
+      showSuccess(`대기열 ${totalGenerated}건 생성 완료 (${deviceList.length}개 PC)`)
       fetchQueue()
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 생성 실패')
     }
 
-    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
     setGenerating(false)
     setGeneratingProgress(null)
   }
