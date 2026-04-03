@@ -2,7 +2,16 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 
+// Vercel Cron은 GET으로 호출
+export async function GET(req: Request) {
+  return handleDailyUpdate(req)
+}
+
 export async function POST(req: Request) {
+  return handleDailyUpdate(req)
+}
+
+async function handleDailyUpdate(req: Request) {
   // Vercel Cron 또는 admin 세션 인증
   const cronSecret = req.headers.get('authorization')
   const isVercelCron = cronSecret === `Bearer ${process.env.CRON_SECRET}`

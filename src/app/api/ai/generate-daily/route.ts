@@ -81,7 +81,16 @@ async function generateForProduct(
   }
 }
 
+// Vercel Cron은 GET으로 호출
+export async function GET(request: NextRequest) {
+  return handleGenerateDaily(request)
+}
+
 export async function POST(request: NextRequest) {
+  return handleGenerateDaily(request)
+}
+
+async function handleGenerateDaily(request: NextRequest) {
   // Dual auth
   const authHeader = request.headers.get('authorization')
   const cronSecret = authHeader?.replace('Bearer ', '')
