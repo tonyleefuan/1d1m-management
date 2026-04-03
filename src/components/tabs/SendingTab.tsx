@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -108,7 +108,9 @@ export function SendingTab() {
   const [selectedDevice, setSelectedDevice] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [generatingProgress, setGeneratingProgress] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 체크박스 + 검색
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -201,6 +203,19 @@ export function SendingTab() {
 
   const generateQueue = async () => {
     setGenerating(true)
+    setGeneratingProgress('구독 조회 중...')
+
+    // 2초마다 진행 상황 폴링
+    progressIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch('/api/sending/progress')
+        if (res.ok) {
+          const { progress } = await res.json()
+          if (progress?.message) setGeneratingProgress(progress.message)
+        }
+      } catch { /* ignore */ }
+    }, 2000)
+
     try {
       const res = await fetch('/api/sending/generate', {
         method: 'POST',
@@ -209,12 +224,15 @@ export function SendingTab() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || '대기열 생성 실패')
-      showSuccess(`대기열 ${json.generated}건 생성 완료`)
+      showSuccess(`대기열 ${json.generated}건 생성 완료 (${json.devices}개 PC)`)
       fetchQueue()
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 생성 실패')
     }
+
+    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
     setGenerating(false)
+    setGeneratingProgress(null)
   }
 
   const clearQueue = async (deviceId?: string) => {
@@ -470,10 +488,15 @@ export function SendingTab() {
                   {selectedDevice ? '이 PC 대기열 삭제' : '전체 대기열 삭제'}
                 </Button>
               )}
-              <Button size="sm" onClick={generateQueue} disabled={generating} className="h-8">
-                {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
-                대기열 생성
-              </Button>
+              <div className="flex items-center gap-2">
+                {generating && generatingProgress && (
+                  <span className="text-xs text-muted-foreground max-w-[300px] truncate">{generatingProgress}</span>
+                )}
+                <Button size="sm" onClick={generateQueue} disabled={generating} className="h-8">
+                  {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+                  대기열 생성
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>

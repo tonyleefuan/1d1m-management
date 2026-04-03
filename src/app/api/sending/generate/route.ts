@@ -92,6 +92,14 @@ export async function POST(req: Request) {
       return messages
     }
 
+    // 디바이스 정보 조회 (진행 상황 표시용)
+    const { data: deviceList } = await supabase
+      .from('send_devices')
+      .select('id, phone_number')
+      .eq('is_active', true)
+    const deviceNameMap = new Map<string, string>()
+    deviceList?.forEach(d => deviceNameMap.set(d.id, d.phone_number))
+
     // PC별로 그룹화
     const deviceGroups = new Map<string, typeof sorted>()
     for (const sub of sorted) {
@@ -100,10 +108,26 @@ export async function POST(req: Request) {
       deviceGroups.set(sub.device_id!, group)
     }
 
+    // 진행 상황 업데이트 헬퍼
+    const totalDevices = deviceGroups.size
+    let deviceIndex = 0
+    async function updateProgress(message: string) {
+      await supabase.from('app_settings').upsert({
+        key: 'queue_generation_progress',
+        value: JSON.stringify({ message, deviceIndex, totalDevices, timestamp: new Date().toISOString() }),
+        updated_at: new Date().toISOString(),
+      })
+    }
+
+    await updateProgress(`구독 ${subs.length}건 조회 완료, ${totalDevices}개 PC 처리 시작...`)
+
     // 대기열 레코드 생성
     const queueRows: any[] = []
 
     for (const [deviceId, deviceSubs] of deviceGroups) {
+      deviceIndex++
+      const phoneName = deviceNameMap.get(deviceId) || deviceId.slice(0, 8)
+      await updateProgress(`${phoneName} 처리 중... (${deviceIndex}/${totalDevices} PC, 현재 ${queueRows.length}건)`)
       let sortOrder = 0
 
       for (const sub of deviceSubs) {
@@ -160,6 +184,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, generated: 0, message: '매칭되는 메시지가 없습니다' })
     }
 
+    await updateProgress(`메시지 매칭 완료, ${queueRows.length}건 DB에 저장 중...`)
+
     // 일괄 삽입 (500개씩 배치)
     let inserted = 0
     for (let i = 0; i < queueRows.length; i += 500) {
@@ -167,7 +193,17 @@ export async function POST(req: Request) {
       const { error } = await supabase.from('send_queues').insert(batch)
       if (error) return NextResponse.json({ error: `대기열 생성 실패: ${error.message}` }, { status: 500 })
       inserted += batch.length
+      if (i % 2000 === 0 && i > 0) {
+        await updateProgress(`DB 저장 중... (${inserted}/${queueRows.length}건)`)
+      }
     }
+
+    // 진행 상황 초기화
+    await supabase.from('app_settings').upsert({
+      key: 'queue_generation_progress',
+      value: JSON.stringify(null),
+      updated_at: new Date().toISOString(),
+    })
 
     return NextResponse.json({
       ok: true,
