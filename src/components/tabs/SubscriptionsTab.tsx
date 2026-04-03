@@ -878,16 +878,16 @@ export function SubscriptionsTab() {
                           className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-transparent hover:border-muted-foreground/40 hover:bg-muted/50 cursor-pointer transition-colors text-foreground"
                           title="클릭하여 Day 변경"
                           onClick={() => {
-                            const input = prompt(`Day를 직접 지정합니다.\n현재 Day: ${sub.current_day}\nLast Sent Day: ${sub.last_sent_day ?? 0}\n\nDay 30부터 보내려면 29를 입력하세요.\n(0~${sub.duration_days} 범위)`)
+                            const input = prompt(`다음 발송할 Day를 입력하세요.\n\n현재 Day: ${sub.current_day}\n\n예) 30 입력 → Day 30부터 발송\n(1~${sub.duration_days} 범위)`)
                             if (input === null) return
                             const num = parseInt(input, 10)
-                            if (isNaN(num) || num < 0 || num > sub.duration_days) {
-                              showError(`0~${sub.duration_days} 범위의 숫자를 입력하세요`)
+                            if (isNaN(num) || num < 1 || num > sub.duration_days) {
+                              showError(`1~${sub.duration_days} 범위의 숫자를 입력하세요`)
                               return
                             }
-                            updateSubscription(sub.id, { last_sent_day: num }).then(ok => {
+                            updateSubscription(sub.id, { last_sent_day: num - 1 }).then(ok => {
                               if (ok) {
-                                showSuccess(`Day ${num}으로 변경. 다음 발송부터 Day ${num + 1} 메시지 발송`)
+                                showSuccess(`Day ${num}부터 발송됩니다`)
                                 fetchSubs()
                               }
                             })
@@ -1274,18 +1274,18 @@ export function SubscriptionsTab() {
                       variant="outline"
                       className="h-5 text-[10px] px-1.5"
                       onClick={async () => {
-                        const input = prompt(`Day를 직접 지정합니다.\n현재: Day ${detailSub.last_sent_day ?? 0}\n\n다음 발송부터 적용됩니다.\nDay 30부터 보내려면 29를 입력하세요.\n\n(0~${detailSub.duration_days} 범위)`)
+                        const input = prompt(`다음 발송할 Day를 입력하세요.\n\n현재 마지막 발송: Day ${detailSub.last_sent_day ?? 0}\n\n예) 30 입력 → Day 30부터 발송\n(1~${detailSub.duration_days} 범위)`)
                         if (input === null) return
                         const num = parseInt(input, 10)
-                        if (isNaN(num) || num < 0 || num > detailSub.duration_days) {
-                          showError(`0~${detailSub.duration_days} 범위의 숫자를 입력하세요`)
+                        if (isNaN(num) || num < 1 || num > detailSub.duration_days) {
+                          showError(`1~${detailSub.duration_days} 범위의 숫자를 입력하세요`)
                           return
                         }
-                        const ok = await updateSubscription(detailSub.id, { last_sent_day: num })
+                        const ok = await updateSubscription(detailSub.id, { last_sent_day: num - 1 })
                         if (ok) {
-                          showSuccess(`Day ${num}으로 변경되었습니다. 다음 발송부터 Day ${num + 1} 메시지가 발송됩니다.`)
+                          showSuccess(`Day ${num}부터 발송됩니다`)
                           fetchSubs()
-                          setDetailSub({ ...detailSub, last_sent_day: num })
+                          setDetailSub({ ...detailSub, last_sent_day: num - 1 })
                         }
                       }}
                     >
