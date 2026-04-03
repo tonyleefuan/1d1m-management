@@ -331,8 +331,16 @@ export default function CSDashboard() {
                         <li>카카오톡에서 위 번호를 친구 추가해 주세요</li>
                         <p className="text-xs text-muted-foreground ml-5">연락처로 카카오톡 친구 추가 허용이 꺼져 있다면, 아래 문의 내용에 카카오톡 ID를 함께 적어 주세요.</p>
                         <li>해당 카카오톡 채팅으로 성함과 전화번호 뒷 4자리를 보내 주세요</li>
-                        <p className="text-xs text-muted-foreground ml-5">예) 홍길동 / 1234</p>
+                        <p className="text-xs text-muted-foreground ml-5">예) 홍길동/1234</p>
                       </ol>
+                      <div className="rounded-md bg-muted/50 p-2.5 space-y-1.5">
+                        <p className="text-xs text-muted-foreground">
+                          1~3을 완료하셨는데도 메시지가 수신되지 않는다면, 전화번호로 친구 추가 허용이 꺼져 있어 저희가 먼저 친구 추가가 어려운 상태일 수 있습니다.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          이 경우 카카오톡 ID를 알려주시면 감사하겠습니다. 카카오톡 앱 프로필 탭 상단 우측의 친구 추가 버튼을 누르신 뒤 카카오톡 ID를 누르면 &apos;내 아이디&apos;가 조회됩니다.
+                        </p>
+                      </div>
                       <div className="border-t border-border pt-3 space-y-2">
                         <p className="text-xs font-medium text-foreground">아래 항목을 완료하셨는지 확인해 주세요</p>
                         {guide.checklist?.map(c => (
