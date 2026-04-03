@@ -318,7 +318,7 @@ export default function CSDashboard() {
                       </Select>
                     </div>
                   ))}
-                  {formCategory === 'message_not_received' && (
+                  {formCategory === 'message_never_received' && (
                     <div className="space-y-3">
                       <p className="text-sm font-medium">연락처 등록 방법</p>
                       <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
@@ -357,7 +357,7 @@ export default function CSDashboard() {
                       )}
                     </div>
                   )}
-                  {formCategory !== 'message_not_received' && (
+                  {formCategory !== 'message_never_received' && (
                     <>
                       {guide.checklist?.map(c => (
                         <label key={c.key} className="flex items-center gap-2 cursor-pointer">

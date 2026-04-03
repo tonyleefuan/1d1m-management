@@ -212,7 +212,7 @@ export interface SendLog {
 }
 
 // --- CS Inquiries ---
-export type CSCategory = 'message_not_received' | 'pause_resume' | 'product_change' | 'cancel_refund' | 'other'
+export type CSCategory = 'message_never_received' | 'message_stopped' | 'pause_resume' | 'product_change' | 'cancel_refund' | 'other'
 export type CSStatus = 'pending' | 'ai_answered' | 'escalated' | 'admin_answered' | 'dismissed' | 'closed'
 
 export interface CSInquiry {

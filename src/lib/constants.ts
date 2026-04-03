@@ -81,9 +81,10 @@ export const PC_COLORS = [
 ] as const
 
 // CS Categories
-export const CS_CATEGORIES = ['message_not_received', 'pause_resume', 'product_change', 'cancel_refund', 'other'] as const
+export const CS_CATEGORIES = ['message_never_received', 'message_stopped', 'pause_resume', 'product_change', 'cancel_refund', 'other'] as const
 export const CS_CATEGORY_LABELS: Record<string, string> = {
-  message_not_received: '메시지 미수신',
+  message_never_received: '메시지를 한 번도 받지 못했어요',
+  message_stopped: '메시지가 오다가 안 와요',
   pause_resume: '일시정지/재개',
   product_change: '상품 변경',
   cancel_refund: '취소/환불',
@@ -96,13 +97,16 @@ export const CS_CATEGORY_GUIDES: Record<string, {
   select?: { key: string; label: string; options: { value: string; label: string }[] }[]
   hint?: string
 }> = {
-  message_not_received: {
+  message_never_received: {
     checklist: [
       { key: 'contact_saved', label: '위 번호를 연락처에 새로 등록했습니다' },
       { key: 'friend_added', label: '카카오톡에서 친구 추가를 했습니다' },
       { key: 'name_sent', label: '해당 카톡으로 성함과 전화번호 뒷 4자리를 보냈습니다' },
     ],
     hint: '연락처 등록을 완료하시면 다음 날부터 메시지가 발송됩니다. 스팸 방지 및 다른 분에게 잘못된 메시지가 전달되지 않도록 확인하는 절차이니 양해 부탁드립니다. 위 항목을 모두 완료하셨는데도 메시지가 오지 않는 경우 아래에 문의해 주세요.',
+  },
+  message_stopped: {
+    hint: '마지막으로 메시지를 받으신 날짜와 함께 상황을 알려 주시면 빠르게 확인해 드리겠습니다.',
   },
   pause_resume: {
     select: [
