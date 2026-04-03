@@ -98,11 +98,11 @@ export const CS_CATEGORY_GUIDES: Record<string, {
 }> = {
   message_not_received: {
     checklist: [
-      { key: 'contact_saved', label: '발송 번호를 연락처에 저장했습니다' },
-      { key: 'friend_added', label: '카카오톡 친구 추가를 했습니다' },
-      { key: 'name_sent', label: '성함과 전화번호 뒷 4자리를 전송했습니다' },
+      { key: 'contact_saved', label: '위 번호를 연락처에 새로 등록했습니다' },
+      { key: 'friend_added', label: '카카오톡에서 친구 추가를 했습니다' },
+      { key: 'name_sent', label: '해당 카톡으로 성함과 전화번호 뒷 4자리를 보냈습니다' },
     ],
-    hint: '위 항목을 완료하지 않으셨다면, 먼저 완료 후 문의해 주세요.',
+    hint: '연락처 등록을 완료하시면 다음 날부터 메시지가 발송됩니다. 스팸 방지 및 다른 분에게 잘못된 메시지가 전달되지 않도록 확인하는 절차이니 양해 부탁드립니다. 위 항목을 모두 완료하셨는데도 메시지가 오지 않는 경우 아래에 문의해 주세요.',
   },
   pause_resume: {
     select: [

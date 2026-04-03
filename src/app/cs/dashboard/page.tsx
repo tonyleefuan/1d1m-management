@@ -63,6 +63,7 @@ export default function CSDashboard() {
   const [subs, setSubs] = useState<Sub[]>([])
   const [inquiries, setInquiries] = useState<Inquiry[]>([])
   const [customerName, setCustomerName] = useState('')
+  const [defaultPhone, setDefaultPhone] = useState('')
   const [loading, setLoading] = useState(true)
   const [showDialog, setShowDialog] = useState(false)
   const [formCategory, setFormCategory] = useState('')
@@ -95,6 +96,7 @@ export default function CSDashboard() {
       const subsData = await subsRes.json()
       const inqData = await inqRes.json()
       setCustomerName(subsData.customerName || '')
+      setDefaultPhone(subsData.defaultPhone || '')
       setSubs(subsData.data || [])
       setInquiries(inqData.data || [])
     } catch {
@@ -316,17 +318,52 @@ export default function CSDashboard() {
                       </Select>
                     </div>
                   ))}
-                  {guide.checklist?.map(c => (
-                    <label key={c.key} className="flex items-center gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={!!guideChecks[c.key]}
-                        onCheckedChange={(checked) => setGuideChecks(prev => ({ ...prev, [c.key]: !!checked }))}
-                      />
-                      <span className="text-sm">{c.label}</span>
-                    </label>
-                  ))}
-                  {guide.hint && (
-                    <p className="text-xs text-muted-foreground">{guide.hint}</p>
+                  {formCategory === 'message_not_received' && (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium">연락처 등록 방법</p>
+                      <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
+                        <li>아래 번호를 휴대폰 연락처에 새로 저장해 주세요</li>
+                        {defaultPhone && (
+                          <p className="font-mono font-semibold text-foreground ml-5">
+                            {defaultPhone.replace(/(\d{3})(\d{4})(\d{4})/, '$1-$2-$3')}
+                          </p>
+                        )}
+                        <li>카카오톡에서 위 번호를 친구 추가해 주세요</li>
+                        <li>해당 카카오톡 채팅으로 성함과 전화번호 뒷 4자리를 보내 주세요</li>
+                        <p className="text-xs text-muted-foreground ml-5">예) 홍길동 / 1234</p>
+                      </ol>
+                      <div className="border-t border-border pt-3 space-y-2">
+                        <p className="text-xs font-medium text-foreground">아래 항목을 완료하셨는지 확인해 주세요</p>
+                        {guide.checklist?.map(c => (
+                          <label key={c.key} className="flex items-center gap-2 cursor-pointer">
+                            <Checkbox
+                              checked={!!guideChecks[c.key]}
+                              onCheckedChange={(checked) => setGuideChecks(prev => ({ ...prev, [c.key]: !!checked }))}
+                            />
+                            <span className="text-sm">{c.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      {guide.hint && (
+                        <p className="text-xs text-muted-foreground">{guide.hint}</p>
+                      )}
+                    </div>
+                  )}
+                  {formCategory !== 'message_not_received' && (
+                    <>
+                      {guide.checklist?.map(c => (
+                        <label key={c.key} className="flex items-center gap-2 cursor-pointer">
+                          <Checkbox
+                            checked={!!guideChecks[c.key]}
+                            onCheckedChange={(checked) => setGuideChecks(prev => ({ ...prev, [c.key]: !!checked }))}
+                          />
+                          <span className="text-sm">{c.label}</span>
+                        </label>
+                      ))}
+                      {guide.hint && (
+                        <p className="text-xs text-muted-foreground">{guide.hint}</p>
+                      )}
+                    </>
                   )}
                 </div>
               )
