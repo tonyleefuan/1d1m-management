@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
-import { StatGroup } from '@/components/ui/stat-group'
 import { FilterBar } from '@/components/ui/filter-bar'
 import { Button } from '@/components/ui/button'
 import { StatusBadge, type StatusType } from '@/components/ui/status-badge'
@@ -24,7 +23,7 @@ import { cn } from '@/lib/utils'
 import { PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Timeline } from '@/components/ui/timeline'
-import { Send, Pause, Clock, FileText, MessageSquare, RefreshCw } from 'lucide-react'
+import { Send, Pause, FileText, RefreshCw } from 'lucide-react'
 import { FloatingChatButton } from '@/components/ui/floating-chat'
 
 // ─── Types ───────────────────────────────────────────────
@@ -92,15 +91,6 @@ interface LogEntry {
   memo: string | null
   created_at: string
   user: { name: string } | null
-}
-
-interface SummaryData {
-  live: number
-  pending: number
-  pause: number
-  archive: number
-  cancel: number
-  today_sending: number
 }
 
 interface DeviceOption {
@@ -180,7 +170,6 @@ async function bulkUpdateSubscriptions(ids: string[], updates: Record<string, un
 export function SubscriptionsTab() {
   // Data state
   const [subs, setSubs] = useState<SubRow[]>([])
-  const [summary, setSummary] = useState<SummaryData | null>(null)
   const [loading, setLoading] = useState(true) // 초기 로딩 (Skeleton 표시)
   const [dailyUpdating, setDailyUpdating] = useState(false)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -231,17 +220,6 @@ export function SubscriptionsTab() {
 
   // ─── Data fetching ───────────────────────────────────
 
-  const fetchSummary = useCallback(async () => {
-    try {
-      const res = await fetch('/api/subscriptions/summary')
-      if (!res.ok) return
-      const data = await res.json()
-      setSummary(data)
-    } catch (err) {
-      console.error('구독 요약 로딩 실패:', err)
-    }
-  }, [])
-
   useEffect(() => {
     fetch('/api/products/list')
       .then((r) => r.json())
@@ -255,8 +233,7 @@ export function SubscriptionsTab() {
       .then(r => r.json())
       .then(d => setDefaultDeviceId(d.default_device_id || null))
       .catch((err) => { console.error('설정 로딩 실패:', err) })
-    fetchSummary()
-  }, [fetchSummary])
+  }, [])
 
   const fetchSubs = useCallback(async () => {
     // 첫 로딩만 Skeleton, 이후는 조용히 리프레시
@@ -347,7 +324,6 @@ export function SubscriptionsTab() {
       { status },
       `상태가 ${STATUS_MAP[status]?.label ?? status}(으)로 변경되었습니다`,
     )
-    if (ok) fetchSummary() // summary만 갱신 (목록은 이미 반영됨)
   }
 
   const handleDeviceChange = async (id: string, deviceId: string) => {
@@ -369,7 +345,6 @@ export function SubscriptionsTab() {
       { start_date: startDate },
       '시작일이 변경되었습니다',
     )
-    if (ok) fetchSummary()
   }
 
   const handleKakaoNameSave = async (id: string, value: string) => {
@@ -422,7 +397,6 @@ export function SubscriptionsTab() {
     if (success) {
       showSuccess('발송 실패가 해소되었습니다')
       fetchSubs()
-      fetchSummary()
     } else {
       showError('해소에 실패했습니다')
     }
@@ -447,7 +421,6 @@ export function SubscriptionsTab() {
       setResolveDialogOpen(false)
       setResolvingSub(null)
       fetchSubs()
-      fetchSummary()
     } else {
       showError('실패 해제 중 오류가 발생했습니다')
     }
@@ -461,7 +434,6 @@ export function SubscriptionsTab() {
       showSuccess(`${selectedIds.size}건의 상태가 ${STATUS_MAP[status]?.label ?? status}(으)로 변경되었습니다`)
       setSelectedIds(new Set())
       fetchSubs()
-      fetchSummary()
     } else {
       showError('일괄 상태 변경에 실패했습니다')
     }
@@ -577,21 +549,12 @@ export function SubscriptionsTab() {
   // ─── Quick filter tabs ───────────────────────────────
 
   const quickFilters = [
-    { label: '전체', count: summary ? summary.live + summary.pending + summary.pause + summary.archive + summary.cancel : undefined, active: filters.status === '', onClick: () => setFilters((f) => ({ ...f, status: '', page: 1 })) },
-    { label: '발송중', count: summary?.live, active: filters.status === 'live', onClick: () => setFilters((f) => ({ ...f, status: 'live', page: 1 })) },
-    { label: '대기', count: summary?.pending, active: filters.status === 'pending', onClick: () => setFilters((f) => ({ ...f, status: 'pending', page: 1 })) },
-    { label: '일시정지', count: summary?.pause, active: filters.status === 'pause', onClick: () => setFilters((f) => ({ ...f, status: 'pause', page: 1 })) },
-    { label: '종료', count: summary?.archive, active: filters.status === 'archive', onClick: () => setFilters((f) => ({ ...f, status: 'archive', page: 1 })) },
-    { label: '취소', count: summary?.cancel, active: filters.status === 'cancel', onClick: () => setFilters((f) => ({ ...f, status: 'cancel', page: 1 })) },
-  ]
-
-  // ─── Stat cards ──────────────────────────────────────
-
-  const stats = [
-    { title: '발송 중', value: String(summary?.live ?? 0), icon: Send },
-    { title: '대기', value: String(summary?.pending ?? 0), icon: Clock },
-    { title: '일시정지', value: String(summary?.pause ?? 0), icon: Pause },
-    { title: '오늘 발송', value: String(summary?.today_sending ?? 0), icon: MessageSquare },
+    { label: '전체', active: filters.status === '', onClick: () => setFilters((f) => ({ ...f, status: '', page: 1 })) },
+    { label: '발송중', active: filters.status === 'live', onClick: () => setFilters((f) => ({ ...f, status: 'live', page: 1 })) },
+    { label: '대기', active: filters.status === 'pending', onClick: () => setFilters((f) => ({ ...f, status: 'pending', page: 1 })) },
+    { label: '일시정지', active: filters.status === 'pause', onClick: () => setFilters((f) => ({ ...f, status: 'pause', page: 1 })) },
+    { label: '종료', active: filters.status === 'archive', onClick: () => setFilters((f) => ({ ...f, status: 'archive', page: 1 })) },
+    { label: '취소', active: filters.status === 'cancel', onClick: () => setFilters((f) => ({ ...f, status: 'cancel', page: 1 })) },
   ]
 
   // ─── Render ──────────────────────────────────────────
@@ -614,7 +577,6 @@ export function SubscriptionsTab() {
               if (total > 0) {
                 showSuccess(`상태 업데이트 완료 — 발송시작 ${data.pending_to_live}, 만료 ${data.live_to_archive}, 재개 ${data.pause_to_live}`)
                 fetchSubs()
-                fetchSummary()
               } else {
                 showSuccess('변경 대상이 없습니다')
               }
@@ -629,9 +591,6 @@ export function SubscriptionsTab() {
           상태 업데이트
         </Button>
       </PageHeader>
-
-      {/* 2. Stat Group */}
-      <StatGroup stats={stats} cols={4} variant="compact" />
 
       {/* 2.5 PC 배정 설정 */}
       <div className="flex items-center gap-3 px-1">
@@ -914,8 +873,9 @@ export function SubscriptionsTab() {
 
                       {/* 9. Day */}
                       <TableCell className="py-1 text-center text-xs tabular-nums" onClick={(e) => e.stopPropagation()}>
-                        <span
-                          className="cursor-pointer hover:text-foreground hover:underline"
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-transparent hover:border-muted-foreground/40 hover:bg-muted/50 cursor-pointer transition-colors text-foreground"
                           title="클릭하여 Day 변경"
                           onClick={() => {
                             const input = prompt(`Day를 직접 지정합니다.\n현재 Day: ${sub.current_day}\nLast Sent Day: ${sub.last_sent_day ?? 0}\n\nDay 30부터 보내려면 29를 입력하세요.\n(0~${sub.duration_days} 범위)`)
@@ -934,7 +894,7 @@ export function SubscriptionsTab() {
                           }}
                         >
                           {sub.current_day > 0 ? sub.current_day : '-'}
-                        </span>
+                        </button>
                       </TableCell>
 
                       {/* 10. D-Day */}
