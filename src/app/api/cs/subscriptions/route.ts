@@ -47,5 +47,33 @@ export async function GET() {
     }
   })
 
-  return NextResponse.json({ data: enriched, customerName: session.customerName })
+  // 디폴트 발송 PC 번호 조회 (메시지 미수신 안내용)
+  let defaultPhone: string | null = null
+  const { data: settings } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'default_device_id')
+    .single()
+
+  if (settings?.value) {
+    const { data: device } = await supabase
+      .from('send_devices')
+      .select('phone_number')
+      .eq('id', settings.value)
+      .single()
+    defaultPhone = device?.phone_number || null
+  }
+
+  if (!defaultPhone) {
+    const { data: device } = await supabase
+      .from('send_devices')
+      .select('phone_number')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single()
+    defaultPhone = device?.phone_number || null
+  }
+
+  return NextResponse.json({ data: enriched, customerName: session.customerName, defaultPhone })
 }
