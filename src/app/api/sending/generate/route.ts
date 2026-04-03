@@ -99,36 +99,39 @@ export async function POST(req: Request) {
       }
     }
 
-    // fixed 메시지 한 번에 조회
+    // fixed 메시지 한 번에 조회 (페이지네이션으로 1000행 제한 우회)
     const fixedMsgMap = new Map<string, { content: string; image_path: string | null; sort_order: number }[]>()
     if (fixedKeys.size > 0) {
       const productDayPairs = [...fixedKeys].map(k => {
         const [pid, day] = k.split(':')
         return { pid, day: Number(day) }
       })
-      // 고유 product_id 목록
       const uniqueProductIds = [...new Set(productDayPairs.map(p => p.pid))]
       const uniqueDays = [...new Set(productDayPairs.map(p => p.day))]
 
-      // 벌크 조회 (product_id IN (...) AND day_number IN (...))
-      const allFixedMsgs: any[] = []
-      for (let i = 0; i < uniqueProductIds.length; i += 50) {
-        const pidBatch = uniqueProductIds.slice(i, i + 50)
-        const { data, error } = await supabase
-          .from('messages')
-          .select('product_id, day_number, content, image_path, sort_order')
-          .in('product_id', pidBatch)
-          .in('day_number', uniqueDays)
-          .order('sort_order', { ascending: true })
-        if (error) return NextResponse.json({ error: `고정 메시지 조회 실패: ${error.message}` }, { status: 500 })
-        if (data) allFixedMsgs.push(...data)
-      }
-
-      // 맵으로 정리
-      for (const msg of allFixedMsgs) {
-        const key = `${msg.product_id}:${msg.day_number}`
-        if (!fixedMsgMap.has(key)) fixedMsgMap.set(key, [])
-        fixedMsgMap.get(key)!.push({ content: msg.content, image_path: msg.image_path, sort_order: msg.sort_order })
+      // 상품 배치 × 페이지네이션으로 전체 조회
+      for (let i = 0; i < uniqueProductIds.length; i += 20) {
+        const pidBatch = uniqueProductIds.slice(i, i + 20)
+        let offset = 0
+        const BATCH_SIZE = 1000
+        while (true) {
+          const { data, error } = await supabase
+            .from('messages')
+            .select('product_id, day_number, content, image_path, sort_order')
+            .in('product_id', pidBatch)
+            .in('day_number', uniqueDays)
+            .order('sort_order', { ascending: true })
+            .range(offset, offset + BATCH_SIZE - 1)
+          if (error) return NextResponse.json({ error: `고정 메시지 조회 실패: ${error.message}` }, { status: 500 })
+          if (!data?.length) break
+          for (const msg of data) {
+            const key = `${msg.product_id}:${msg.day_number}`
+            if (!fixedMsgMap.has(key)) fixedMsgMap.set(key, [])
+            fixedMsgMap.get(key)!.push({ content: msg.content, image_path: msg.image_path, sort_order: msg.sort_order })
+          }
+          if (data.length < BATCH_SIZE) break
+          offset += BATCH_SIZE
+        }
       }
     }
 
