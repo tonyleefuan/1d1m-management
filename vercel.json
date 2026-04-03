@@ -7,6 +7,10 @@
     {
       "path": "/api/ai/generate-daily",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/cs-reply",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

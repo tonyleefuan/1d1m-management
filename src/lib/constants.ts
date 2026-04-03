@@ -63,6 +63,7 @@ export const TABS: TabConfig[] = [
   { id: 'products',      label: '상품 관리',     sort_order: 3, visible: true },
   { id: 'sending',       label: '발송 모니터링', sort_order: 4, visible: true },
   { id: 'admin',         label: '관리자 설정',   sort_order: 5, visible: true },
+  { id: 'cs',            label: 'CS',            sort_order: 6, visible: true },
 ]
 
 // PC device colors (fallback when DB color is null)
@@ -78,3 +79,22 @@ export const PC_COLORS = [
   '#10B981', // PC 9 — 에메랄드
   '#A855F7', // PC 10 — 퍼플
 ] as const
+
+// CS Categories
+export const CS_CATEGORIES = ['message_not_received', 'pause_resume', 'product_change', 'cancel_refund', 'other'] as const
+export const CS_CATEGORY_LABELS: Record<string, string> = {
+  message_not_received: '메시지 미수신',
+  pause_resume: '일시정지/재개',
+  product_change: '상품 변경',
+  cancel_refund: '취소/환불',
+  other: '기타',
+}
+
+export const CS_STATUS_LABELS: Record<string, string> = {
+  pending: '처리중',
+  ai_answered: 'AI 답변완료',
+  escalated: '확인 필요',
+  admin_answered: '답변완료',
+  dismissed: '스킵',
+  closed: '종료',
+}

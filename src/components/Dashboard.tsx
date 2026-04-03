@@ -14,6 +14,7 @@ const SubscriptionsTab = dynamic(() => import('./tabs/SubscriptionsTab').then(m 
 const MessagesTab = dynamic(() => import('./tabs/MessagesTab').then(m => ({ default: m.MessagesTab })))
 const SendingTab = dynamic(() => import('./tabs/SendingTab').then(m => ({ default: m.SendingTab })))
 const AdminTab = dynamic(() => import('./tabs/AdminTab').then(m => ({ default: m.AdminTab })))
+const CSTab = dynamic(() => import('./tabs/CSTab').then(m => ({ default: m.CSTab })))
 
 const TAB_COMPONENTS: Record<string, React.ComponentType> = {
   orders: OrdersTab,
@@ -22,6 +23,7 @@ const TAB_COMPONENTS: Record<string, React.ComponentType> = {
   products: ProductsTab,
   sending: SendingTab,
   admin: AdminTab,
+  cs: CSTab,
 }
 
 // 모든 유효한 탭 ID 집합 (TABS 원본 기준)

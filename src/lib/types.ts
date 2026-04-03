@@ -210,3 +210,44 @@ export interface SendLog {
   message_preview: string | null
   created_at: string
 }
+
+// --- CS Inquiries ---
+export type CSCategory = 'message_not_received' | 'pause_resume' | 'product_change' | 'cancel_refund' | 'other'
+export type CSStatus = 'pending' | 'ai_answered' | 'escalated' | 'admin_answered' | 'dismissed' | 'closed'
+
+export interface CSInquiry {
+  id: string
+  customer_id: string
+  category: CSCategory
+  title: string
+  content: string
+  status: CSStatus
+  subscription_id: string | null
+  created_at: string
+  updated_at: string
+  // joined
+  customer?: Customer
+  subscription?: Subscription
+  replies?: CSReply[]
+}
+
+export interface CSReply {
+  id: string
+  inquiry_id: string
+  author_type: 'ai' | 'admin' | 'customer'
+  author_name: string | null
+  content: string
+  action_taken: Record<string, any> | null
+  created_at: string
+}
+
+export interface CSPolicy {
+  id: string
+  category: string
+  title: string
+  content: string
+  ai_instruction: string | null
+  sort_order: number
+  updated_at: string
+  updated_by: string | null
+}

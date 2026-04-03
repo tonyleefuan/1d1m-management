@@ -4,7 +4,7 @@ import { jwtVerify } from 'jose'
 
 const SECRET = new TextEncoder().encode(process.env.AUTH_SECRET!)
 
-const PUBLIC_PATHS = ['/login', '/api/auth/login']
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/cs', '/api/cs/']
 const MACRO_PATHS = ['/api/macro/']
 const CRON_PATHS = ['/api/cron/']
 
