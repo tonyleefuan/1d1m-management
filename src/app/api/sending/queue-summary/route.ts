@@ -37,18 +37,29 @@ export async function GET(req: Request) {
     .rpc('get_queue_summary', { p_date: date })
 
   if (error) {
-    // RPC가 없으면 fallback: 단순 쿼리
-    const { data: fallbackData, error: fbErr } = await supabase
-      .from('send_queues')
-      .select('device_id, status')
-      .eq('send_date', date)
+    // RPC가 없으면 fallback: 페이지네이션으로 전체 조회
+    const PAGE_SIZE = 1000
+    const allRows: { device_id: string; status: string }[] = []
+    let offset = 0
 
-    if (fbErr) return NextResponse.json({ error: fbErr.message }, { status: 500 })
+    while (true) {
+      const { data: page, error: fbErr } = await supabase
+        .from('send_queues')
+        .select('device_id, status')
+        .eq('send_date', date)
+        .range(offset, offset + PAGE_SIZE - 1)
+
+      if (fbErr) return NextResponse.json({ error: fbErr.message }, { status: 500 })
+      if (!page || page.length === 0) break
+      allRows.push(...page)
+      if (page.length < PAGE_SIZE) break
+      offset += PAGE_SIZE
+    }
 
     // 인메모리 집계
     const summary: Record<string, { total: number; pending: number; sent: number; failed: number }> = {}
     let totalCount = 0
-    fallbackData?.forEach(item => {
+    allRows.forEach(item => {
       if (!summary[item.device_id]) {
         summary[item.device_id] = { total: 0, pending: 0, sent: 0, failed: 0 }
       }
