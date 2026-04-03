@@ -189,7 +189,12 @@ export async function POST(req: Request) {
     // 6) 구독 상태 업데이트 (DB 조회 없이 인메모리 판단)
     const now = new Date().toISOString()
 
-    for (const [key, group] of subDayGroups) {
+    // dayNumber 오름차순 정렬 (Day 2 → Day 3 순서 보장, last_sent_day 연쇄 업데이트 위해)
+    const sortedGroups = [...subDayGroups.entries()].sort(
+      (a, b) => a[1].dayNumber - b[1].dayNumber
+    )
+
+    for (const [key, group] of sortedGroups) {
       const allStatuses = fullStatusMap.get(key)
       if (!allStatuses) continue
 

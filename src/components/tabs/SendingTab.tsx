@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -108,6 +108,7 @@ export function SendingTab() {
   const [selectedDevice, setSelectedDevice] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const generatingRef = useRef(false)
   const [generatingProgress, setGeneratingProgress] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -201,6 +202,8 @@ export function SendingTab() {
   }
 
   const generateQueue = async () => {
+    if (generatingRef.current) return
+    generatingRef.current = true
     setGenerating(true)
     setGeneratingProgress('PC 목록 조회 중...')
 
@@ -217,6 +220,7 @@ export function SendingTab() {
       const deviceList = listJson.devices || []
       if (!deviceList.length) {
         showSuccess('발송 대상이 없습니다')
+        generatingRef.current = false
         setGenerating(false)
         setGeneratingProgress(null)
         return
@@ -251,6 +255,7 @@ export function SendingTab() {
       showError(err instanceof Error ? err.message : '대기열 생성 실패')
     }
 
+    generatingRef.current = false
     setGenerating(false)
     setGeneratingProgress(null)
   }
@@ -287,6 +292,8 @@ export function SendingTab() {
       confirmLabel: '재생성',
     })
     if (!ok) return
+    if (generatingRef.current) return
+    generatingRef.current = true
     setGenerating(true)
     setGeneratingProgress('기존 대기열 삭제 중...')
     try {
@@ -330,6 +337,7 @@ export function SendingTab() {
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 재생성 실패')
     }
+    generatingRef.current = false
     setGenerating(false)
     setGeneratingProgress(null)
   }
