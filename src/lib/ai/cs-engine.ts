@@ -623,7 +623,7 @@ export async function handleCsInquiry(
 
   // Fallback if no text was generated
   if (!finalText.trim()) {
-    finalText = '문의해 주셔서 감사합니다. 담당자가 확인 후 빠르게 답변 드리겠습니다.'
+    finalText = '문의해 주셔서 감사합니다. 담당자가 확인 후 영업일 1일 이내에 답변 드리겠습니다.'
     isEscalated = true
   }
 
@@ -655,7 +655,7 @@ export async function handleCsReply(
   const aiReplyCount = conversationHistory.filter(e => e.author_type === 'ai').length
   if (aiReplyCount >= 2) {
     return {
-      reply: '추가 확인이 필요한 사항이 있어, 담당자에게 전달드렸습니다. 빠른 시일 내에 답변 드리겠습니다. 감사합니다.',
+      reply: '추가 확인이 필요한 사항이 있어, 담당자에게 전달드렸습니다. 영업일 1일 이내에 답변 드리겠습니다. 감사합니다.',
       status: 'escalated',
       actions: [{ tool: 'escalate_to_admin', input: { reason: 'AI 응답 2회 초과 — 자동 에스컬레이션' }, result: { success: true } }],
     }
@@ -741,7 +741,7 @@ export async function handleCsReply(
   }
 
   if (!finalText.trim()) {
-    finalText = '담당자에게 전달드렸습니다. 빠른 시일 내에 답변 드리겠습니다. 감사합니다.'
+    finalText = '담당자에게 전달드렸습니다. 영업일 1일 이내에 답변 드리겠습니다. 감사합니다.'
     isEscalated = true
   }
 
