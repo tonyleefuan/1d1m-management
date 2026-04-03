@@ -452,12 +452,21 @@ export function SendingTab() {
           <div className="flex items-end gap-4">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">발송 날짜</Label>
-              <Input
-                type="date"
-                value={sendDate}
-                onChange={(e) => setSendDate(e.target.value)}
-                className="w-[150px] h-8 text-xs"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={sendDate}
+                  onChange={(e) => setSendDate(e.target.value)}
+                  className="w-[150px] h-8 text-xs"
+                />
+                {(() => {
+                  const kstToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+                  const kstTomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
+                  if (sendDate === kstToday) return <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">오늘</span>
+                  if (sendDate === kstTomorrow) return <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">내일</span>
+                  return null
+                })()}
+              </div>
             </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">시작 시각</Label>
