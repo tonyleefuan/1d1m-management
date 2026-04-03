@@ -73,7 +73,7 @@ export async function POST(req: Request) {
       from += PAGE_SIZE
     }
 
-    if (!subs.length) return NextResponse.json({ ok: true, generated: 0, device_id: deviceId })
+    if (!subs.length) return NextResponse.json({ ok: true, generated: 0, device_id: deviceId, reason: 'no_live_subscriptions' })
 
     // 정렬: send_priority ASC → ordered_at ASC
     subs.sort((a, b) => {
@@ -149,6 +149,7 @@ export async function POST(req: Request) {
     const queueRows: any[] = []
     let sortOrder = 0
     let skippedNoMsg = 0
+    let skippedDayRange = 0
 
     for (const sub of subs) {
       const product = sub.product as any
@@ -156,7 +157,7 @@ export async function POST(req: Request) {
       const kakaoName = customer?.kakao_friend_name || '알 수 없음'
       const currentDay = sub.day
 
-      if (currentDay < 1 || currentDay > sub.duration_days) continue
+      if (currentDay < 1 || currentDay > sub.duration_days) { skippedDayRange++; continue }
 
       let messages: { content: string; image_path: string | null; sort_order: number }[] = []
 
@@ -208,7 +209,11 @@ export async function POST(req: Request) {
     }
 
     if (!queueRows.length) {
-      return NextResponse.json({ ok: true, generated: 0, device_id: deviceId, skippedNoMsg })
+      return NextResponse.json({
+        ok: true, generated: 0, device_id: deviceId,
+        reason: 'all_skipped',
+        subscriptions: subs.length, skippedNoMsg, skippedDayRange,
+      })
     }
 
     // 4) 배치 삽입 (500개씩)
@@ -225,7 +230,7 @@ export async function POST(req: Request) {
       generated: inserted,
       device_id: deviceId,
       subscriptions: subs.length,
-      skippedNoMsg,
+      skippedNoMsg, skippedDayRange,
       date,
     })
   } catch (err: any) {
