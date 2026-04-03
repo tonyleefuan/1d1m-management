@@ -161,7 +161,7 @@ export default function InquiryDetailPage() {
         <Card className="border-dashed">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-4 w-4 border-2 border-foreground border-t-transparent rounded-full animate-spin shrink-0" />
-            <p className="text-sm text-muted-foreground">답변을 준비하고 있습니다. 평균 1시간 이내로 답변 드립니다.</p>
+            <p className="text-sm text-muted-foreground">잠시만 기다려 주시면 감사하겠습니다!</p>
           </CardContent>
         </Card>
       )}
