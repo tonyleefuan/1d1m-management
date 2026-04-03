@@ -90,6 +90,42 @@ export const CS_CATEGORY_LABELS: Record<string, string> = {
   other: '기타',
 }
 
+// CS 카테고리별 가이드 질문 — AI가 물어볼 정보를 폼에서 미리 수집
+export const CS_CATEGORY_GUIDES: Record<string, {
+  checklist?: { key: string; label: string }[]
+  select?: { key: string; label: string; options: { value: string; label: string }[] }[]
+  hint?: string
+}> = {
+  message_not_received: {
+    checklist: [
+      { key: 'contact_saved', label: '발송 번호를 연락처에 저장했습니다' },
+      { key: 'friend_added', label: '카카오톡 친구 추가를 했습니다' },
+      { key: 'name_sent', label: '성함과 전화번호 뒷 4자리를 전송했습니다' },
+    ],
+    hint: '위 항목을 완료하지 않으셨다면, 먼저 완료 후 문의해 주세요.',
+  },
+  pause_resume: {
+    select: [
+      { key: 'action_type', label: '요청 유형', options: [
+        { value: 'pause', label: '일시정지' },
+        { value: 'resume', label: '재개' },
+      ]},
+    ],
+  },
+  cancel_refund: {
+    select: [
+      { key: 'payment_method', label: '결제 방법', options: [
+        { value: 'card', label: '카드 결제' },
+        { value: 'bank_transfer', label: '계좌이체 / 무통장입금' },
+      ]},
+    ],
+    hint: '환불 정책: 결제 후 3일 이내 전액 환불, 3일 초과 시 이용일수 + 위약금(30%) 차감',
+  },
+  product_change: {
+    hint: '변경을 원하는 상품명을 아래에 적어 주세요. 동일 가격 상품만 변경 가능합니다.',
+  },
+}
+
 export const CS_STATUS_LABELS: Record<string, string> = {
   pending: '처리중',
   ai_answered: 'AI 답변완료',

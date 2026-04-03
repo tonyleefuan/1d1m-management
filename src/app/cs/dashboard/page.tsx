@@ -22,7 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { CS_CATEGORY_LABELS } from '@/lib/constants'
+import { Checkbox } from '@/components/ui/checkbox'
+import { CS_CATEGORY_LABELS, CS_CATEGORY_GUIDES } from '@/lib/constants'
 
 interface Sub {
   id: string
@@ -69,6 +70,15 @@ export default function CSDashboard() {
   const [formContent, setFormContent] = useState('')
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [guideChecks, setGuideChecks] = useState<Record<string, boolean>>({})
+  const [guideSelects, setGuideSelects] = useState<Record<string, string>>({})
+
+  // 카테고리 변경 시 가이드 상태 초기화
+  const handleCategoryChange = (cat: string) => {
+    setFormCategory(cat)
+    setGuideChecks({})
+    setGuideSelects({})
+  }
 
   const fetchData = useCallback(async () => {
     try {
@@ -104,6 +114,34 @@ export default function CSDashboard() {
     router.push('/cs')
   }
 
+  // 가이드 응답을 content 앞에 구조화하여 합치기
+  const buildContent = () => {
+    const guide = CS_CATEGORY_GUIDES[formCategory]
+    if (!guide) return formContent.trim()
+
+    const parts: string[] = []
+
+    if (guide.checklist?.length) {
+      const lines = guide.checklist.map(c =>
+        `- ${c.label}: ${guideChecks[c.key] ? '완료' : '미완료'}`
+      )
+      parts.push(`[사전 확인]\n${lines.join('\n')}`)
+    }
+
+    if (guide.select?.length) {
+      const lines = guide.select.map(s => {
+        const selected = s.options.find(o => o.value === guideSelects[s.key])
+        return `- ${s.label}: ${selected?.label || '미선택'}`
+      })
+      parts.push(`[선택 정보]\n${lines.join('\n')}`)
+    }
+
+    if (parts.length > 0) {
+      return `${parts.join('\n')}\n\n[문의 내용]\n${formContent.trim()}`
+    }
+    return formContent.trim()
+  }
+
   const handleSubmitInquiry = async () => {
     setFormError('')
     if (!formCategory) { setFormError('카테고리를 선택해 주세요.'); return }
@@ -116,7 +154,7 @@ export default function CSDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           category: formCategory,
-          content: formContent.trim(),
+          content: buildContent(),
           subscriptionId: formSubId || null,
         }),
       })
@@ -136,6 +174,8 @@ export default function CSDashboard() {
       setFormCategory('')
       setFormSubId('')
       setFormContent('')
+      setGuideChecks({})
+      setGuideSelects({})
       router.push(`/cs/inquiry/${data.data.id}`)
     } catch {
       setFormError('서버 연결에 실패했습니다.')
@@ -244,7 +284,7 @@ export default function CSDashboard() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>카테고리</Label>
-              <Select value={formCategory} onValueChange={setFormCategory}>
+              <Select value={formCategory} onValueChange={handleCategoryChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="카테고리 선택" />
                 </SelectTrigger>
@@ -255,6 +295,42 @@ export default function CSDashboard() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* 카테고리별 가이드 질문 */}
+            {formCategory && CS_CATEGORY_GUIDES[formCategory] && (() => {
+              const guide = CS_CATEGORY_GUIDES[formCategory]
+              return (
+                <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
+                  {guide.select?.map(s => (
+                    <div key={s.key} className="space-y-1.5">
+                      <Label className="text-sm">{s.label}</Label>
+                      <Select value={guideSelects[s.key] || ''} onValueChange={v => setGuideSelects(prev => ({ ...prev, [s.key]: v }))}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="선택해 주세요" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {s.options.map(o => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                  {guide.checklist?.map(c => (
+                    <label key={c.key} className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={!!guideChecks[c.key]}
+                        onCheckedChange={(checked) => setGuideChecks(prev => ({ ...prev, [c.key]: !!checked }))}
+                      />
+                      <span className="text-sm">{c.label}</span>
+                    </label>
+                  ))}
+                  {guide.hint && (
+                    <p className="text-xs text-muted-foreground">{guide.hint}</p>
+                  )}
+                </div>
+              )
+            })()}
 
             {subs.length >= 1 && (
               <div className="space-y-2">
