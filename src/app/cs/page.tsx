@@ -72,6 +72,14 @@ export default function CSAuthPage() {
                 onChange={e => setOrderNo(e.target.value)}
                 disabled={loading}
               />
+              <a
+                href="https://1day1message.com/shop_mypage"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground transition-colors"
+              >
+                내 주문번호 조회하기
+              </a>
             </div>
             <div className="space-y-2">
               <Label htmlFor="phoneLast4">전화번호 뒷 4자리</Label>
