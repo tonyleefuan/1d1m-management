@@ -98,3 +98,23 @@ export const CS_STATUS_LABELS: Record<string, string> = {
   dismissed: '스킵',
   closed: '종료',
 }
+
+// Refund
+export const REFUND_STATUS_LABELS: Record<string, string> = {
+  pending: '접수',
+  approved: '승인',
+  completed: '완료',
+  rejected: '거절',
+}
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  card: '카드 결제',
+  bank_transfer: '계좌이체/무통장',
+}
+
+/** 전액 환불 기한 (일) */
+export const FULL_REFUND_DAYS = 3
+/** 위약금 비율 */
+export const PENALTY_RATE = 0.3
+/** PG 카드 취소 가능 기한 (일) */
+export const PG_CANCEL_DAYS = 30

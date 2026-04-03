@@ -14,6 +14,9 @@ export async function POST(
     if (!content?.trim()) {
       return NextResponse.json({ error: '내용을 입력해 주세요.' }, { status: 400 })
     }
+    if (content.trim().length > 2000) {
+      return NextResponse.json({ error: '내용은 2000자 이내로 입력해 주세요.' }, { status: 400 })
+    }
 
     // ── 댓글 Rate Limit: 문의당 1시간 10회 ──
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
@@ -43,9 +46,6 @@ export async function POST(
     if (inquiry.status === 'closed' || inquiry.status === 'dismissed') {
       return NextResponse.json({ error: '종료된 문의에는 답변할 수 없습니다.' }, { status: 400 })
     }
-    if (inquiry.status === 'processing') {
-      return NextResponse.json({ error: '문의가 처리 중입니다. 잠시 후 다시 시도해 주세요.' }, { status: 409 })
-    }
 
     // Rate limit 기록
     await supabase.from('cs_rate_limits').insert({
@@ -65,25 +65,36 @@ export async function POST(
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // AI 답변 횟수 확인
-    const { count: aiCount } = await supabase
-      .from('cs_replies')
-      .select('id', { count: 'exact', head: true })
-      .eq('inquiry_id', params.id)
-      .eq('author_type', 'ai')
+    // processing 중에는 상태 변경하지 않음 (현재 AI 처리 완료 후 Cron이 다음 실행에서 처리)
+    if (inquiry.status !== 'processing') {
+      // 상태 전이: 관리자 답변 후 고객 재문의 → 에스컬레이션 (관리자 재확인 필요)
+      if (inquiry.status === 'admin_answered') {
+        await supabase
+          .from('cs_inquiries')
+          .update({ status: 'escalated' })
+          .eq('id', params.id)
+      } else {
+        // AI 답변 횟수 확인
+        const { count: aiCount } = await supabase
+          .from('cs_replies')
+          .select('id', { count: 'exact', head: true })
+          .eq('inquiry_id', params.id)
+          .eq('author_type', 'ai')
 
-    if ((aiCount ?? 0) < 2) {
-      // AI 재응답 가능 → pending으로 되돌림 (다음 Cron에서 handleCsReply 호출)
-      await supabase
-        .from('cs_inquiries')
-        .update({ status: 'pending' })
-        .eq('id', params.id)
-    } else {
-      // AI 응답 2회 초과 → 에스컬레이션
-      await supabase
-        .from('cs_inquiries')
-        .update({ status: 'escalated' })
-        .eq('id', params.id)
+        if ((aiCount ?? 0) < 2) {
+          // AI 재응답 가능 → pending으로 되돌림 (다음 Cron에서 handleCsReply 호출)
+          await supabase
+            .from('cs_inquiries')
+            .update({ status: 'pending' })
+            .eq('id', params.id)
+        } else {
+          // AI 응답 2회 초과 → 에스컬레이션
+          await supabase
+            .from('cs_inquiries')
+            .update({ status: 'escalated' })
+            .eq('id', params.id)
+        }
+      }
     }
 
     return NextResponse.json({ data: reply }, { status: 201 })

@@ -42,8 +42,14 @@ export async function POST(req: Request) {
     if (!title?.trim()) {
       return NextResponse.json({ error: '제목을 입력해 주세요.' }, { status: 400 })
     }
+    if (title.trim().length > 100) {
+      return NextResponse.json({ error: '제목은 100자 이내로 입력해 주세요.' }, { status: 400 })
+    }
     if (!content?.trim()) {
       return NextResponse.json({ error: '내용을 입력해 주세요.' }, { status: 400 })
+    }
+    if (content.trim().length > 2000) {
+      return NextResponse.json({ error: '내용은 2000자 이내로 입력해 주세요.' }, { status: 400 })
     }
 
     // Rate limit: 20 inquiries per hour

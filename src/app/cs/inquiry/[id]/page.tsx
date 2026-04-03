@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 
 interface Reply {
   id: string
-  author_type: 'ai' | 'admin' | 'customer'
+  author_type: 'ai' | 'admin' | 'customer' | 'system'
   author_name: string | null
   content: string
   created_at: string
@@ -62,6 +62,14 @@ export default function InquiryDetailPage() {
   }, [id, router])
 
   useEffect(() => { fetchInquiry() }, [fetchInquiry])
+
+  // pending/processing 상태면 10초마다 자동 폴링 (AI 응답 대기)
+  useEffect(() => {
+    if (!inquiry) return
+    if (inquiry.status !== 'pending' && inquiry.status !== 'processing') return
+    const interval = setInterval(() => { fetchInquiry() }, 10_000)
+    return () => clearInterval(interval)
+  }, [inquiry?.status, fetchInquiry])
 
   const handleReply = async () => {
     if (!replyContent.trim()) return
@@ -147,6 +155,16 @@ export default function InquiryDetailPage() {
           </Card>
         )
       })}
+
+      {/* AI 처리 중 안내 */}
+      {(inquiry.status === 'pending' || inquiry.status === 'processing') && (
+        <Card className="border-dashed">
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="h-4 w-4 border-2 border-foreground border-t-transparent rounded-full animate-spin shrink-0" />
+            <p className="text-sm text-muted-foreground">답변을 준비하고 있습니다. 잠시만 기다려 주세요.</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Reply form */}
       {canReply && (

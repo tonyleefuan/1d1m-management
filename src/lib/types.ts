@@ -251,3 +251,49 @@ export interface CSPolicy {
   updated_at: string
   updated_by: string | null
 }
+
+// --- CS Refund Requests ---
+export type RefundStatus = 'pending' | 'approved' | 'completed' | 'rejected'
+export type PaymentMethod = 'card' | 'bank_transfer'
+
+export interface CSRefundRequest {
+  id: string
+  inquiry_id: string
+  subscription_id: string
+  customer_id: string
+
+  // 결제 정보
+  paid_amount: number
+  paid_at: string | null
+
+  // 환불 계산
+  used_days: number
+  total_days: number
+  daily_rate: number
+  used_amount: number
+  penalty_amount: number
+  refund_amount: number
+  is_full_refund: boolean
+
+  // 고객 입력
+  payment_method: PaymentMethod
+  bank_name: string | null
+  account_number: string | null
+  account_holder: string | null
+  needs_account_info: boolean
+
+  // 처리 상태
+  status: RefundStatus
+  admin_note: string | null
+  reject_reason: string | null
+  processed_by: string | null
+  processed_at: string | null
+
+  created_at: string
+  updated_at: string
+
+  // joined
+  customer?: Customer
+  subscription?: Subscription & { product?: Product }
+  inquiry?: CSInquiry
+}

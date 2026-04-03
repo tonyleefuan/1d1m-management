@@ -62,6 +62,7 @@ export default function CSDashboard() {
   const router = useRouter()
   const [subs, setSubs] = useState<Sub[]>([])
   const [inquiries, setInquiries] = useState<Inquiry[]>([])
+  const [customerName, setCustomerName] = useState('')
   const [loading, setLoading] = useState(true)
   const [showDialog, setShowDialog] = useState(false)
   const [formCategory, setFormCategory] = useState('')
@@ -85,6 +86,7 @@ export default function CSDashboard() {
 
       const subsData = await subsRes.json()
       const inqData = await inqRes.json()
+      setCustomerName(subsData.customerName || '')
       setSubs(subsData.data || [])
       setInquiries(inqData.data || [])
     } catch {
@@ -155,7 +157,10 @@ export default function CSDashboard() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">구독 현황</h1>
+        <div>
+          {customerName && <p className="text-sm text-muted-foreground mb-0.5">{customerName}님</p>}
+          <h1 className="text-lg font-semibold">구독 현황</h1>
+        </div>
         <Button variant="ghost" size="sm" onClick={handleLogout} className="text-xs text-muted-foreground">
           로그아웃
         </Button>
@@ -256,7 +261,7 @@ export default function CSDashboard() {
               </Select>
             </div>
 
-            {subs.length > 1 && (
+            {subs.length >= 1 && (
               <div className="space-y-2">
                 <Label>관련 구독 (선택)</Label>
                 <Select value={formSubId} onValueChange={setFormSubId}>

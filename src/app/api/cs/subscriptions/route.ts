@@ -47,5 +47,5 @@ export async function GET() {
     }
   })
 
-  return NextResponse.json({ data: enriched })
+  return NextResponse.json({ data: enriched, customerName: session.customerName })
 }

@@ -1,6 +1,7 @@
 import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/supabase'
+import { calculateRefund, formatRefundSummary } from '@/lib/refund'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 const MODEL = 'claude-sonnet-4-6'
@@ -74,6 +75,21 @@ const CS_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'request_refund',
+    description: '취소/환불 요청을 접수합니다. 고객에게 결제 방법을 확인하고, 필요 시 계좌 정보를 수집한 뒤 호출합니다. 환불 금액을 자동 계산하여 관리자에게 전달합니다.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        subscription_id: { type: 'string', description: '환불 대상 구독 UUID' },
+        payment_method: { type: 'string', enum: ['card', 'bank_transfer'], description: '결제 방법: card(카드), bank_transfer(계좌이체/무통장)' },
+        bank_name: { type: 'string', description: '은행명 (계좌 환불 시 필수)' },
+        account_number: { type: 'string', description: '계좌번호 (계좌 환불 시 필수)' },
+        account_holder: { type: 'string', description: '예금주 (계좌 환불 시 필수)' },
+      },
+      required: ['subscription_id', 'payment_method'],
+    },
+  },
+  {
     name: 'escalate_to_admin',
     description: '문의를 관리자에게 에스컬레이션합니다. AI가 직접 처리할 수 없는 경우 사용합니다.',
     input_schema: {
@@ -94,13 +110,23 @@ interface ToolResult {
   error?: string
 }
 
-async function executeTool(name: string, input: Record<string, any>, customerId: string): Promise<ToolResult> {
+interface ToolContext {
+  customerId: string
+  inquiryId?: string  // request_refund 시 필요
+}
+
+async function executeTool(name: string, input: Record<string, any>, customerIdOrCtx: string | ToolContext): Promise<ToolResult> {
+  const ctx: ToolContext = typeof customerIdOrCtx === 'string'
+    ? { customerId: customerIdOrCtx }
+    : customerIdOrCtx
+  const customerId = ctx.customerId
   switch (name) {
     case 'query_subscription': {
+      // 보안: AI가 전달한 customer_id 대신 세션의 customerId 강제 사용
       const query = supabase
         .from('subscriptions')
         .select('id, status, day, last_sent_day, duration_days, start_date, end_date, paused_at, paused_days, product:products(id, title, sku_code, message_type, total_days), device:send_devices(id, name, phone_number)')
-        .eq('customer_id', input.customer_id)
+        .eq('customer_id', customerId)
 
       if (input.subscription_id) {
         query.eq('id', input.subscription_id)
@@ -283,13 +309,118 @@ async function executeTool(name: string, input: Record<string, any>, customerId:
     }
 
     case 'search_product': {
+      // 검색어 길이 제한 + 특수문자 이스케이프
+      const rawQuery = String(input.query || '').slice(0, 50)
+      const sanitized = rawQuery.replace(/[%_\\]/g, '\\$&')
       const { data: products } = await supabase
         .from('products')
         .select('id, title, sku_code, message_type, is_active')
         .eq('is_active', true)
-        .ilike('title', `%${input.query}%`)
+        .ilike('title', `%${sanitized}%`)
 
       return { success: true, data: products || [] }
+    }
+
+    case 'request_refund': {
+      // 1. 구독 + 주문 정보 조회
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('id, customer_id, last_sent_day, duration_days, order_item_id, product:products(id, title)')
+        .eq('id', input.subscription_id)
+        .eq('customer_id', customerId)
+        .single()
+
+      if (!sub) return { success: false, error: '구독을 찾을 수 없습니다.' }
+      if (!sub.order_item_id) return { success: false, error: '주문 정보가 연결되지 않은 구독입니다. 담당자에게 전달합니다.' }
+
+      // 2. 주문 아이템 + 주문 조회
+      const { data: orderItem } = await supabase
+        .from('order_items')
+        .select('id, allocated_amount, order_id')
+        .eq('id', sub.order_item_id)
+        .single()
+
+      if (!orderItem) return { success: false, error: '주문 아이템 정보를 찾을 수 없습니다.' }
+
+      const { data: order } = await supabase
+        .from('orders')
+        .select('id, ordered_at, total_amount')
+        .eq('id', orderItem.order_id)
+        .single()
+
+      if (!order) return { success: false, error: '주문 정보를 찾을 수 없습니다.' }
+
+      // 3. 환불 계산
+      const paymentMethod = input.payment_method as 'card' | 'bank_transfer'
+      const calc = calculateRefund({
+        paidAmount: orderItem.allocated_amount,
+        usedDays: sub.last_sent_day,
+        totalDays: sub.duration_days,
+        paidAt: order.ordered_at,
+        paymentMethod,
+      })
+
+      // 4. 계좌 정보 필요 여부 확인
+      if (calc.needsAccountInfo && (!input.bank_name || !input.account_number)) {
+        return {
+          success: false,
+          error: 'NEEDS_ACCOUNT_INFO',
+          data: {
+            reason: paymentMethod === 'bank_transfer'
+              ? '계좌이체/무통장 결제이므로 환불 계좌 정보가 필요합니다.'
+              : '카드 결제 후 30일이 초과하여 카드 취소가 불가능합니다. 계좌로 환불해 드리므로 계좌 정보가 필요합니다.',
+            refund_summary: formatRefundSummary(calc),
+          },
+        }
+      }
+
+      // 5. 중복 확인
+      const { count: existingCount } = await supabase
+        .from('cs_refund_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('subscription_id', input.subscription_id)
+        .in('status', ['pending', 'approved'])
+
+      if (existingCount && existingCount > 0) {
+        return { success: false, error: '이미 접수된 환불 요청이 있습니다. 처리 중이니 잠시 기다려 주세요.' }
+      }
+
+      // 6. DB에 저장
+      const { error: insertErr } = await supabase
+        .from('cs_refund_requests')
+        .insert({
+          inquiry_id: ctx.inquiryId || null,
+          subscription_id: input.subscription_id,
+          customer_id: customerId,
+          paid_amount: calc.paidAmount,
+          paid_at: order.ordered_at,
+          used_days: calc.usedDays,
+          total_days: calc.totalDays,
+          daily_rate: calc.dailyRate,
+          used_amount: calc.usedAmount,
+          penalty_amount: calc.penaltyAmount,
+          refund_amount: calc.refundAmount,
+          is_full_refund: calc.isFullRefund,
+          payment_method: paymentMethod,
+          bank_name: input.bank_name || null,
+          account_number: input.account_number || null,
+          account_holder: input.account_holder || null,
+          needs_account_info: calc.needsAccountInfo,
+          status: 'pending',
+        })
+
+      if (insertErr) return { success: false, error: `환불 요청 저장 실패: ${insertErr.message}` }
+
+      return {
+        success: true,
+        data: {
+          refund_summary: formatRefundSummary(calc),
+          refund_amount: calc.refundAmount,
+          is_full_refund: calc.isFullRefund,
+          needs_account_info: calc.needsAccountInfo,
+          product_title: (sub as any).product?.title,
+        },
+      }
     }
 
     case 'escalate_to_admin': {
@@ -373,10 +504,22 @@ ${policyTexts}
 2. 기본 PC 번호는 query_default_device 도구로 조회해야 합니다. 절대 번호를 추측하지 마세요.
 3. 일시정지/재개는 해당 도구를 사용하여 즉시 처리하세요.
 4. 상품 변경은 동일 가격만 가능합니다. 가격 차이 시 에스컬레이션하세요.
-5. 취소/환불은 직접 처리 불가 — 환불 정책 안내 + 환불 신청 양식 링크를 제공하세요.
+5. 취소/환불 요청 시 아래 절차를 따르세요:
+   a) 먼저 환불 정책을 안내합니다:
+      - 결제 후 3일 이내: 전액 환불
+      - 결제 후 3일 초과: 결제 금액 - 이용일수 금액 - 위약금(결제 금액의 30%) 차감 후 환불
+      - 위약금 명목: 메시지 발송 등록 비용, 유지 관리 비용, 수수료 등
+   b) 고객이 환불을 원하면, 결제 방법을 물어봅니다: "카드 결제" 또는 "계좌이체/무통장입금"
+   c) 계좌이체/무통장인 경우: 은행명, 계좌번호, 예금주를 물어봅니다.
+   d) 카드 결제인 경우: 바로 request_refund 도구를 호출합니다. 도구가 NEEDS_ACCOUNT_INFO 에러를 반환하면 (30일 초과로 카드 취소 불가) 계좌 정보를 추가로 수집합니다.
+   e) 정보 수집이 완료되면 request_refund 도구를 호출하여 환불 요청을 접수합니다.
+   f) 접수 완료 후 환불 금액과 함께 "담당자가 확인 후 처리해 드리겠습니다"라고 안내합니다.
+   g) 구독이 2개 이상인 경우, 어떤 구독을 취소할지 먼저 확인하세요.
 6. 기타 문의는 에스컬레이션하세요.
 7. 구독이 2개 이상인 경우, 어떤 구독인지 먼저 확인하세요.
-8. 도구 호출 결과가 에러를 반환하면, 에스컬레이션하세요.${historyContext}
+8. 도구 호출 결과가 에러를 반환하면, 에스컬레이션하세요.
+9. 프로모션/이벤트 가격 변동에 따른 환불이나 가격 보상 요구는 불가능합니다. 정중히 안내하세요.
+10. 카카오톡 장애 시 문자 메시지로 대체 발송될 수 있음을 참고하세요.${historyContext}
 
 ## 응답 형식
 - 순수 텍스트만 출력하세요. 마크다운 서식(볼드, 이탤릭, 헤딩) 사용 금지.
@@ -405,10 +548,12 @@ export async function handleCsInquiry(
   title: string,
   content: string,
   subscriptionId: string | null,
+  inquiryId?: string,
 ): Promise<CsAiResult> {
   const systemPrompt = await buildSystemPrompt(customerId, category)
   const actions: CsAiResult['actions'] = []
   let isEscalated = false
+  const toolCtx: ToolContext = { customerId, inquiryId }
 
   // Build user message
   let userMessage = `문의 카테고리: ${category}\n제목: ${title}\n\n${content}`
@@ -454,10 +599,10 @@ export async function handleCsInquiry(
     const toolResults: Anthropic.ToolResultBlockParam[] = []
 
     for (const toolUse of toolUseBlocks) {
-      const result = await executeTool(toolUse.name, toolUse.input as Record<string, any>, customerId)
+      const result = await executeTool(toolUse.name, toolUse.input as Record<string, any>, toolCtx)
       actions.push({ tool: toolUse.name, input: toolUse.input, result })
 
-      if (toolUse.name === 'escalate_to_admin') {
+      if (toolUse.name === 'escalate_to_admin' || toolUse.name === 'request_refund') {
         isEscalated = true
       }
 
@@ -494,7 +639,7 @@ export async function handleCsInquiry(
 // AI 답변이 이미 2회 이상이면 에스컬레이션
 
 interface ConversationEntry {
-  author_type: 'ai' | 'admin' | 'customer'
+  author_type: 'ai' | 'admin' | 'customer' | 'system'
   content: string
 }
 
@@ -519,6 +664,7 @@ export async function handleCsReply(
   const systemPrompt = await buildSystemPrompt(customerId, category)
   const actions: CsAiResult['actions'] = []
   let isEscalated = false
+  const toolCtx: ToolContext = { customerId, inquiryId }
 
   // 대화 이력을 messages로 변환
   const messages: Anthropic.MessageParam[] = []
@@ -584,9 +730,9 @@ export async function handleCsReply(
 
     const toolResults: Anthropic.ToolResultBlockParam[] = []
     for (const toolUse of toolUseBlocks) {
-      const result = await executeTool(toolUse.name, toolUse.input as Record<string, any>, customerId)
+      const result = await executeTool(toolUse.name, toolUse.input as Record<string, any>, toolCtx)
       actions.push({ tool: toolUse.name, input: toolUse.input, result })
-      if (toolUse.name === 'escalate_to_admin') isEscalated = true
+      if (toolUse.name === 'escalate_to_admin' || toolUse.name === 'request_refund') isEscalated = true
       toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: JSON.stringify(result) })
     }
 
