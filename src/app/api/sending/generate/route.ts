@@ -22,16 +22,9 @@ export async function POST(req: Request) {
     const deviceId = body.device_id || null
 
     // ── device_id 없으면: PC 목록 반환 ──
+    // per-device 가드가 각 PC별로 중복을 체크하므로 global 가드는 제거
+    // (부분 실행 후 재시도 가능하도록)
     if (!deviceId) {
-      const { count: existing } = await supabase
-        .from('send_queues')
-        .select('id', { count: 'exact', head: true })
-        .eq('send_date', date)
-
-      if (existing && existing > 0) {
-        return NextResponse.json({ error: `${date} 대기열이 이미 ${existing}건 존재합니다. 삭제 후 재생성하세요.` }, { status: 400 })
-      }
-
       const { data: devices } = await supabase
         .from('send_devices')
         .select('id, phone_number')
