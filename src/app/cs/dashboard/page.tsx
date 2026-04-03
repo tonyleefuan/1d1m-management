@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -67,7 +66,6 @@ export default function CSDashboard() {
   const [showDialog, setShowDialog] = useState(false)
   const [formCategory, setFormCategory] = useState('')
   const [formSubId, setFormSubId] = useState('')
-  const [formTitle, setFormTitle] = useState('')
   const [formContent, setFormContent] = useState('')
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -109,7 +107,6 @@ export default function CSDashboard() {
   const handleSubmitInquiry = async () => {
     setFormError('')
     if (!formCategory) { setFormError('카테고리를 선택해 주세요.'); return }
-    if (!formTitle.trim()) { setFormError('제목을 입력해 주세요.'); return }
     if (!formContent.trim()) { setFormError('내용을 입력해 주세요.'); return }
 
     setSubmitting(true)
@@ -119,7 +116,6 @@ export default function CSDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           category: formCategory,
-          title: formTitle.trim(),
           content: formContent.trim(),
           subscriptionId: formSubId || null,
         }),
@@ -139,7 +135,6 @@ export default function CSDashboard() {
       setShowDialog(false)
       setFormCategory('')
       setFormSubId('')
-      setFormTitle('')
       setFormContent('')
       router.push(`/cs/inquiry/${data.data.id}`)
     } catch {
@@ -226,7 +221,7 @@ export default function CSDashboard() {
                         </span>
                         <StatusBadge status={ist.status} size="xs">{ist.label}</StatusBadge>
                       </div>
-                      <p className="text-sm font-medium truncate">{inq.title}</p>
+                      <p className="text-sm font-medium truncate">{CS_CATEGORY_LABELS[inq.category] || inq.category} 문의</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {new Date(inq.created_at).toLocaleDateString('ko-KR')}
                         {inq.reply_count > 0 && ` · 답변 ${inq.reply_count}건`}
@@ -278,16 +273,6 @@ export default function CSDashboard() {
                 </Select>
               </div>
             )}
-
-            <div className="space-y-2">
-              <Label>제목</Label>
-              <Input
-                placeholder="문의 제목"
-                value={formTitle}
-                onChange={e => setFormTitle(e.target.value)}
-                disabled={submitting}
-              />
-            </div>
 
             <div className="space-y-2">
               <Label>내용</Label>

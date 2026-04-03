@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getCsSession } from '@/lib/cs-auth'
+import { CS_CATEGORY_LABELS } from '@/lib/constants'
 
 const VALID_CATEGORIES = ['message_not_received', 'pause_resume', 'product_change', 'cancel_refund', 'other']
 
@@ -34,16 +35,10 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const { category, title, content, subscriptionId } = await req.json()
+    const { category, content, subscriptionId } = await req.json()
 
     if (!category || !VALID_CATEGORIES.includes(category)) {
       return NextResponse.json({ error: '카테고리를 선택해 주세요.' }, { status: 400 })
-    }
-    if (!title?.trim()) {
-      return NextResponse.json({ error: '제목을 입력해 주세요.' }, { status: 400 })
-    }
-    if (title.trim().length > 100) {
-      return NextResponse.json({ error: '제목은 100자 이내로 입력해 주세요.' }, { status: 400 })
     }
     if (!content?.trim()) {
       return NextResponse.json({ error: '내용을 입력해 주세요.' }, { status: 400 })
@@ -87,7 +82,7 @@ export async function POST(req: Request) {
       .insert({
         customer_id: session.customerId,
         category,
-        title: title.trim(),
+        title: `${CS_CATEGORY_LABELS[category] || category} 문의`,
         content: content.trim(),
         subscription_id: subscriptionId || null,
       })
@@ -96,8 +91,8 @@ export async function POST(req: Request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // AI 응답은 Cron(/api/cron/cs-reply)이 10분 주기로 처리
-    // 문의는 pending 상태로 즉시 반환
+    // AI 응답은 Cron(/api/cron/cs-reply)이 주기적으로 처리
+    // 문의는 pending 상태로 즉시 반환, 고객은 상세 페이지에서 폴링으로 결과 확인
     return NextResponse.json({ data: inquiry }, { status: 201 })
   } catch {
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 })

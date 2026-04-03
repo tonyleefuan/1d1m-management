@@ -545,7 +545,7 @@ export interface CsAiResult {
 export async function handleCsInquiry(
   customerId: string,
   category: string,
-  title: string,
+  _title: string,
   content: string,
   subscriptionId: string | null,
   inquiryId?: string,
@@ -556,7 +556,7 @@ export async function handleCsInquiry(
   const toolCtx: ToolContext = { customerId, inquiryId }
 
   // Build user message
-  let userMessage = `문의 카테고리: ${category}\n제목: ${title}\n\n${content}`
+  let userMessage = `문의 카테고리: ${category}\n\n${content}`
   if (subscriptionId) {
     userMessage += `\n\n(고객이 선택한 관련 구독 ID: ${subscriptionId})`
   }

@@ -127,7 +127,7 @@ export async function POST(req: Request) {
               inquiry_id: inquiry.id,
               author_type: 'system',
               author_name: null,
-              content: '관리자 확인이 필요한 사안입니다. 영업일 1일 이내에 답변 드리겠습니다.',
+              content: '관리자 확인이 필요한 사안입니다. 평균 영업일 1일 이내에 답변 드리겠습니다.',
             })
           }
         }

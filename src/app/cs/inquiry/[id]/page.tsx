@@ -124,7 +124,7 @@ export default function InquiryDetailPage() {
           </span>
           <StatusBadge status={ist.status} size="xs">{ist.label}</StatusBadge>
         </div>
-        <h1 className="text-lg font-semibold">{inquiry.title}</h1>
+        <h1 className="text-lg font-semibold">{CS_CATEGORY_LABELS[inquiry.category] || inquiry.category} 문의</h1>
         <p className="text-xs text-muted-foreground mt-0.5">{formatDate(inquiry.created_at)}</p>
       </div>
 
@@ -161,7 +161,7 @@ export default function InquiryDetailPage() {
         <Card className="border-dashed">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-4 w-4 border-2 border-foreground border-t-transparent rounded-full animate-spin shrink-0" />
-            <p className="text-sm text-muted-foreground">답변을 준비하고 있습니다. 잠시만 기다려 주세요.</p>
+            <p className="text-sm text-muted-foreground">답변을 준비하고 있습니다. 평균 1시간 이내로 답변 드립니다.</p>
           </CardContent>
         </Card>
       )}
