@@ -741,6 +741,10 @@ export function SubscriptionsTab() {
                       onCheckedChange={toggleSelectAll}
                     />
                   </TableHead>
+                  <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('created_at')}>
+                    주문일 <SortIcon field="created_at" />
+                  </TableHead>
+                  <TableHead className="w-[130px]">주문번호</TableHead>
                   <TableHead className="w-[80px]">상태</TableHead>
                   <TableHead className="w-[90px]">발송상태</TableHead>
                   <TableHead className="w-[110px]">PC</TableHead>
@@ -761,10 +765,6 @@ export function SubscriptionsTab() {
                   <TableHead className="w-[60px] text-center">D-Day</TableHead>
                   <TableHead className="w-[100px]">정지/재개</TableHead>
                   <TableHead className="w-[80px] text-center">발송순서</TableHead>
-                  <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('created_at')}>
-                    주문일 <SortIcon field="created_at" />
-                  </TableHead>
-                  <TableHead className="w-[130px]">주문번호</TableHead>
                   <TableHead className="min-w-[100px]">메모</TableHead>
                 </TableRow>
               </TableHeader>
@@ -785,6 +785,16 @@ export function SubscriptionsTab() {
                           checked={selectedIds.has(sub.id)}
                           className="pointer-events-none"
                         />
+                      </TableCell>
+
+                      {/* 주문일 */}
+                      <TableCell className="py-1 text-xs tabular-nums text-muted-foreground">
+                        {sub.order_item?.order?.ordered_at?.slice(0, 10) || sub.created_at?.slice(0, 10) || '-'}
+                      </TableCell>
+
+                      {/* 주문번호 */}
+                      <TableCell className="py-1 font-mono text-[11px] text-muted-foreground">
+                        {sub.matched_order_no || sub.order_item?.order?.imweb_order_no || '-'}
                       </TableCell>
 
                       {/* 상태 (읽기 전용) */}
@@ -1111,16 +1121,6 @@ export function SubscriptionsTab() {
                             <SelectItem value="4">🐢 늦게</SelectItem>
                           </SelectContent>
                         </Select>
-                      </TableCell>
-
-                      {/* 주문일 */}
-                      <TableCell className="py-1 text-xs tabular-nums text-muted-foreground">
-                        {sub.order_item?.order?.ordered_at?.slice(0, 10) || sub.created_at?.slice(0, 10) || '-'}
-                      </TableCell>
-
-                      {/* 주문번호 */}
-                      <TableCell className="py-1 font-mono text-[11px] text-muted-foreground">
-                        {sub.matched_order_no || sub.order_item?.order?.imweb_order_no || '-'}
                       </TableCell>
 
                       {/* 메모 */}
