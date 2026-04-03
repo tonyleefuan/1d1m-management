@@ -49,6 +49,23 @@ export async function POST(req: Request) {
 
     // ── device_id 있으면: 해당 PC의 대기열 생성 ──
 
+    // 중복 방지: 해당 PC+날짜에 이미 대기열이 있으면 스킵
+    const { count: deviceExisting } = await supabase
+      .from('send_queues')
+      .select('id', { count: 'exact', head: true })
+      .eq('send_date', date)
+      .eq('device_id', deviceId)
+
+    if (deviceExisting && deviceExisting > 0) {
+      return NextResponse.json({
+        ok: true,
+        generated: 0,
+        device_id: deviceId,
+        skipped: true,
+        message: `이미 ${deviceExisting}건의 대기열이 존재하여 스킵합니다`,
+      })
+    }
+
     // 해당 PC의 live 구독 조회 (페이지네이션)
     const PAGE_SIZE = 1000
     const subs: any[] = []
