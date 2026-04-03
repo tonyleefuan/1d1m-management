@@ -52,11 +52,13 @@ export async function POST(req: Request) {
     const updateMap = new Map<string, { id: string; status: 'sent' | 'failed'; sent_at: string | null }>()
     let skipped = 0
 
+    const sheetErrors: string[] = []
     for (const device of devices) {
       let rows: string[][]
       try {
         rows = await readSheetData(device.phone_number)
-      } catch {
+      } catch (err: any) {
+        sheetErrors.push(`${device.phone_number}: ${err?.message || '시트 읽기 실패'}`)
         continue
       }
 
@@ -233,6 +235,7 @@ export async function POST(req: Request) {
       sent: sentCount,
       failed: failedCount,
       skipped,
+      sheetErrors: sheetErrors.length > 0 ? sheetErrors : undefined,
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || '결과 가져오기 중 오류가 발생했습니다' }, { status: 500 })

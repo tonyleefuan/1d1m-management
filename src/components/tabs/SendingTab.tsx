@@ -259,6 +259,7 @@ export function SendingTab() {
       let totalGenerated = 0
       let skippedDevices = 0
       const failedDevices: string[] = []
+      const zeroDevices: string[] = []
       for (let i = 0; i < deviceList.length; i++) {
         const device = deviceList[i]
         setGeneratingProgress(`${device.phone_number} 처리 중... (${i + 1}/${deviceList.length} PC, 현재 ${totalGenerated}건)`)
@@ -275,14 +276,25 @@ export function SendingTab() {
             continue
           }
           totalGenerated += devJson.generated || 0
-          if (devJson.skipped) skippedDevices++
+          if (devJson.skipped) { skippedDevices++; continue }
+          // 0건 생성 시 원인 추적
+          if ((devJson.generated || 0) === 0) {
+            const reason = devJson.reason === 'no_live_subscriptions' ? '활성 구독 없음'
+              : devJson.reason === 'all_skipped' ? `구독 ${devJson.subscriptions}건 중 메시지 없음 ${devJson.skippedNoMsg}건, Day범위초과 ${devJson.skippedDayRange}건`
+              : '원인 불명'
+            zeroDevices.push(`${device.phone_number}: ${reason}`)
+          }
         } catch (err) {
           failedDevices.push(`${device.phone_number}: ${err instanceof Error ? err.message : '네트워크 오류'}`)
         }
       }
 
+      // 결과 알림
       if (failedDevices.length > 0) {
         showError(`${failedDevices.length}개 PC 실패:\n${failedDevices.join('\n')}`)
+      }
+      if (zeroDevices.length > 0) {
+        showError(`${zeroDevices.length}개 PC 0건 생성:\n${zeroDevices.join('\n')}`)
       }
       if (skippedDevices === deviceList.length && failedDevices.length === 0) {
         showError('모든 PC에 이미 대기열이 존재합니다. 삭제 후 재생성하세요.')

@@ -46,7 +46,7 @@ export async function PATCH(req: Request) {
     }
 
     return NextResponse.json({ ok: true })
-  } catch {
-    return NextResponse.json({ error: '서버 오류' }, { status: 500 })
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || '발송 설정 저장 중 오류가 발생했습니다' }, { status: 500 })
   }
 }
