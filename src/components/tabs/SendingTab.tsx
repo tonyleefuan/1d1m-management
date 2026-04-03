@@ -255,29 +255,39 @@ export function SendingTab() {
         return
       }
 
-      // 2단계: PC별 순차 생성
+      // 2단계: PC별 순차 생성 (개별 PC 실패해도 나머지 계속 진행)
       let totalGenerated = 0
       let skippedDevices = 0
+      const failedDevices: string[] = []
       for (let i = 0; i < deviceList.length; i++) {
         const device = deviceList[i]
         setGeneratingProgress(`${device.phone_number} 처리 중... (${i + 1}/${deviceList.length} PC, 현재 ${totalGenerated}건)`)
 
-        const devRes = await fetch('/api/sending/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date: sendDate, device_id: device.id }),
-        })
-        const devJson = await devRes.json()
-        if (!devRes.ok) throw new Error(devJson.error || `${device.phone_number} 생성 실패`)
-        totalGenerated += devJson.generated || 0
-        if (devJson.skipped) skippedDevices++
+        try {
+          const devRes = await fetch('/api/sending/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: sendDate, device_id: device.id }),
+          })
+          const devJson = await devRes.json()
+          if (!devRes.ok) {
+            failedDevices.push(`${device.phone_number}: ${devJson.error || '생성 실패'}`)
+            continue
+          }
+          totalGenerated += devJson.generated || 0
+          if (devJson.skipped) skippedDevices++
+        } catch (err) {
+          failedDevices.push(`${device.phone_number}: ${err instanceof Error ? err.message : '네트워크 오류'}`)
+        }
       }
 
-      if (skippedDevices === deviceList.length) {
+      if (failedDevices.length > 0) {
+        showError(`${failedDevices.length}개 PC 실패:\n${failedDevices.join('\n')}`)
+      }
+      if (skippedDevices === deviceList.length && failedDevices.length === 0) {
         showError('모든 PC에 이미 대기열이 존재합니다. 삭제 후 재생성하세요.')
-      } else {
-        showSuccess(`대기열 ${totalGenerated}건 생성 완료 (${deviceList.length}개 PC${skippedDevices > 0 ? `, ${skippedDevices}개 스킵` : ''})`
-        )
+      } else if (totalGenerated > 0) {
+        showSuccess(`대기열 ${totalGenerated}건 생성 완료 (${deviceList.length}개 PC${skippedDevices > 0 ? `, ${skippedDevices}개 스킵` : ''}${failedDevices.length > 0 ? `, ${failedDevices.length}개 실패` : ''})`)
       }
       fetchSummary(); fetchQueue(1)
     } catch (err) {
@@ -348,20 +358,31 @@ export function SendingTab() {
 
       const deviceList = listJson.devices || []
       let totalGenerated = 0
+      const failedDevices: string[] = []
       for (let i = 0; i < deviceList.length; i++) {
         const device = deviceList[i]
         setGeneratingProgress(`${device.phone_number} 처리 중... (${i + 1}/${deviceList.length} PC, 현재 ${totalGenerated}건)`)
-        const devRes = await fetch('/api/sending/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date: sendDate, device_id: device.id }),
-        })
-        const devJson = await devRes.json()
-        if (!devRes.ok) throw new Error(devJson.error || `${device.phone_number} 생성 실패`)
-        totalGenerated += devJson.generated || 0
+        try {
+          const devRes = await fetch('/api/sending/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: sendDate, device_id: device.id }),
+          })
+          const devJson = await devRes.json()
+          if (!devRes.ok) {
+            failedDevices.push(`${device.phone_number}: ${devJson.error || '생성 실패'}`)
+            continue
+          }
+          totalGenerated += devJson.generated || 0
+        } catch (err) {
+          failedDevices.push(`${device.phone_number}: ${err instanceof Error ? err.message : '네트워크 오류'}`)
+        }
       }
 
-      showSuccess(`대기열 재생성 완료: ${totalGenerated}건 (${deviceList.length}개 PC)`)
+      if (failedDevices.length > 0) {
+        showError(`재생성 중 ${failedDevices.length}개 PC 실패:\n${failedDevices.join('\n')}`)
+      }
+      showSuccess(`대기열 재생성 완료: ${totalGenerated}건 (${deviceList.length}개 PC${failedDevices.length > 0 ? `, ${failedDevices.length}개 실패` : ''})`)
       fetchSummary(); fetchQueue(1)
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 재생성 실패')

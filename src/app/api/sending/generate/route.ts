@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { todayKST } from '@/lib/day'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 /**
  * POST /api/sending/generate
@@ -21,9 +21,8 @@ export async function POST(req: Request) {
     const date = body.date || todayKST()
     const deviceId = body.device_id || null
 
-    // ── device_id 없으면: PC 목록 반환 (프론트가 순차 호출할 목록) ──
+    // ── device_id 없으면: PC 목록 반환 ──
     if (!deviceId) {
-      // 이미 대기열 있는지 확인
       const { count: existing } = await supabase
         .from('send_queues')
         .select('id', { count: 'exact', head: true })
@@ -33,23 +32,17 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: `${date} 대기열이 이미 ${existing}건 존재합니다. 삭제 후 재생성하세요.` }, { status: 400 })
       }
 
-      // 활성 디바이스 목록 반환
       const { data: devices } = await supabase
         .from('send_devices')
         .select('id, phone_number')
         .eq('is_active', true)
 
-      return NextResponse.json({
-        ok: true,
-        mode: 'device_list',
-        devices: devices || [],
-        date,
-      })
+      return NextResponse.json({ ok: true, mode: 'device_list', devices: devices || [], date })
     }
 
     // ── device_id 있으면: 해당 PC의 대기열 생성 ──
 
-    // 중복 방지: 해당 PC+날짜에 이미 대기열이 있으면 스킵
+    // 중복 방지
     const { count: deviceExisting } = await supabase
       .from('send_queues')
       .select('id', { count: 'exact', head: true })
@@ -58,15 +51,12 @@ export async function POST(req: Request) {
 
     if (deviceExisting && deviceExisting > 0) {
       return NextResponse.json({
-        ok: true,
-        generated: 0,
-        device_id: deviceId,
-        skipped: true,
+        ok: true, generated: 0, device_id: deviceId, skipped: true,
         message: `이미 ${deviceExisting}건의 대기열이 존재하여 스킵합니다`,
       })
     }
 
-    // 해당 PC의 live 구독 조회 (페이지네이션)
+    // 1) 구독 조회 (페이지네이션)
     const PAGE_SIZE = 1000
     const subs: any[] = []
     let from = 0
@@ -101,45 +91,71 @@ export async function POST(req: Request) {
       return aDate.localeCompare(bDate)
     })
 
-    // 메시지 캐시
-    const msgCache = new Map<string, { content: string; image_path: string | null; sort_order: number }[]>()
+    // 2) 메시지 벌크 프리페치 — 개별 쿼리 수천 회 → 2회로 최적화
+    const fixedKeys = new Set<string>()
+    const realtimeProductIds = new Set<string>()
 
-    async function getMessages(productId: string, messageType: string, day: number) {
-      const cacheKey = `${productId}:${day}:${messageType}`
-      if (msgCache.has(cacheKey)) return msgCache.get(cacheKey)!
-
-      let messages: { content: string; image_path: string | null; sort_order: number }[] = []
-
-      if (messageType === 'realtime') {
-        const { data, error } = await supabase
-          .from('daily_messages')
-          .select('content, image_path')
-          .eq('product_id', productId)
-          .eq('send_date', date)
-          .eq('status', 'approved')
-          .limit(1)
-        if (error) throw new Error(`실시간 메시지 조회 실패: ${error.message}`)
-        if (data?.length) {
-          messages = [{ content: data[0].content, image_path: data[0].image_path, sort_order: 1 }]
-        }
+    for (const sub of subs) {
+      const product = sub.product as any
+      const currentDay = sub.day
+      if (currentDay < 1 || currentDay > sub.duration_days) continue
+      if (product?.message_type === 'realtime') {
+        realtimeProductIds.add(sub.product_id)
       } else {
-        const { data, error } = await supabase
-          .from('messages')
-          .select('content, image_path, sort_order')
-          .eq('product_id', productId)
-          .eq('day_number', day)
-          .order('sort_order', { ascending: true })
-        if (error) throw new Error(`고정 메시지 조회 실패: ${error.message}`)
-        if (data?.length) messages = data
+        fixedKeys.add(`${sub.product_id}:${currentDay}`)
       }
-
-      msgCache.set(cacheKey, messages)
-      return messages
     }
 
-    // 대기열 레코드 생성
+    // fixed 메시지 한 번에 조회
+    const fixedMsgMap = new Map<string, { content: string; image_path: string | null; sort_order: number }[]>()
+    if (fixedKeys.size > 0) {
+      const productDayPairs = [...fixedKeys].map(k => {
+        const [pid, day] = k.split(':')
+        return { pid, day: Number(day) }
+      })
+      // 고유 product_id 목록
+      const uniqueProductIds = [...new Set(productDayPairs.map(p => p.pid))]
+      const uniqueDays = [...new Set(productDayPairs.map(p => p.day))]
+
+      // 벌크 조회 (product_id IN (...) AND day_number IN (...))
+      const allFixedMsgs: any[] = []
+      for (let i = 0; i < uniqueProductIds.length; i += 50) {
+        const pidBatch = uniqueProductIds.slice(i, i + 50)
+        const { data, error } = await supabase
+          .from('messages')
+          .select('product_id, day_number, content, image_path, sort_order')
+          .in('product_id', pidBatch)
+          .in('day_number', uniqueDays)
+          .order('sort_order', { ascending: true })
+        if (error) return NextResponse.json({ error: `고정 메시지 조회 실패: ${error.message}` }, { status: 500 })
+        if (data) allFixedMsgs.push(...data)
+      }
+
+      // 맵으로 정리
+      for (const msg of allFixedMsgs) {
+        const key = `${msg.product_id}:${msg.day_number}`
+        if (!fixedMsgMap.has(key)) fixedMsgMap.set(key, [])
+        fixedMsgMap.get(key)!.push({ content: msg.content, image_path: msg.image_path, sort_order: msg.sort_order })
+      }
+    }
+
+    // realtime 메시지 한 번에 조회
+    const realtimeMsgMap = new Map<string, { content: string; image_path: string | null }>()
+    if (realtimeProductIds.size > 0) {
+      const { data, error } = await supabase
+        .from('daily_messages')
+        .select('product_id, content, image_path')
+        .in('product_id', [...realtimeProductIds])
+        .eq('send_date', date)
+        .eq('status', 'approved')
+      if (error) return NextResponse.json({ error: `실시간 메시지 조회 실패: ${error.message}` }, { status: 500 })
+      data?.forEach(dm => realtimeMsgMap.set(dm.product_id, { content: dm.content, image_path: dm.image_path }))
+    }
+
+    // 3) 대기열 레코드 생성 (순수 인메모리 — DB 쿼리 없음)
     const queueRows: any[] = []
     let sortOrder = 0
+    let skippedNoMsg = 0
 
     for (const sub of subs) {
       const product = sub.product as any
@@ -149,10 +165,19 @@ export async function POST(req: Request) {
 
       if (currentDay < 1 || currentDay > sub.duration_days) continue
 
-      const messages = await getMessages(sub.product_id, product?.message_type, currentDay)
-      if (!messages.length) continue
+      let messages: { content: string; image_path: string | null; sort_order: number }[] = []
 
-      const totalItems = messages.reduce((n: number, m: any) => n + 1 + (m.image_path ? 1 : 0), 0)
+      if (product?.message_type === 'realtime') {
+        const dm = realtimeMsgMap.get(sub.product_id)
+        if (dm) messages = [{ content: dm.content, image_path: dm.image_path, sort_order: 1 }]
+      } else {
+        const key = `${sub.product_id}:${currentDay}`
+        messages = fixedMsgMap.get(key) || []
+      }
+
+      if (!messages.length) { skippedNoMsg++; continue }
+
+      const totalItems = messages.reduce((n: number, m) => n + 1 + (m.image_path ? 1 : 0), 0)
       let seqNum = 0
 
       for (const msg of messages) {
@@ -190,15 +215,15 @@ export async function POST(req: Request) {
     }
 
     if (!queueRows.length) {
-      return NextResponse.json({ ok: true, generated: 0, device_id: deviceId })
+      return NextResponse.json({ ok: true, generated: 0, device_id: deviceId, skippedNoMsg })
     }
 
-    // 500개씩 배치 삽입
+    // 4) 배치 삽입 (500개씩)
     let inserted = 0
     for (let i = 0; i < queueRows.length; i += 500) {
       const batch = queueRows.slice(i, i + 500)
       const { error } = await supabase.from('send_queues').insert(batch)
-      if (error) return NextResponse.json({ error: `대기열 생성 실패: ${error.message}` }, { status: 500 })
+      if (error) return NextResponse.json({ error: `대기열 삽입 실패: ${error.message}` }, { status: 500 })
       inserted += batch.length
     }
 
@@ -207,6 +232,7 @@ export async function POST(req: Request) {
       generated: inserted,
       device_id: deviceId,
       subscriptions: subs.length,
+      skippedNoMsg,
       date,
     })
   } catch (err: any) {
