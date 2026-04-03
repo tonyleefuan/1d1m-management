@@ -104,17 +104,26 @@ export function SendingTab() {
   // 대기열
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [summary, setSummary] = useState<Record<string, DeviceSummary>>({})
+  const [totalCount, setTotalCount] = useState(0)
   const [devices, setDevices] = useState<SendDevice[]>([])
   const [selectedDevice, setSelectedDevice] = useState<string>('')
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [summaryLoading, setSummaryLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const generatingRef = useRef(false)
   const [generatingProgress, setGeneratingProgress] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
 
+  // 페이지네이션
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(0)
+  const PAGE_LIMIT = 100
+
   // 체크박스 + 검색
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   // 구글시트 연동
   const [exporting, setExporting] = useState(false)
@@ -135,48 +144,68 @@ export function SendingTab() {
     }
   }, [showError])
 
-  const fetchSettings = useCallback(async () => {
+  // 요약만 빠르게 (초기 로딩용)
+  const fetchSummary = useCallback(async () => {
+    if (!sendDate) return
+    setSummaryLoading(true)
     try {
-      const res = await fetch('/api/sending/settings')
-      if (!res.ok) throw new Error('설정 로드 실패')
-      const data = await res.json()
-      const st = data.send_start_time || '04:00'
-      setStartTime(st)
-      setMsgDelay(Number(data.send_message_delay) || 3)
-      setFileDelay(Number(data.send_file_delay) || 6)
-      // 설정 로드 후 디폴트 날짜 계산
-      if (!sendDate) {
-        setSendDate(getDefaultSendDate())
-      }
-      // 구글시트 연동 시각
-      setLastExportAt(data.last_sheet_export_at || null)
-      setLastImportAt(data.last_sheet_import_at || null)
+      const res = await fetch(`/api/sending/queue-summary?date=${sendDate}`)
+      if (!res.ok) throw new Error('요약 로드 실패')
+      const json = await res.json()
+      setSummary(json.summary || {})
+      setTotalCount(json.totalCount || 0)
+      // settings도 여기서 받아옴
+      const s = json.settings || {}
+      setStartTime(String(s.send_start_time || '04:00'))
+      setMsgDelay(Number(s.send_message_delay) || 3)
+      setFileDelay(Number(s.send_file_delay) || 6)
+      setLastExportAt(s.last_sheet_export_at || null)
+      setLastImportAt(s.last_sheet_import_at || null)
     } catch (err) {
-      showError(err instanceof Error ? err.message : '발송 설정을 불러오는데 실패했습니다')
+      showError(err instanceof Error ? err.message : '요약을 불러오는데 실패했습니다')
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showError])
+    setSummaryLoading(false)
+  }, [sendDate, showError])
 
-  const fetchQueue = useCallback(async () => {
+  // 상세 대기열 (페이지네이션)
+  const fetchQueue = useCallback(async (page = 1) => {
     if (!sendDate) return
     setLoading(true)
     try {
-      const params = new URLSearchParams({ date: sendDate })
+      const params = new URLSearchParams({ date: sendDate, page: String(page), limit: String(PAGE_LIMIT) })
       if (selectedDevice) params.set('device_id', selectedDevice)
       if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
+      if (debouncedSearch) params.set('search', debouncedSearch)
       const res = await fetch(`/api/sending/queue?${params}`)
       if (!res.ok) throw new Error('발송 대기열 로드 실패')
       const json = await res.json()
       setQueue(json.data || [])
-      setSummary(json.summary || {})
+      setCurrentPage(json.pagination?.page || 1)
+      setTotalPages(json.pagination?.totalPages || 0)
     } catch (err) {
       showError(err instanceof Error ? err.message : '발송 대기열을 불러오는데 실패했습니다')
     }
     setLoading(false)
-  }, [sendDate, selectedDevice, statusFilter, showError])
+  }, [sendDate, selectedDevice, statusFilter, debouncedSearch, showError])
 
-  useEffect(() => { fetchDevices(); fetchSettings() }, [fetchDevices, fetchSettings])
-  useEffect(() => { fetchQueue() }, [fetchQueue])
+  // 검색 디바운스 (500ms)
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => {
+      setDebouncedSearch(value)
+      setCurrentPage(1)
+    }, 500)
+  }
+
+  // 초기 디폴트 날짜 설정
+  useEffect(() => {
+    if (!sendDate) setSendDate(getDefaultSendDate())
+  }, [sendDate])
+
+  useEffect(() => { fetchDevices() }, [fetchDevices])
+  useEffect(() => { fetchSummary() }, [fetchSummary])
+  useEffect(() => { fetchQueue(currentPage) }, [fetchQueue, currentPage])
 
   // ─── Actions ───
 
@@ -250,7 +279,7 @@ export function SendingTab() {
         showSuccess(`대기열 ${totalGenerated}건 생성 완료 (${deviceList.length}개 PC${skippedDevices > 0 ? `, ${skippedDevices}개 스킵` : ''})`
         )
       }
-      fetchQueue()
+      fetchSummary(); fetchQueue(1)
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 생성 실패')
     }
@@ -278,7 +307,7 @@ export function SendingTab() {
       })
       if (!res.ok) throw new Error('대기열 삭제 실패')
       showSuccess(`${label} 대기열 삭제 완료`)
-      fetchQueue()
+      fetchSummary(); fetchQueue(1)
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 삭제에 실패했습니다')
     }
@@ -333,7 +362,7 @@ export function SendingTab() {
       }
 
       showSuccess(`대기열 재생성 완료: ${totalGenerated}건 (${deviceList.length}개 PC)`)
-      fetchQueue()
+      fetchSummary(); fetchQueue(1)
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 재생성 실패')
     }
@@ -373,7 +402,7 @@ export function SendingTab() {
       }
       showSuccess(msg)
       setLastExportAt(new Date().toISOString())
-      fetchQueue()
+      fetchSummary(); fetchQueue(1)
     } catch (err) {
       showError(err instanceof Error ? err.message : '시트 내보내기에 실패했습니다')
     }
@@ -394,7 +423,7 @@ export function SendingTab() {
       showSuccess(`선택 내보내기 완료: ${json.total}건 (${json.devices}개 PC)${json.appended ? ' — 시트에 추가됨' : ''}`)
       setLastExportAt(new Date().toISOString())
       setSelectedIds(new Set())
-      fetchQueue()
+      fetchSummary(); fetchQueue(1)
     } catch (err) {
       showError(err instanceof Error ? err.message : '선택 내보내기에 실패했습니다')
     }
@@ -413,7 +442,7 @@ export function SendingTab() {
       if (!res.ok) throw new Error(json.error || '결과 가져오기 실패')
       showSuccess(`결과 가져오기 완료: 성공 ${json.sent}건, 실패 ${json.failed}건, 미처리 ${json.skipped}건`)
       setLastImportAt(new Date().toISOString())
-      fetchQueue()
+      fetchSummary(); fetchQueue(1)
     } catch (err) {
       showError(err instanceof Error ? err.message : '결과 가져오기에 실패했습니다')
     }
@@ -439,20 +468,10 @@ export function SendingTab() {
 
   const displaySummary = selectedDevice ? (summary[selectedDevice] || { total: 0, pending: 0, sent: 0, failed: 0 }) : totalSummary
 
-  // 검색 필터링
-  const filteredQueue = searchQuery
-    ? queue.filter(item => {
-        const q = searchQuery.toLowerCase()
-        return item.kakao_friend_name?.toLowerCase().includes(q) ||
-          item.message_content?.toLowerCase().includes(q) ||
-          item.subscription?.product?.sku_code?.toLowerCase().includes(q)
-      })
-    : queue
-
-  // 전체 선택/해제
+  // 전체 선택/해제 (현재 페이지만)
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedIds(new Set(filteredQueue.map(item => item.id)))
+      setSelectedIds(new Set(queue.map(item => item.id)))
     } else {
       setSelectedIds(new Set())
     }
@@ -465,7 +484,7 @@ export function SendingTab() {
     setSelectedIds(next)
   }
 
-  const isAllSelected = filteredQueue.length > 0 && filteredQueue.every(item => selectedIds.has(item.id))
+  const isAllSelected = queue.length > 0 && queue.every(item => selectedIds.has(item.id))
 
   const formatTime = (isoStr: string | null) => {
     if (!isoStr) return '-'
@@ -545,7 +564,7 @@ export function SendingTab() {
               </Button>
             )}
             <div className="ml-auto flex items-center gap-2">
-              {queue.length > 0 && (
+              {totalCount > 0 && (
                 <Button size="sm" variant="outline" onClick={() => clearQueue()} className="h-8 text-destructive hover:text-destructive">
                   {selectedDevice ? '이 PC 대기열 삭제' : '전체 대기열 삭제'}
                 </Button>
@@ -641,7 +660,7 @@ export function SendingTab() {
           {devices.filter(d => d.is_active).map((d) => {
             const s = summary[d.id] || { total: 0, pending: 0, sent: 0, failed: 0 }
             return (
-              <Card key={d.id} className="cursor-pointer hover:border-foreground/30 transition-colors border-l-4" style={{ borderLeftColor: d.color || undefined }} onClick={() => setSelectedDevice(d.id)}>
+              <Card key={d.id} className="cursor-pointer hover:border-foreground/30 transition-colors border-l-4" style={{ borderLeftColor: d.color || undefined }} onClick={() => { setSelectedDevice(d.id); setCurrentPage(1) }}>
                 <CardContent className="p-3">
                   <div className="text-xs text-muted-foreground mb-1 flex items-center justify-between">
                     <span>{d.phone_number}</span>
@@ -667,7 +686,7 @@ export function SendingTab() {
       )}
 
       {/* PC 탭 */}
-      <Tabs value={selectedDevice || '__all__'} onValueChange={(v) => setSelectedDevice(v === '__all__' ? '' : v)}>
+      <Tabs value={selectedDevice || '__all__'} onValueChange={(v) => { setSelectedDevice(v === '__all__' ? '' : v); setCurrentPage(1) }}>
         <TabsList className="w-full justify-start overflow-x-auto h-auto p-1">
           <TabsTrigger value="__all__" className="text-xs">
             전체 ({totalSummary.total})
@@ -694,7 +713,7 @@ export function SendingTab() {
       <FilterBar
         filters={
           <div className="flex items-center gap-2">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1) }}>
               <SelectTrigger className="h-8 w-[100px] text-xs">
                 <SelectValue placeholder="전체 상태" />
               </SelectTrigger>
@@ -708,9 +727,9 @@ export function SendingTab() {
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
               <Input
-                placeholder="이름/상품 검색"
+                placeholder="이름 검색"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="h-8 w-[180px] text-xs pl-7"
               />
             </div>
@@ -729,9 +748,9 @@ export function SendingTab() {
       {/* 대기열 테이블 */}
       <Card>
         <CardContent className="p-0">
-          {loading ? (
+          {(loading || summaryLoading) ? (
             <SkeletonTable cols={10} rows={8} />
-          ) : queue.length === 0 ? (
+          ) : totalCount === 0 ? (
             <div className="py-12">
               <EmptyState
                 icon={Radio}
@@ -762,7 +781,7 @@ export function SendingTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredQueue.map((item) => {
+                {queue.map((item) => {
                   const sub = item.subscription
                   const statusConfig = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending
                   return (
@@ -819,6 +838,35 @@ export function SendingTab() {
                 })}
               </TableBody>
             </Table>
+          )}
+          {/* 페이지네이션 */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <span className="text-xs text-muted-foreground">
+                {((currentPage - 1) * PAGE_LIMIT) + 1}–{Math.min(currentPage * PAGE_LIMIT, totalCount)}건 / 총 {totalCount}건
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs px-2"
+                  disabled={currentPage <= 1 || loading}
+                  onClick={() => setCurrentPage(p => p - 1)}
+                >
+                  이전
+                </Button>
+                <span className="text-xs px-2 tabular-nums">{currentPage} / {totalPages}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs px-2"
+                  disabled={currentPage >= totalPages || loading}
+                  onClick={() => setCurrentPage(p => p + 1)}
+                >
+                  다음
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

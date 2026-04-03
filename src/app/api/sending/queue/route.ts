@@ -11,6 +11,9 @@ export async function GET(req: Request) {
   const deviceId = searchParams.get('device_id') || ''
   const date = searchParams.get('date') || todayKST()
   const status = searchParams.get('status') || ''
+  const search = searchParams.get('search') || ''
+  const page = Math.max(1, Number(searchParams.get('page')) || 1)
+  const limit = Math.min(500, Math.max(1, Number(searchParams.get('limit')) || 100))
 
   // 발송 설정 조회 (예상 시간 계산용)
   const { data: settingsData } = await supabase
@@ -28,73 +31,60 @@ export async function GET(req: Request) {
     settings[row.key] = typeof val === 'string' ? val.replace(/^"|"$/g, '') : val
   })
 
-  // 대기열 조회 (페이지네이션: Supabase 기본 1000행 제한 우회)
-  const PAGE_SIZE = 1000
-  const data: any[] = []
-  let from = 0
-  while (true) {
-    let query = supabase
-      .from('send_queues')
-      .select(`
-        *,
-        subscription:subscriptions(
-          id, day, duration_days, send_priority,
-          product:products(sku_code, title)
-        )
-      `)
-      .eq('send_date', date)
-      .order('sort_order', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
+  // 페이지네이션 계산
+  const from = (page - 1) * limit
+  const to = from + limit - 1
 
-    if (deviceId) query = query.eq('device_id', deviceId)
-    if (status) query = query.eq('status', status)
+  // 쿼리 빌드
+  let query = supabase
+    .from('send_queues')
+    .select(`
+      *,
+      subscription:subscriptions(
+        id, day, duration_days, send_priority,
+        product:products(sku_code, title)
+      )
+    `, { count: 'exact' })
+    .eq('send_date', date)
+    .order('sort_order', { ascending: true })
+    .range(from, to)
 
-    const { data: page, error } = await query
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    if (!page?.length) break
-    data.push(...page)
-    if (page.length < PAGE_SIZE) break
-    from += PAGE_SIZE
-  }
+  if (deviceId) query = query.eq('device_id', deviceId)
+  if (status) query = query.eq('status', status)
+  if (search) query = query.ilike('kakao_friend_name', `%${search}%`)
 
-  // 예상 시간 계산
+  const { data, error, count } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // 예상 시간 계산 (이 페이지 항목만)
   const startTime = String(settings.send_start_time)
   const msgDelay = Number(settings.send_message_delay) || 3
   const fileDelay = Number(settings.send_file_delay) || 6
   const [startH, startM] = startTime.split(':').map(Number)
   const baseSeconds = startH * 3600 + startM * 60
 
-  // PC별로 순서 카운트해서 예상 시간 계산
-  const deviceCounters = new Map<string, number>()
   const enriched = data?.map(item => {
-    const deviceSeq = deviceCounters.get(item.device_id) || 0
+    // sort_order 기반으로 예상 시간 계산 (sort_order는 전체 순서)
     const delay = item.image_path ? fileDelay : msgDelay
-    const elapsedSeconds = deviceSeq > 0 ? deviceSeq * delay : 0
+    const elapsedSeconds = (item.sort_order - 1) * delay
     const estimatedSeconds = baseSeconds + elapsedSeconds
     const h = Math.floor(estimatedSeconds / 3600) % 24
     const m = Math.floor((estimatedSeconds % 3600) / 60)
     const s = estimatedSeconds % 60
     const estimated_time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 
-    deviceCounters.set(item.device_id, deviceSeq + 1)
-
     return { ...item, estimated_time }
-  })
-
-  // PC별 요약
-  const summary: Record<string, { total: number; pending: number; sent: number; failed: number }> = {}
-  data?.forEach(item => {
-    if (!summary[item.device_id]) {
-      summary[item.device_id] = { total: 0, pending: 0, sent: 0, failed: 0 }
-    }
-    summary[item.device_id].total++
-    summary[item.device_id][item.status as 'pending' | 'sent' | 'failed']++
   })
 
   return NextResponse.json({
     data: enriched,
-    summary,
     settings,
     date,
+    pagination: {
+      page,
+      limit,
+      total: count || 0,
+      totalPages: Math.ceil((count || 0) / limit),
+    },
   })
 }
