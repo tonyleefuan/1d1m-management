@@ -741,12 +741,14 @@ export function SubscriptionsTab() {
                       onCheckedChange={toggleSelectAll}
                     />
                   </TableHead>
-                  <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('created_at')}>
-                    주문일 <SortIcon field="created_at" />
-                  </TableHead>
-                  <TableHead className="w-[130px]">주문번호</TableHead>
+                  <TableHead className="w-[80px]">상태</TableHead>
+                  <TableHead className="w-[90px]">발송상태</TableHead>
+                  <TableHead className="w-[110px]">PC</TableHead>
                   <TableHead className="min-w-[80px]">고객명</TableHead>
                   <TableHead className="min-w-[80px]">카톡이름</TableHead>
+                  <TableHead className="w-[50px] text-center cursor-pointer select-none" onClick={() => toggleSort('day')}>
+                    Day <SortIcon field="day" />
+                  </TableHead>
                   <TableHead className="w-[90px]">상품</TableHead>
                   <TableHead className="min-w-[120px]">상품명</TableHead>
                   <TableHead className="w-[60px] text-center">기간</TableHead>
@@ -756,15 +758,13 @@ export function SubscriptionsTab() {
                   <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('end_date')}>
                     종료일 <SortIcon field="end_date" />
                   </TableHead>
-                  <TableHead className="w-[50px] text-center cursor-pointer select-none" onClick={() => toggleSort('day')}>
-                    Day <SortIcon field="day" />
-                  </TableHead>
                   <TableHead className="w-[60px] text-center">D-Day</TableHead>
-                  <TableHead className="w-[80px]">상태</TableHead>
-                  <TableHead className="w-[90px]">발송상태</TableHead>
-                  <TableHead className="w-[110px]">PC</TableHead>
                   <TableHead className="w-[100px]">정지/재개</TableHead>
                   <TableHead className="w-[80px] text-center">발송순서</TableHead>
+                  <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('created_at')}>
+                    주문일 <SortIcon field="created_at" />
+                  </TableHead>
+                  <TableHead className="w-[130px]">주문번호</TableHead>
                   <TableHead className="min-w-[100px]">메모</TableHead>
                 </TableRow>
               </TableHeader>
@@ -787,133 +787,7 @@ export function SubscriptionsTab() {
                         />
                       </TableCell>
 
-                      {/* 1.5 주문일 */}
-                      <TableCell className="py-1 text-xs tabular-nums text-muted-foreground">
-                        {sub.order_item?.order?.ordered_at?.slice(0, 10) || sub.created_at?.slice(0, 10) || '-'}
-                      </TableCell>
-
-                      {/* 1.6 주문번호 */}
-                      <TableCell className="py-1 font-mono text-[11px] text-muted-foreground">
-                        {sub.matched_order_no || sub.order_item?.order?.imweb_order_no || '-'}
-                      </TableCell>
-
-                      {/* 2. 고객명 */}
-                      <TableCell
-                        className="py-1 text-xs font-medium cursor-pointer"
-                        onClick={() => openDetail(sub)}
-                      >
-                        {sub.customer?.name}
-                      </TableCell>
-
-                      {/* 3. 카톡이름 (inline editable) */}
-                      <TableCell className="py-1 text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
-                        {editingKakaoId === sub.id ? (
-                          <Input
-                            autoFocus
-                            className="h-6 w-[100px] text-xs px-1"
-                            value={editingKakaoValue}
-                            onChange={(e) => setEditingKakaoValue(e.target.value)}
-                            onBlur={() => handleKakaoNameSave(sub.id, editingKakaoValue)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleKakaoNameSave(sub.id, editingKakaoValue)
-                              if (e.key === 'Escape') setEditingKakaoId(null)
-                            }}
-                          />
-                        ) : (
-                          <span
-                            className="cursor-pointer hover:text-foreground"
-                            onClick={() => {
-                              setEditingKakaoId(sub.id)
-                              setEditingKakaoValue(sub.customer?.kakao_friend_name || '')
-                            }}
-                          >
-                            {sub.customer?.kakao_friend_name || '-'}
-                          </span>
-                        )}
-                      </TableCell>
-
-                      {/* 5. 상품 */}
-                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
-                        <Select
-                          value={sub.product_id}
-                          onValueChange={(v) => handleProductChange(sub.id, v)}
-                        >
-                          <SelectTrigger className="h-6 w-[100px] text-xs border-0 bg-transparent px-1 font-mono">
-                            <SelectValue>{sub.product?.sku_code || '-'}</SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {products.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.sku_code} — {p.title}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-
-                      {/* 5.5 상품명 */}
-                      <TableCell className="py-1 text-xs text-muted-foreground">
-                        {sub.product?.title || '-'}
-                      </TableCell>
-
-                      {/* 6. 기간 */}
-                      <TableCell className="py-1 text-center text-xs tabular-nums">
-                        {sub.duration_days}일
-                      </TableCell>
-
-                      {/* 7. 시작일 */}
-                      <TableCell className="py-1 text-xs tabular-nums">
-                        {sub.start_date || '-'}
-                      </TableCell>
-
-                      {/* 8. 종료일 */}
-                      <TableCell className="py-1 text-xs tabular-nums">
-                        {sub.end_date || '-'}
-                      </TableCell>
-
-                      {/* 9. Day */}
-                      <TableCell className="py-1 text-center text-xs tabular-nums" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-transparent hover:border-muted-foreground/40 hover:bg-muted/50 cursor-pointer transition-colors text-foreground"
-                          title="클릭하여 Day 변경"
-                          onClick={() => {
-                            const input = prompt(`다음 발송할 Day를 입력하세요.\n\n현재 Day: ${sub.current_day}\n\n예) 30 입력 → Day 30부터 발송\n(1~${sub.duration_days} 범위)`)
-                            if (input === null) return
-                            const num = parseInt(input, 10)
-                            if (isNaN(num) || num < 1 || num > sub.duration_days) {
-                              showError(`1~${sub.duration_days} 범위의 숫자를 입력하세요`)
-                              return
-                            }
-                            updateSubscription(sub.id, { last_sent_day: num - 1 }).then(ok => {
-                              if (ok) {
-                                showSuccess(`Day ${num}부터 발송됩니다`)
-                                fetchSubs()
-                              }
-                            })
-                          }}
-                        >
-                          {sub.current_day > 0 ? sub.current_day : '-'}
-                        </button>
-                      </TableCell>
-
-                      {/* 10. D-Day */}
-                      <TableCell
-                        className={cn(
-                          'py-1 text-center text-xs tabular-nums font-medium',
-                          sub.computed_status === 'paused'
-                            ? 'text-muted-foreground'
-                            : sub.d_day !== null && sub.d_day <= 0
-                              ? 'text-destructive'
-                              : sub.d_day !== null && sub.d_day <= 7
-                                ? 'text-amber-600 dark:text-amber-400'
-                                : '',
-                        )}
-                      >
-                        {sub.computed_status === 'paused' ? '정지' : sub.d_day !== null ? sub.d_day : '-'}
-                      </TableCell>
-
-                      {/* 11. 상태 (읽기 전용) */}
+                      {/* 상태 (읽기 전용) */}
                       <TableCell className="py-1">
                         <StatusBadge
                           status={COMPUTED_STATUS_MAP[sub.computed_status]?.status ?? 'neutral'}
@@ -924,7 +798,7 @@ export function SubscriptionsTab() {
                         </StatusBadge>
                       </TableCell>
 
-                      {/* 12. 발송상태 */}
+                      {/* 발송상태 */}
                       <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
                         {sub.failure_type ? (
                           <Button
@@ -950,7 +824,7 @@ export function SubscriptionsTab() {
                         )}
                       </TableCell>
 
-                      {/* 13. PC */}
+                      {/* PC */}
                       <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
                         <Select
                           value={sub.device_id || '__none__'}
@@ -999,7 +873,123 @@ export function SubscriptionsTab() {
                         </Select>
                       </TableCell>
 
-                      {/* 14. 정지/재개 */}
+                      {/* 고객명 */}
+                      <TableCell
+                        className="py-1 text-xs font-medium cursor-pointer"
+                        onClick={() => openDetail(sub)}
+                      >
+                        {sub.customer?.name}
+                      </TableCell>
+
+                      {/* 3. 카톡이름 (inline editable) */}
+                      <TableCell className="py-1 text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+                        {editingKakaoId === sub.id ? (
+                          <Input
+                            autoFocus
+                            className="h-6 w-[100px] text-xs px-1"
+                            value={editingKakaoValue}
+                            onChange={(e) => setEditingKakaoValue(e.target.value)}
+                            onBlur={() => handleKakaoNameSave(sub.id, editingKakaoValue)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleKakaoNameSave(sub.id, editingKakaoValue)
+                              if (e.key === 'Escape') setEditingKakaoId(null)
+                            }}
+                          />
+                        ) : (
+                          <span
+                            className="cursor-pointer hover:text-foreground"
+                            onClick={() => {
+                              setEditingKakaoId(sub.id)
+                              setEditingKakaoValue(sub.customer?.kakao_friend_name || '')
+                            }}
+                          >
+                            {sub.customer?.kakao_friend_name || '-'}
+                          </span>
+                        )}
+                      </TableCell>
+
+                      {/* Day */}
+                      <TableCell className="py-1 text-center text-xs tabular-nums" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-transparent hover:border-muted-foreground/40 hover:bg-muted/50 cursor-pointer transition-colors text-foreground"
+                          title="클릭하여 Day 변경"
+                          onClick={() => {
+                            const input = prompt(`다음 발송할 Day를 입력하세요.\n\n현재 Day: ${sub.current_day}\n\n예) 30 입력 → Day 30부터 발송\n(1~${sub.duration_days} 범위)`)
+                            if (input === null) return
+                            const num = parseInt(input, 10)
+                            if (isNaN(num) || num < 1 || num > sub.duration_days) {
+                              showError(`1~${sub.duration_days} 범위의 숫자를 입력하세요`)
+                              return
+                            }
+                            updateSubscription(sub.id, { last_sent_day: num - 1 }).then(ok => {
+                              if (ok) {
+                                showSuccess(`Day ${num}부터 발송됩니다`)
+                                fetchSubs()
+                              }
+                            })
+                          }}
+                        >
+                          {sub.current_day > 0 ? sub.current_day : '-'}
+                        </button>
+                      </TableCell>
+
+                      {/* 5. 상품 */}
+                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={sub.product_id}
+                          onValueChange={(v) => handleProductChange(sub.id, v)}
+                        >
+                          <SelectTrigger className="h-6 w-[100px] text-xs border-0 bg-transparent px-1 font-mono">
+                            <SelectValue>{sub.product?.sku_code || '-'}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.sku_code} — {p.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+
+                      {/* 5.5 상품명 */}
+                      <TableCell className="py-1 text-xs text-muted-foreground">
+                        {sub.product?.title || '-'}
+                      </TableCell>
+
+                      {/* 6. 기간 */}
+                      <TableCell className="py-1 text-center text-xs tabular-nums">
+                        {sub.duration_days}일
+                      </TableCell>
+
+                      {/* 7. 시작일 */}
+                      <TableCell className="py-1 text-xs tabular-nums">
+                        {sub.start_date || '-'}
+                      </TableCell>
+
+                      {/* 8. 종료일 */}
+                      <TableCell className="py-1 text-xs tabular-nums">
+                        {sub.end_date || '-'}
+                      </TableCell>
+
+                      {/* 10. D-Day */}
+                      <TableCell
+                        className={cn(
+                          'py-1 text-center text-xs tabular-nums font-medium',
+                          sub.computed_status === 'paused'
+                            ? 'text-muted-foreground'
+                            : sub.d_day !== null && sub.d_day <= 0
+                              ? 'text-destructive'
+                              : sub.d_day !== null && sub.d_day <= 7
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : '',
+                        )}
+                      >
+                        {sub.computed_status === 'paused' ? '정지' : sub.d_day !== null ? sub.d_day : '-'}
+                      </TableCell>
+
+                      {/* 정지/재개 */}
                       <TableCell className="py-1 text-xs" onClick={(e) => e.stopPropagation()}>
                         {(sub.computed_status === 'paused' || sub.computed_status === 'active') ? (
                           <Popover
@@ -1123,7 +1113,17 @@ export function SubscriptionsTab() {
                         </Select>
                       </TableCell>
 
-                      {/* 17. 메모 */}
+                      {/* 주문일 */}
+                      <TableCell className="py-1 text-xs tabular-nums text-muted-foreground">
+                        {sub.order_item?.order?.ordered_at?.slice(0, 10) || sub.created_at?.slice(0, 10) || '-'}
+                      </TableCell>
+
+                      {/* 주문번호 */}
+                      <TableCell className="py-1 font-mono text-[11px] text-muted-foreground">
+                        {sub.matched_order_no || sub.order_item?.order?.imweb_order_no || '-'}
+                      </TableCell>
+
+                      {/* 메모 */}
                       <TableCell
                         className="py-1 text-xs text-muted-foreground cursor-pointer truncate max-w-[150px]"
                         title={sub.memo || undefined}
