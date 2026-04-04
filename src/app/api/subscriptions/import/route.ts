@@ -16,10 +16,12 @@ export interface ParsedImportRow {
   dDay: number
   sku: string
   durationDays: number
+  orderNo: string
   // Resolved IDs
   customerId: string | null
   productId: string | null
   deviceId: string | null
+  orderItemId: string | null
   // Computed
   lastSentDay: number
   // Skip reason
@@ -55,6 +57,7 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   dDay: ['d-day', 'dday', 'd day', '디데이'],
   sku: ['sku', '상품코드', '상품 코드', 'product code', 'sku code', 'sku_code'],
   duration: ['기간', '구독기간', '구독 기간', 'duration', 'days', 'total days', 'total_days'],
+  orderNo: ['주문번호', '주문 번호', 'order number', 'order_no', 'order no', '주문섹션품목번호'],
 }
 
 function normalizeHeader(h: string): string {
@@ -166,10 +169,11 @@ export async function POST(req: Request) {
     }
 
     // 2. Load reference tables
-    const [productsRes, devicesRes, customersRes] = await Promise.all([
+    const [productsRes, devicesRes, customersRes, orderItemsRes] = await Promise.all([
       supabase.from('products').select('id, sku_code'),
       supabase.from('send_devices').select('id, phone_number'),
       supabase.from('customers').select('id, kakao_friend_name'),
+      supabase.from('order_items').select('id, imweb_item_no, order:orders(imweb_order_no)'),
     ])
 
     const productMap = new Map<string, string>()
@@ -183,6 +187,16 @@ export async function POST(req: Request) {
     customersRes.data?.forEach(c => {
       if (c.kakao_friend_name && !customerMap.has(c.kakao_friend_name)) {
         customerMap.set(c.kakao_friend_name, c.id)
+      }
+    })
+
+    // order_items: imweb_order_no → order_item_id (optional matching)
+    const orderItemMap = new Map<string, string>()
+    orderItemsRes.data?.forEach((oi: any) => {
+      const orderNo = oi.order?.imweb_order_no
+      if (orderNo && oi.id) {
+        // Could have multiple items per order, just use first match
+        if (!orderItemMap.has(orderNo)) orderItemMap.set(orderNo, oi.id)
       }
     })
 
@@ -212,6 +226,7 @@ export async function POST(req: Request) {
       const pcNumber = getField(raw, colMap, 'pc')?.toString().trim()
       const kakaoName = getField(raw, colMap, 'kakao')?.toString().trim()
       const statusRaw = getField(raw, colMap, 'status')?.toString().trim()
+      const orderNo = getField(raw, colMap, 'orderNo')?.toString().trim() || ''
 
       // Skip empty rows
       if (!sku && !pcNumber && !kakaoName) {
@@ -222,6 +237,7 @@ export async function POST(req: Request) {
       const productId = sku ? productMap.get(sku) || null : null
       const deviceId = pcNumber ? deviceMap.get(pcNumber) || null : null
       const customerId = kakaoName ? customerMap.get(kakaoName) || null : null
+      const orderItemId = orderNo ? orderItemMap.get(orderNo) || null : null
 
       let skipReason: string | null = null
 
@@ -279,9 +295,11 @@ export async function POST(req: Request) {
         dDay: parseNumber(getField(raw, colMap, 'dDay')),
         sku: sku || '',
         durationDays,
+        orderNo,
         customerId,
         productId,
         deviceId,
+        orderItemId,
         lastSentDay,
         skipReason,
       })

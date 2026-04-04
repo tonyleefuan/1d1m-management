@@ -16,6 +16,7 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   day: ['day', '일차', 'days'],
   sku: ['sku', '상품코드', '상품 코드', 'product code', 'sku code', 'sku_code'],
   duration: ['기간', '구독기간', '구독 기간', 'duration', 'days', 'total days', 'total_days'],
+  orderNo: ['주문번호', '주문 번호', 'order number', 'order_no', 'order no', '주문섹션품목번호'],
 }
 
 function normalizeHeader(h: string): string {
@@ -108,10 +109,11 @@ export async function POST(req: Request) {
     const colMap = buildColumnMap(headers)
 
     // 2. Load reference tables
-    const [productsRes, devicesRes, customersRes] = await Promise.all([
+    const [productsRes, devicesRes, customersRes, orderItemsRes] = await Promise.all([
       supabase.from('products').select('id, sku_code'),
       supabase.from('send_devices').select('id, phone_number'),
       supabase.from('customers').select('id, kakao_friend_name'),
+      supabase.from('order_items').select('id, imweb_item_no, order:orders(imweb_order_no)'),
     ])
 
     const productMap = new Map<string, string>()
@@ -127,6 +129,14 @@ export async function POST(req: Request) {
       }
     })
 
+    const orderItemMap = new Map<string, string>()
+    orderItemsRes.data?.forEach((oi: any) => {
+      const orderNo = oi.order?.imweb_order_no
+      if (orderNo && oi.id && !orderItemMap.has(orderNo)) {
+        orderItemMap.set(orderNo, oi.id)
+      }
+    })
+
     // 3. Day offset
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
     const dayOffset = diffDays(today, referenceDate)
@@ -137,6 +147,7 @@ export async function POST(req: Request) {
       customerId: string
       productId: string
       deviceId: string | null
+      orderItemId: string | null
       status: string
       startDate: string
       endDate: string
@@ -150,6 +161,7 @@ export async function POST(req: Request) {
       const sku = getField(raw, colMap, 'sku')?.toString().trim()
       const pcNumber = getField(raw, colMap, 'pc')?.toString().trim()
       const kakaoName = getField(raw, colMap, 'kakao')?.toString().trim()
+      const orderNo = getField(raw, colMap, 'orderNo')?.toString().trim() || ''
       const statusRaw = getField(raw, colMap, 'status')?.toString().trim()
 
       if (!sku && !pcNumber && !kakaoName) { skipped++; continue }
@@ -176,10 +188,13 @@ export async function POST(req: Request) {
       lastSentDay = Math.max(0, lastSentDay)
       if (durationDays > 0) lastSentDay = Math.min(lastSentDay, durationDays)
 
+      const orderItemId = orderNo ? orderItemMap.get(orderNo) || null : null
+
       validRows.push({
         customerId,
         productId,
         deviceId,
+        orderItemId,
         status: statusRaw ? parseStatus(statusRaw) : 'live',
         startDate: parseDate(getField(raw, colMap, 'startDate')),
         endDate: parseDate(getField(raw, colMap, 'endDate')),
@@ -226,7 +241,7 @@ export async function POST(req: Request) {
         last_sent_day: row.lastSentDay,
         paused_days: 0,
         is_cancelled: row.status === 'cancel',
-        order_item_id: null,
+        order_item_id: row.orderItemId || null,
       }
 
       if (existingId) {
