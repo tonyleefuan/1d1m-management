@@ -32,7 +32,6 @@ export interface ProductPrice {
   id: string
   product_id: string
   duration_days: number
-  channel: 'kakaotalk' | 'imessage'
   price: number
   created_at: string
 }
@@ -69,7 +68,6 @@ export interface OrderItem {
   imweb_item_no: string
   product_id: string
   duration_days: number
-  channel: 'kakaotalk' | 'imessage'
   list_price: number
   allocated_amount: number
   is_addon: boolean

@@ -66,7 +66,6 @@ export async function POST(req: Request) {
         const priceRows = prices.map((p: any) => ({
           product_id: productId,
           duration_days: p.duration_days,
-          channel: p.channel || 'kakaotalk',
           price: p.price,
         }))
 

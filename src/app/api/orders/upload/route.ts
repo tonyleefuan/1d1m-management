@@ -88,7 +88,7 @@ export async function POST(req: Request) {
       for (const item of items) {
         const product = productMap.get(item.product_sku)
         const priceEntry = product?.product_prices?.find(
-          (p: any) => p.duration_days === item.duration_days && p.channel === item.channel
+          (p: any) => p.duration_days === item.duration_days
         ) || product?.product_prices?.[0]
         const listPrice = priceEntry?.price || 0
         listPrices.push(listPrice)

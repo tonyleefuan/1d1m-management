@@ -101,7 +101,6 @@ export async function POST(req: Request) {
         imweb_item_no: item.imweb_item_no,
         product_id: productMap.get(item.product_sku),
         duration_days: item.duration_days,
-        channel: item.channel,
         list_price: item.list_price || 0,
         allocated_amount: item.allocated_amount || 0,
         is_addon: item.is_addon,

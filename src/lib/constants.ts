@@ -44,10 +44,6 @@ export const STATUS_COLORS: Record<SubscriptionStatus, string> = {
 export const MESSAGE_TYPES = ['fixed', 'realtime'] as const
 export type MessageType = typeof MESSAGE_TYPES[number]
 
-// Channels
-export const CHANNELS = ['kakaotalk', 'imessage'] as const
-export type Channel = typeof CHANNELS[number]
-
 // Tab config
 export interface TabConfig {
   id: string

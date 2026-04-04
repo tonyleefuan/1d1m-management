@@ -141,7 +141,7 @@
 **동일 가격 상품만 AI 처리 가능**
 
 #### 가격 비교 기준
-- `product_prices`에서 동일 `duration_days`, 동일 `channel`의 `price` 비교
+- `product_prices`에서 동일 `duration_days`의 `price` 비교
 
 #### 가격 동일 → 즉시 처리
 ```

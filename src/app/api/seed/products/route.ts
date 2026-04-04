@@ -63,7 +63,6 @@ export async function POST(req: Request) {
         const priceRows = p.prices.map(pr => ({
           product_id: newProduct.id,
           duration_days: pr.duration_days,
-          channel: 'kakaotalk',
           price: pr.price,
         }))
         const { error: priceError } = await supabase.from('product_prices').insert(priceRows)

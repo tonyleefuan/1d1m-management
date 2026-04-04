@@ -28,7 +28,6 @@ export interface ParsedOrderItem {
   customer_phone: string
   product_sku: string        // 실제 구독할 상품 SKU
   duration_days: number | null  // null이면 해당 상품의 최대 기간 사용
-  channel: 'kakaotalk' | 'imessage'
   is_addon: boolean
   raw_product_sku: string
   raw_option_sku: string
@@ -38,11 +37,6 @@ export interface ParsedOrderItem {
 }
 
 const DURATION_VALUES = ['90', '180', '365', '1000']
-
-function parseChannel(optionName: string): 'kakaotalk' | 'imessage' {
-  if (optionName?.toLowerCase().includes('imessage')) return 'imessage'
-  return 'kakaotalk'
-}
 
 function parseDurationFromOptionName(optionName: string): number | null {
   // "(180일)" 또는 "(365일)" 패턴에서 숫자 추출
@@ -93,7 +87,6 @@ export function parseOrderRows(rows: RawOrderRow[]): ParsedOrderItem[] {
     const productSku = row['상품 SKU']?.trim() || ''
     const optionSku = row['옵션 SKU']?.trim() || ''
     const optionName = row['옵션명'] || ''
-    const channel = parseChannel(optionName)
 
     let finalSku: string
     let durationDays: number | null
@@ -112,7 +105,6 @@ export function parseOrderRows(rows: RawOrderRow[]): ParsedOrderItem[] {
         imweb_item_no: row['주문섹션품목번호']?.trim() || '',
         customer_name: row['주문자 이름']?.trim() || '',
         customer_phone: row['주문자 번호']?.trim() || '',
-        channel,
         raw_product_sku: productSku,
         raw_option_sku: optionSku,
         raw_option_name: optionName,
@@ -154,7 +146,6 @@ export function parseOrderRows(rows: RawOrderRow[]): ParsedOrderItem[] {
       customer_phone: row['주문자 번호']?.trim() || '',
       product_sku: finalSku,
       duration_days: durationDays,
-      channel,
       is_addon: isAddon,
       raw_product_sku: productSku,
       raw_option_sku: optionSku,

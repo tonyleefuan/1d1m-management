@@ -42,16 +42,15 @@ function ProductFormModal({
   const [totalDays, setTotalDays] = useState(product?.total_days?.toString() || '')
   const [description, setDescription] = useState(product?.description || '')
   const [isActive, setIsActive] = useState(product?.is_active ?? true)
-  const [prices, setPrices] = useState<{ duration_days: number; channel: string; price: number }[]>(
+  const [prices, setPrices] = useState<{ duration_days: number; price: number }[]>(
     product?.product_prices?.map(p => ({
       duration_days: p.duration_days,
-      channel: p.channel,
       price: p.price,
     })) || []
   )
 
   const addPrice = () => {
-    setPrices([...prices, { duration_days: 365, channel: 'kakaotalk', price: 0 }])
+    setPrices([...prices, { duration_days: 365, price: 0 }])
   }
 
   const removePrice = (idx: number) => {
@@ -197,15 +196,6 @@ function ProductFormModal({
                 placeholder="일수"
               />
               <span className="text-xs text-muted-foreground">일</span>
-              <Select value={p.channel} onValueChange={v => updatePrice(i, 'channel', v)}>
-                <SelectTrigger className="w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="kakaotalk">카카오톡</SelectItem>
-                  <SelectItem value="imessage">iMessage</SelectItem>
-                </SelectContent>
-              </Select>
               <Input
                 type="number"
                 value={p.price}
