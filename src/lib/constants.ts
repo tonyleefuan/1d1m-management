@@ -81,20 +81,29 @@ export const PC_COLORS = [
 ] as const
 
 // CS Categories
-export const CS_CATEGORIES = ['message_never_received', 'message_stopped', 'pause_resume', 'product_change', 'cancel_refund', 'other'] as const
+export const CS_CATEGORIES = [
+  'message_never_received', 'message_stopped', 'pause_resume', 'product_change',
+  'cancel_refund', 'delivery_time', 'payment_info', 'other',
+] as const
+export type CsCategory = typeof CS_CATEGORIES[number]
+
 export const CS_CATEGORY_LABELS: Record<string, string> = {
-  message_never_received: '메시지를 한 번도 받지 못했어요',
+  message_never_received: '메시지가 처음부터 안 와요',
   message_stopped: '메시지가 오다가 안 와요',
+  // legacy alias
+  message_not_received: '메시지 미수신',
   pause_resume: '일시정지/재개',
   product_change: '상품 변경',
   cancel_refund: '취소/환불',
+  delivery_time: '발송 시간',
+  payment_info: '결제/이용기간',
   other: '기타',
 }
 
-// CS 카테고리별 가이드 질문 — AI가 물어볼 정보를 폼에서 미리 수집
 export const CS_CATEGORY_GUIDES: Record<string, {
   checklist?: { key: string; label: string }[]
   select?: { key: string; label: string; options: { value: string; label: string }[] }[]
+  date?: { key: string; label: string }[]
   hint?: string
 }> = {
   message_never_received: {
@@ -106,7 +115,10 @@ export const CS_CATEGORY_GUIDES: Record<string, {
     hint: '연락처 등록을 완료하시면 다음 날부터 메시지가 발송됩니다. 스팸 방지 및 다른 분에게 잘못된 메시지가 전달되지 않도록 확인하는 절차이니 양해 부탁드립니다. 위 항목을 모두 완료하셨는데도 메시지가 오지 않는 경우 아래에 문의해 주세요.',
   },
   message_stopped: {
-    hint: '마지막으로 메시지를 받으신 날짜와 함께 상황을 알려 주시면 빠르게 확인해 드리겠습니다.',
+    date: [
+      { key: 'last_received_date', label: '마지막으로 메시지를 받으신 날짜' },
+    ],
+    hint: '날짜와 함께 상황을 알려 주시면 빠르게 확인해 드리겠습니다.',
   },
   pause_resume: {
     select: [
@@ -122,12 +134,29 @@ export const CS_CATEGORY_GUIDES: Record<string, {
         { value: 'card', label: '카드 결제' },
         { value: 'bank_transfer', label: '계좌이체 / 무통장입금' },
       ]},
+      { key: 'card_over_30_days', label: '결제한 지 30일이 초과되었나요?', options: [
+        { value: 'no', label: '아니오 (30일 이내)' },
+        { value: 'yes', label: '네 (30일 초과)' },
+      ]},
     ],
-    hint: '환불 정책 안내:\n• 결제 후 3일 이내: 전액 환불\n• 결제 후 3일 초과: 결제 금액에서 이용일수 금액과 위약금(결제 금액의 30%)을 차감한 금액이 환불됩니다.\n• 위약금은 메시지 발송 등록 비용, 유지 관리 비용, 수수료 등에 해당합니다.\n\n환불 요청을 접수해 주시면 영업일 3일 내로 환불 처리가 완료됩니다.',
+    hint: '환불 정책 안내:\n\u2022 결제 후 3일 이내: 전액 환불\n\u2022 결제 후 3일 초과: 결제 금액에서 이용일수 금액과 위약금(결제 금액의 30%)을 차감한 금액이 환불됩니다.\n\u2022 위약금은 메시지 발송 등록 비용, 유지 관리 비용, 수수료 등에 해당합니다.\n\n환불 요청을 접수해 주시면 영업일 3일 내로 환불 처리가 완료됩니다.',
   },
   product_change: {
-    hint: '변경을 원하는 상품명을 아래에 적어 주세요. 동일 가격 상품만 변경 가능합니다.',
+    hint: '변경을 원하는 상품을 아래에서 선택해 주세요. 동일 가격 상품만 변경 가능합니다.',
   },
+}
+
+/** 카테고리별 AI 응답 한도 (DB cs_policies.ai_max_replies 기본값) */
+export const CS_AI_REPLY_LIMITS: Record<string, number> = {
+  message_not_received: 3,
+  pause_resume: 2,
+  product_change: 2,
+  cancel_refund: 4,
+  delivery_time: 1,
+  payment_info: 2,
+  general_notice: 1,
+  onboarding: 1,
+  other: 1,
 }
 
 export const CS_STATUS_LABELS: Record<string, string> = {
@@ -142,8 +171,8 @@ export const CS_STATUS_LABELS: Record<string, string> = {
 // Refund
 export const REFUND_STATUS_LABELS: Record<string, string> = {
   pending: '접수',
-  approved: '승인',
-  completed: '완료',
+  approved: '환불 완료',
+  completed: '환불 완료',
   rejected: '거절',
 }
 

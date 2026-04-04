@@ -24,14 +24,22 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { CS_CATEGORY_LABELS, CS_CATEGORY_GUIDES } from '@/lib/constants'
+import { CS_CATEGORIES, CS_CATEGORY_LABELS, CS_CATEGORY_GUIDES } from '@/lib/constants'
 
 interface Sub {
   id: string
+  product_id: string
   product: { title: string } | null
+  duration_days: number
   current_day: number
   computed_status: string
   d_day: number | null
+}
+
+interface ChangeableProduct {
+  id: string
+  title: string
+  sku_code: string
 }
 
 interface Inquiry {
@@ -74,12 +82,19 @@ export default function CSDashboard() {
   const [submitting, setSubmitting] = useState(false)
   const [guideChecks, setGuideChecks] = useState<Record<string, boolean>>({})
   const [guideSelects, setGuideSelects] = useState<Record<string, string>>({})
+  const [guideDates, setGuideDates] = useState<Record<string, string>>({})
+  const [changeableProducts, setChangeableProducts] = useState<ChangeableProduct[]>([])
+  const [selectedProductId, setSelectedProductId] = useState('')
+  const [loadingProducts, setLoadingProducts] = useState(false)
 
   // 카테고리 변경 시 가이드 상태 초기화
   const handleCategoryChange = (cat: string) => {
     setFormCategory(cat)
     setGuideChecks({})
     setGuideSelects({})
+    setGuideDates({})
+    setChangeableProducts([])
+    setSelectedProductId('')
   }
 
   const fetchData = useCallback(async () => {
@@ -117,6 +132,22 @@ export default function CSDashboard() {
     router.push('/cs')
   }
 
+  // 상품 변경: 선택한 구독의 동일 가격 상품 목록 조회
+  const fetchChangeableProducts = async (subId: string) => {
+    setChangeableProducts([])
+    setSelectedProductId('')
+    if (!subId) return
+    setLoadingProducts(true)
+    try {
+      const res = await fetch(`/api/cs/products?subscription_id=${subId}`)
+      if (res.ok) {
+        const json = await res.json()
+        setChangeableProducts(json.data || [])
+      }
+    } catch { /* ignore */ }
+    setLoadingProducts(false)
+  }
+
   // 가이드 응답을 content 앞에 구조화하여 합치기
   const buildContent = () => {
     const guide = CS_CATEGORY_GUIDES[formCategory]
@@ -132,21 +163,46 @@ export default function CSDashboard() {
     }
 
     if (guide.select?.length) {
-      const lines = guide.select.map(s => {
+      // cancel_refund에서 card_over_30_days는 카드 결제 시에만 포함
+      const visibleSelects = guide.select.filter(s => {
+        if (s.key === 'card_over_30_days') return guideSelects['payment_method'] === 'card'
+        return true
+      })
+      const lines = visibleSelects.map(s => {
         const selected = s.options.find(o => o.value === guideSelects[s.key])
         return `- ${s.label}: ${selected?.label || '미선택'}`
       })
       parts.push(`[선택 정보]\n${lines.join('\n')}`)
     }
 
-    // 계좌 정보
-    if (formCategory === 'cancel_refund' && guideSelects['payment_method'] === 'bank_transfer') {
+    // 날짜 정보
+    if (guide.date?.length) {
+      const lines = guide.date.map(d =>
+        `- ${d.label}: ${guideDates[d.key] || '미입력'}`
+      )
+      parts.push(`[날짜 정보]\n${lines.join('\n')}`)
+    }
+
+    // 계좌 정보 (계좌이체 또는 카드 30일 초과)
+    const needBank = formCategory === 'cancel_refund' && (
+      guideSelects['payment_method'] === 'bank_transfer' ||
+      (guideSelects['payment_method'] === 'card' && guideSelects['card_over_30_days'] === 'yes')
+    )
+    if (needBank) {
       const bankLines = [
         `- 은행명: ${guideSelects['bank_name'] || '미입력'}`,
         `- 계좌번호: ${guideSelects['account_number'] || '미입력'}`,
         `- 예금주: ${guideSelects['account_holder'] || '미입력'}`,
       ]
       parts.push(`[환불 계좌]\n${bankLines.join('\n')}`)
+    }
+
+    // 상품 변경 선택
+    if (formCategory === 'product_change' && selectedProductId) {
+      const prod = changeableProducts.find(p => p.id === selectedProductId)
+      if (prod) {
+        parts.push(`[상품 변경]\n- 변경 희망 상품: ${prod.title}`)
+      }
     }
 
     if (parts.length > 0) {
@@ -189,6 +245,9 @@ export default function CSDashboard() {
       setFormContent('')
       setGuideChecks({})
       setGuideSelects({})
+      setGuideDates({})
+      setChangeableProducts([])
+      setSelectedProductId('')
       router.push(`/cs/inquiry/${data.data.id}`)
     } catch {
       setFormError('서버 연결에 실패했습니다.')
@@ -302,8 +361,8 @@ export default function CSDashboard() {
                   <SelectValue placeholder="카테고리 선택" />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(CS_CATEGORY_LABELS).map(([k, v]) => (
-                    <SelectItem key={k} value={k}>{v}</SelectItem>
+                  {CS_CATEGORIES.map(k => (
+                    <SelectItem key={k} value={k}>{CS_CATEGORY_LABELS[k]}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -312,9 +371,20 @@ export default function CSDashboard() {
             {/* 카테고리별 가이드 질문 */}
             {formCategory && CS_CATEGORY_GUIDES[formCategory] && (() => {
               const guide = CS_CATEGORY_GUIDES[formCategory]
+              // cancel_refund: 카드 결제 시에만 30일 초과 질문 표시
+              const visibleSelects = (guide.select || []).filter(s => {
+                if (s.key === 'card_over_30_days') return guideSelects['payment_method'] === 'card'
+                return true
+              })
+              // 계좌 입력 필요 조건: 계좌이체 또는 카드 30일 초과
+              const needBank = formCategory === 'cancel_refund' && (
+                guideSelects['payment_method'] === 'bank_transfer' ||
+                (guideSelects['payment_method'] === 'card' && guideSelects['card_over_30_days'] === 'yes')
+              )
               return (
                 <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
-                  {guide.select?.map(s => (
+                  {/* Select 필드 */}
+                  {visibleSelects.map(s => (
                     <div key={s.key} className="space-y-1.5">
                       <Label className="text-sm">{s.label}</Label>
                       <Select value={guideSelects[s.key] || ''} onValueChange={v => setGuideSelects(prev => ({ ...prev, [s.key]: v }))}>
@@ -329,6 +399,21 @@ export default function CSDashboard() {
                       </Select>
                     </div>
                   ))}
+
+                  {/* 날짜 필드 (message_stopped 등) */}
+                  {guide.date?.map(d => (
+                    <div key={d.key} className="space-y-1.5">
+                      <Label className="text-sm">{d.label}</Label>
+                      <Input
+                        type="date"
+                        value={guideDates[d.key] || ''}
+                        onChange={e => setGuideDates(prev => ({ ...prev, [d.key]: e.target.value }))}
+                        className="w-full"
+                      />
+                    </div>
+                  ))}
+
+                  {/* message_never_received 전용 안내 */}
                   {formCategory === 'message_never_received' && (
                     <div className="space-y-3">
                       <p className="text-sm font-medium">연락처 등록 방법</p>
@@ -363,58 +448,87 @@ export default function CSDashboard() {
                           </label>
                         ))}
                       </div>
-                      {guide.hint && (
-                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">{guide.hint}</p>
-                      )}
                     </div>
                   )}
-                  {formCategory !== 'message_never_received' && (
-                    <>
-                      {guide.checklist?.map(c => (
-                        <label key={c.key} className="flex items-center gap-2 cursor-pointer">
-                          <Checkbox
-                            checked={!!guideChecks[c.key]}
-                            onCheckedChange={(checked) => setGuideChecks(prev => ({ ...prev, [c.key]: !!checked }))}
-                          />
-                          <span className="text-sm">{c.label}</span>
-                        </label>
-                      ))}
-                      {/* 계좌이체 선택 시 환불 계좌 입력 */}
-                      {formCategory === 'cancel_refund' && guideSelects['payment_method'] === 'bank_transfer' && (
-                        <div className="space-y-2 border-t border-border pt-3">
-                          <p className="text-xs font-medium text-foreground">환불 받으실 계좌 정보</p>
-                          <Input
-                            placeholder="은행명 (예: 국민은행)"
-                            value={guideSelects['bank_name'] || ''}
-                            onChange={e => setGuideSelects(prev => ({ ...prev, bank_name: e.target.value }))}
-                          />
-                          <Input
-                            placeholder="계좌번호"
-                            value={guideSelects['account_number'] || ''}
-                            onChange={e => setGuideSelects(prev => ({ ...prev, account_number: e.target.value }))}
-                          />
-                          <Input
-                            placeholder="예금주"
-                            value={guideSelects['account_holder'] || ''}
-                            onChange={e => setGuideSelects(prev => ({ ...prev, account_holder: e.target.value }))}
-                          />
-                        </div>
-                      )}
-                      {guide.hint && (
-                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">{guide.hint}</p>
-                      )}
-                    </>
+
+                  {/* 일반 체크리스트 (message_never_received 외) */}
+                  {formCategory !== 'message_never_received' && guide.checklist?.map(c => (
+                    <label key={c.key} className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={!!guideChecks[c.key]}
+                        onCheckedChange={(checked) => setGuideChecks(prev => ({ ...prev, [c.key]: !!checked }))}
+                      />
+                      <span className="text-sm">{c.label}</span>
+                    </label>
+                  ))}
+
+                  {/* 카드 30일 초과 안내 + 계좌 입력 */}
+                  {formCategory === 'cancel_refund' && guideSelects['payment_method'] === 'card' && guideSelects['card_over_30_days'] === 'yes' && (
+                    <div className="space-y-2 border-t border-border pt-3">
+                      <p className="text-xs text-muted-foreground">
+                        결제일이 30일을 초과하여 PG사를 통한 카드 취소가 어렵습니다. 환불 받으실 계좌 정보를 입력해 주세요.
+                      </p>
+                      <Input
+                        placeholder="은행명 (예: 국민은행)"
+                        value={guideSelects['bank_name'] || ''}
+                        onChange={e => setGuideSelects(prev => ({ ...prev, bank_name: e.target.value }))}
+                      />
+                      <Input
+                        placeholder="계좌번호"
+                        value={guideSelects['account_number'] || ''}
+                        onChange={e => setGuideSelects(prev => ({ ...prev, account_number: e.target.value }))}
+                      />
+                      <Input
+                        placeholder="예금주"
+                        value={guideSelects['account_holder'] || ''}
+                        onChange={e => setGuideSelects(prev => ({ ...prev, account_holder: e.target.value }))}
+                      />
+                    </div>
+                  )}
+
+                  {/* 계좌이체 선택 시 환불 계좌 입력 */}
+                  {formCategory === 'cancel_refund' && guideSelects['payment_method'] === 'bank_transfer' && (
+                    <div className="space-y-2 border-t border-border pt-3">
+                      <p className="text-xs font-medium text-foreground">환불 받으실 계좌 정보</p>
+                      <Input
+                        placeholder="은행명 (예: 국민은행)"
+                        value={guideSelects['bank_name'] || ''}
+                        onChange={e => setGuideSelects(prev => ({ ...prev, bank_name: e.target.value }))}
+                      />
+                      <Input
+                        placeholder="계좌번호"
+                        value={guideSelects['account_number'] || ''}
+                        onChange={e => setGuideSelects(prev => ({ ...prev, account_number: e.target.value }))}
+                      />
+                      <Input
+                        placeholder="예금주"
+                        value={guideSelects['account_holder'] || ''}
+                        onChange={e => setGuideSelects(prev => ({ ...prev, account_holder: e.target.value }))}
+                      />
+                    </div>
+                  )}
+
+                  {/* 힌트 */}
+                  {guide.hint && (
+                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{guide.hint}</p>
                   )}
                 </div>
               )
             })()}
 
+            {/* 관련 구독 선택 */}
             {subs.length >= 1 && (
               <div className="space-y-2">
-                <Label>관련 구독 (선택)</Label>
-                <Select value={formSubId} onValueChange={setFormSubId}>
+                <Label>{formCategory === 'product_change' ? '변경할 구독' : '관련 구독 (선택)'}</Label>
+                <Select
+                  value={formSubId}
+                  onValueChange={v => {
+                    setFormSubId(v)
+                    if (formCategory === 'product_change') fetchChangeableProducts(v)
+                  }}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="구독 선택 (선택사항)" />
+                    <SelectValue placeholder="구독 선택" />
                   </SelectTrigger>
                   <SelectContent>
                     {subs.map(s => (
@@ -427,10 +541,33 @@ export default function CSDashboard() {
               </div>
             )}
 
+            {/* 상품 변경: 동일 가격 상품 선택 */}
+            {formCategory === 'product_change' && formSubId && (
+              <div className="space-y-2">
+                <Label>변경 희망 상품</Label>
+                {loadingProducts ? (
+                  <p className="text-xs text-muted-foreground">상품 목록 조회 중...</p>
+                ) : changeableProducts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">동일 가격의 변경 가능한 상품이 없습니다.</p>
+                ) : (
+                  <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="상품을 선택해 주세요" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {changeableProducts.map(p => (
+                        <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>내용</Label>
               <Textarea
-                placeholder="문의 내용을 입력해 주세요"
+                placeholder={CS_CATEGORY_GUIDES[formCategory]?.hint ? '' : '문의 내용을 입력해 주세요'}
                 rows={4}
                 value={formContent}
                 onChange={e => setFormContent(e.target.value)}
