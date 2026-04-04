@@ -247,7 +247,7 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
     case 'change_product': {
       const { data: sub } = await supabase
         .from('subscriptions')
-        .select('id, product_id, status, duration_days, last_sent_day, customer_id, product:products(id, title, message_type)')
+        .select('id, product_id, status, duration_days, last_sent_day, start_date, end_date, customer_id, product:products(id, title, message_type)')
         .eq('id', input.subscription_id)
         .eq('customer_id', customerId)
         .single()
@@ -309,14 +309,24 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
       const newMessageType = newProduct.message_type
 
       if (currentMessageType === 'fixed' || newMessageType === 'fixed') {
-        // 고정 메시지 상품이 포함된 변경: Day 1부터 재시작, 남은 일수만큼만 제공
-        const remainingDays = sub.duration_days - sub.last_sent_day
+        // 고정 메시지 상품이 포함된 변경: 내일부터 Day 1 재시작, end_date 유지
+        const tomorrow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }))
+        tomorrow.setDate(tomorrow.getDate() + 1)
+        const newStartDate = tomorrow.toISOString().slice(0, 10)
+
+        // duration_days = 새 start_date ~ 기존 end_date
+        const endDate = sub.end_date || newStartDate
+        const newDurationDays = Math.max(1,
+          Math.floor((new Date(endDate).getTime() - new Date(newStartDate).getTime()) / 86400000) + 1
+        )
+
         const { error } = await supabase
           .from('subscriptions')
           .update({
             product_id: input.new_product_id,
             last_sent_day: 0,
-            duration_days: remainingDays,
+            start_date: newStartDate,
+            duration_days: newDurationDays,
           })
           .eq('id', input.subscription_id)
 
@@ -329,8 +339,9 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
             new_product: newProduct.title,
             message_type: newMessageType,
             reset_to_day1: true,
-            remaining_days: remainingDays,
-            note: `고정 메시지 상품 변경으로 Day 1부터 재시작됩니다. 남은 ${remainingDays}일간 발송됩니다.`,
+            new_start_date: newStartDate,
+            remaining_days: newDurationDays,
+            note: `고정 메시지 상품 변경으로 내일(${newStartDate})부터 Day 1 재시작됩니다. 남은 ${newDurationDays}일간 발송됩니다.`,
           },
         }
       } else {
