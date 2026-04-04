@@ -76,7 +76,8 @@ export async function POST(req: Request) {
           : String(lastExportSetting.value))
       : null
 
-    const isAppend = lastExportDate === date // 같은 날짜면 이어 붙이기
+    // 같은 날짜 + 선택 내보내기 = 이어 붙이기, force 전체 재내보내기 = 초기화
+    const isAppend = lastExportDate === date && (!!queueIds || !force)
 
     // 같은 날짜에 전체 내보내기(선택 아님)를 또 하려는 경우 경고
     if (isAppend && !queueIds && !force) {
