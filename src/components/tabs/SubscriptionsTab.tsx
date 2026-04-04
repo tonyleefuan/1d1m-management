@@ -758,7 +758,11 @@ export function SubscriptionsTab() {
                   <TableHead className="w-[110px]">PC</TableHead>
                   <TableHead className="min-w-[80px]">고객명</TableHead>
                   <TableHead className="min-w-[80px]">카톡이름</TableHead>
-                  <TableHead className="w-[50px] text-center cursor-pointer select-none" onClick={() => toggleSort('day')}>
+                  <TableHead
+                    className="w-[50px] text-center cursor-pointer select-none"
+                    onClick={() => toggleSort('day')}
+                    title="시작일 기준 경과일 (발송 모니터링의 Day는 다음 발송할 Day)"
+                  >
                     Day <SortIcon field="day" />
                   </TableHead>
                   <TableHead className="w-[90px]">상품</TableHead>
