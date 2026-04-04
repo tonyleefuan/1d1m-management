@@ -107,7 +107,43 @@ if (!res.ok) throw new Error('실패')
 - 스타일: Tailwind CSS, cn() 유틸, 시맨틱 토큰 사용
 - 타입: `src/lib/types.ts`에 정의
 
+## 발송 시스템 (Day 계산)
+- `current_day`: start_date 기준 경과일 (computeSubscription in lib/day.ts). 고객 대면용.
+- `last_sent_day`: 실제 발송 완료된 마지막 Day. 구글 시트 import-results에서 업데이트.
+- `pending_days`: current_day - last_sent_day 사이의 미발송 Day 목록. 대기열 생성 기준.
+- 환불 이용일수는 current_day 사용 (last_sent_day 아닌).
+- 매크로 연동 폐기 → 구글 시트 기반으로 전환 완료.
+
+## 보안 필수사항
+- Vercel Cron 인증: `!!envSecret && cronSecret === \`Bearer ${envSecret}\`` (Bearer undefined 우회 방지)
+- admin API: 반드시 `session.role !== 'admin'` 체크 (getSession만으론 부족)
+- CS 고객 API: 모든 데이터 쿼리에 `.eq('customer_id', session.customerId)` 필수
+- AI 프롬프트: 고객 입력을 `<customer_message>` 태그로 격리
+- IP rate limit: `x-real-ip` 헤더 우선 사용 (x-forwarded-for는 스푸핑 가능)
+- CS/admin JWT 시크릿 분리: CS_AUTH_SECRET ≠ AUTH_SECRET
+- 미들웨어: x-middleware-subrequest 헤더 차단 (CVE-2025-29927 defense-in-depth)
+
+## 배포 주의
+- Vercel Cron은 **GET**으로 호출함. POST만 있으면 405 에러.
+- 로컬 dev 서버에서 에러 안 나도 Vercel 빌드(lint 포함)에서 에러 날 수 있음. import 누락 주의.
+- package-lock.json도 반드시 커밋해야 Vercel에서 정확한 버전 설치.
+
+## CS 고객 포털 (1d1m.space)
+- 인증: 주문번호 + 전화번호 뒷4자리 → JWT 세션 (1시간)
+- AI 자동응답: cron/cs-reply가 30분마다 pending 문의 처리 (Claude Sonnet)
+- AI 응답 2회 초과 → 자동 에스컬레이션
+- 환불 완료/거절 시 고객에게 자동 안내 댓글
+- 운영 정책(cs_policies)은 AI 시스템 프롬프트에 매번 로드됨 → 수정 즉시 반영
+
+## 개발 환경
+- Homebrew 명령어: `PATH="/opt/homebrew/bin:$PATH"` 필요 (gh, npm, npx 등)
+- Supabase 프로젝트 ID: tzrjnznqrwdehqypiorh
+- Vercel 프로젝트: prj_mou96gJwBEQokSuakNLiRBAtFSom / team_Bt0o21aWiZXjBK7SQG3yiwbP
+
 ## 환경 변수
 - `NEXT_PUBLIC_SUPABASE_URL` — Supabase URL
 - `SUPABASE_SERVICE_ROLE_KEY` — Supabase 서비스 키 (서버 전용)
 - `AUTH_SECRET` — JWT 서명 시크릿
+- `CS_AUTH_SECRET` — CS 포털 JWT 시크릿 (AUTH_SECRET과 분리)
+- `CRON_SECRET` — Vercel Cron 인증 시크릿
+- `ANTHROPIC_API_KEY` — Claude API 키
