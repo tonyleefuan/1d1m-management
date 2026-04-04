@@ -33,7 +33,7 @@ export function calculateRefund(params: {
   paymentMethod: 'card' | 'bank_transfer'
   settings?: Partial<SystemSettings>  // DB 설정 (운영 설정에서 로드)
 }): RefundCalculation {
-  const { paidAmount, usedDays: rawUsedDays, totalDays, paidAt, paymentMethod, settings } = params
+  const { paidAmount, usedDays, totalDays, paidAt, paymentMethod, settings } = params
 
   // DB 설정 우선, 없으면 constants.ts 폴백
   const fullRefundDays = Number(settings?.refund_full_days) || FULL_REFUND_DAYS
@@ -46,9 +46,6 @@ export function calculateRefund(params: {
   const daysSincePaid = Math.floor(
     (now.getTime() - paidDate.getTime()) / (1000 * 60 * 60 * 24)
   )
-
-  // 이용일수: last_sent_day와 경과일 중 큰 값 (발송 지연 시에도 정확한 표시)
-  const usedDays = Math.max(rawUsedDays, daysSincePaid)
 
   // 전액 환불: 설정된 기한 이내
   const isFullRefund = daysSincePaid <= fullRefundDays
