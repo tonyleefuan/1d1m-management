@@ -761,9 +761,9 @@ export function SubscriptionsTab() {
                   <TableHead
                     className="w-[50px] text-center cursor-pointer select-none"
                     onClick={() => toggleSort('day')}
-                    title="시작일 기준 경과일 (발송 모니터링의 Day는 다음 발송할 Day)"
+                    title="가장 최근 발송 Day (발송 모니터링의 Day는 다음 발송할 Day)"
                   >
-                    Day <SortIcon field="day" />
+                    최근 발송 <SortIcon field="day" />
                   </TableHead>
                   <TableHead className="w-[90px]">상품</TableHead>
                   <TableHead className="min-w-[120px]">상품명</TableHead>
