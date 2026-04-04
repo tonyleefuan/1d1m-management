@@ -29,10 +29,12 @@ function ProductFormModal({
   product,
   onClose,
   onSaved,
+  onDelete,
 }: {
   product: ProductWithMeta | null // null = 신규
   onClose: () => void
   onSaved: () => void
+  onDelete?: () => void
 }) {
   const [skuCode, setSkuCode] = useState(product?.sku_code || '')
   const [title, setTitle] = useState(product?.title || '')
@@ -224,6 +226,13 @@ function ProductFormModal({
           ))}
         </div>
       </div>
+      {product && onDelete && (
+        <div className="border-t pt-4 mt-4">
+          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={onDelete}>
+            이 상품 삭제
+          </Button>
+        </div>
+      )}
     </FormDialog>
   )
 }
@@ -258,6 +267,29 @@ export function ProductsTab() {
   const handleSaved = () => {
     fetchProducts()
     showSuccess('상품이 저장되었습니다')
+  }
+
+  const handleDelete = async () => {
+    if (!editingProduct?.id) return
+    if (!confirm('정말 이 상품을 삭제하시겠습니까?')) return
+
+    try {
+      const res = await fetch('/api/products/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editingProduct.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showError(data.error || '삭제에 실패했습니다')
+        return
+      }
+      setEditingProduct(undefined)
+      fetchProducts()
+      showSuccess('상품이 삭제되었습니다')
+    } catch {
+      showError('서버 연결에 실패했습니다')
+    }
   }
 
   return (
@@ -342,6 +374,7 @@ export function ProductsTab() {
           product={editingProduct}
           onClose={() => setEditingProduct(undefined)}
           onSaved={handleSaved}
+          onDelete={editingProduct ? handleDelete : undefined}
         />
       )}
 
