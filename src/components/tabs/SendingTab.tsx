@@ -487,6 +487,29 @@ export function SendingTab() {
     setExportProgress('')
   }
 
+  const handleClearSheet = async () => {
+    const ok = await confirm({
+      title: '구글시트 초기화',
+      description: '모든 PC 시트의 데이터를 삭제하고 헤더만 남깁니다. 계속하시겠습니까?',
+      variant: 'warning',
+      confirmLabel: '초기화',
+    })
+    if (!ok) return
+
+    setExporting(true)
+    setExportProgress('시트 초기화 중...')
+    try {
+      const res = await fetch('/api/sending/clear-sheet', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || '시트 초기화 실패')
+      showSuccess(json.message || '시트 초기화 완료')
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '시트 초기화에 실패했습니다')
+    }
+    setExporting(false)
+    setExportProgress('')
+  }
+
   const handleExportSelected = async () => {
     if (selectedIds.size === 0) return
     setExporting(true)
@@ -699,6 +722,15 @@ export function SendingTab() {
             >
               {importing ? <Spinner size="xs" className="mr-1" /> : <Download className="mr-1 h-3 w-3" />}
               결과 가져오기
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleClearSheet}
+              disabled={exporting}
+              className="h-8 text-destructive hover:text-destructive"
+            >
+              시트 초기화
             </Button>
             <div className="ml-auto flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>마지막 내보내기: {formatTime(lastExportAt)}</span>

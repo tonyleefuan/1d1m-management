@@ -79,14 +79,6 @@ export async function POST(req: Request) {
     // 같은 날짜 + 선택 내보내기 = 이어 붙이기, force 전체 재내보내기 = 초기화
     const isAppend = lastExportDate === date && (!!queueIds || !force)
 
-    // 같은 날짜에 전체 내보내기(선택 아님)를 또 하려는 경우 경고
-    if (isAppend && !queueIds && !force) {
-      return NextResponse.json({
-        warning: `오늘(${date}) 이미 시트로 내보냈습니다. 다시 내보내려면 force: true를 전달하세요.`,
-        already_exported: true,
-      }, { status: 409 })
-    }
-
     // --- 발송 설정 조회 ---
     const { data: settingsData } = await supabase
       .from('app_settings')
@@ -166,7 +158,7 @@ export async function POST(req: Request) {
           let totalWritten = 0
           let devicesWritten = 0
 
-          // 새로운 날짜 내보내기 시 모든 PC 시트 초기화
+          // 새 날짜 또는 force 전체 재내보내기 시 모든 PC 시트 초기화
           if (!isAppend) {
             send({ type: 'clearing', message: '시트 초기화 중...' })
             for (const [, phoneNumber] of deviceMap) {
@@ -234,7 +226,7 @@ export async function POST(req: Request) {
             updated_at: now,
           })
 
-          send({ type: 'complete', ok: true, devices: devicesWritten, total: totalWritten, date, autoImported, appended: isAppend })
+          send({ type: 'complete', ok: true, devices: devicesWritten, total: totalWritten, date, autoImported, appended: !!isAppend })
         } catch (err: any) {
           console.error('[export-sheet] Error:', err.message, err.stack)
           send({ type: 'error', error: err.message || '시트 내보내기 중 오류가 발생했습니다' })
