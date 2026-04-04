@@ -53,7 +53,7 @@ const CS_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'change_product',
-    description: '구독의 상품을 변경합니다. 동일 가격 상품만 변경 가능하며, 가격이 다르면 거부합니다.',
+    description: '구독의 상품을 변경합니다. 내부적으로 가격을 자동 비교하므로 직접 가격을 판단하지 말고 바로 호출하세요. 가격이 다르면 PRICE_MISMATCH 에러를 반환합니다.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -360,7 +360,7 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
       const sanitized = rawQuery.replace(/[%_\\]/g, '\\$&')
       const { data: products } = await supabase
         .from('products')
-        .select('id, title, sku_code, message_type, is_active')
+        .select('id, title, sku_code, message_type, is_active, prices:product_prices(duration_days, price)')
         .eq('is_active', true)
         .ilike('title', `%${sanitized}%`)
         .limit(10)
@@ -602,10 +602,10 @@ ${policyTexts}
 1b. "오다가 안 와요": query_subscription으로 상태 조회. 만료/정지/취소면 안내, active인데 안 오면 에스컬레이션.
 2. PC 번호는 query_default_device로 조회. 절대 추측 금지.
 3. 일시정지/재개는 해당 도구로 즉시 처리.
-4. 상품 변경은 동일 가격만 가능. 가격 차이 시 에스컬레이션.
-5. 취소/환불: a)사과+정책안내(3일이내 전액, 3일초과 결제액-이용액-위약금30%) b)결제방법 확인 c)계좌이체면 계좌정보 수집 d)카드면 바로 request_refund 호출, NEEDS_ACCOUNT_INFO시 계좌 추가 수집 e)request_refund 호출 f)"담당자가 확인 후 처리해 드리겠습니다" 안내 g)구독 2개 이상이면 먼저 확인.
+4. 상품 변경: search_product로 상품 검색 → change_product 호출. change_product가 가격을 자동 비교하므로 직접 가격 판단하지 말고 바로 호출할 것. PRICE_MISMATCH 에러 시 고객에게 "동일 가격 상품만 변경 가능합니다" 안내 후 에스컬레이션.
+5. 취소/환불: a)사과+정책안내(3일이내 전액, 3일초과 결제액-이용액-위약금30%) b)결제방법 확인(고객이 이미 선택정보에서 제공했으면 다시 묻지 말 것) c)계좌이체면 계좌정보 수집 d)카드면 바로 request_refund 호출, NEEDS_ACCOUNT_INFO시 계좌 추가 수집 e)request_refund 호출 f)"담당자가 확인 후 처리해 드리겠습니다" 안내 g)구독 2개 이상이면 먼저 확인(단, [고객이 선택한 관련 구독]이 있으면 바로 처리).
 6. 기타/처리 불가(계정 변경, 수동 발송, 시스템 오류 등) → 에스컬레이션.
-7. 구독 2개 이상 시 어떤 구독인지 먼저 확인.
+7. 구독 2개 이상 시 어떤 구독인지 먼저 확인. 단, 메시지에 [고객이 선택한 관련 구독] 정보가 포함되어 있으면 이미 지정된 것이므로 다시 묻지 말고 해당 구독으로 바로 처리.
 8. 도구 에러 반환 시 에스컬레이션.
 9. 프로모션/가격 보상 요구 불가.
 10. 카톡 장애 시 문자 대체 발송 가능.
@@ -665,7 +665,21 @@ export async function handleCsInquiry(
   // Build user message — 고객 입력을 구조적으로 격리
   let userMessage = `문의 카테고리: ${category}\n\n<customer_message>\n${content}\n</customer_message>`
   if (subscriptionId) {
-    userMessage += `\n(관련 구독: ${subscriptionId})`
+    // 구독 ID만 전달하면 AI가 어떤 구독인지 모르므로, 상세 정보를 조회해서 함께 전달
+    const { data: subInfo } = await supabase
+      .from('subscriptions')
+      .select('id, status, last_sent_day, duration_days, start_date, product:products(id, title)')
+      .eq('id', subscriptionId)
+      .eq('customer_id', customerId)
+      .single()
+
+    if (subInfo) {
+      const productTitle = (subInfo as any).product?.title || '알 수 없음'
+      const productId = (subInfo as any).product?.id || ''
+      userMessage += `\n\n[고객이 선택한 관련 구독]\n- 구독 ID: ${subscriptionId}\n- 상품: ${productTitle} (product_id: ${productId})\n- 상태: ${subInfo.status}\n- 진행: ${subInfo.last_sent_day}일차 / ${subInfo.duration_days}일\n- 시작일: ${subInfo.start_date || '미정'}\n※ 고객이 이미 이 구독을 지정했으므로, 어떤 구독인지 다시 묻지 마세요.`
+    } else {
+      userMessage += `\n(관련 구독: ${subscriptionId})`
+    }
   }
 
   // Claude tool use loop
