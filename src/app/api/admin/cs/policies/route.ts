@@ -18,6 +18,7 @@ export async function GET() {
 export async function PATCH(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id, content, ai_instruction } = await req.json()
   if (!id) return NextResponse.json({ error: '정책 ID가 필요합니다.' }, { status: 400 })

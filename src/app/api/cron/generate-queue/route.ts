@@ -7,7 +7,8 @@ import { notifyQueueGenerated } from '@/lib/slack'
 export async function POST(req: Request) {
   // Vercel Cron or admin auth
   const cronSecret = req.headers.get('authorization')
-  const isVercelCron = cronSecret === `Bearer ${process.env.CRON_SECRET}`
+  const envSecret = process.env.CRON_SECRET
+  const isVercelCron = !!envSecret && cronSecret === `Bearer ${envSecret}`
 
   if (!isVercelCron) {
     const { getSession } = await import('@/lib/auth')
