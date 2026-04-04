@@ -53,7 +53,18 @@ export async function DELETE(
     return NextResponse.json({ error: '해당 문의를 찾을 수 없습니다.' }, { status: 403 })
   }
 
-  // 관련 데이터 삭제 후 문의 삭제 (답글 + 환불 요청)
+  // 처리 중인 환불 요청이 있으면 삭제 불가
+  const { count: activeRefunds } = await supabase
+    .from('cs_refund_requests')
+    .select('id', { count: 'exact', head: true })
+    .eq('inquiry_id', params.id)
+    .in('status', ['pending', 'approved'])
+
+  if (activeRefunds && activeRefunds > 0) {
+    return NextResponse.json({ error: '처리 중인 환불 요청이 있어 삭제할 수 없습니다.' }, { status: 400 })
+  }
+
+  // 관련 데이터 삭제 후 문의 삭제 (답글 + 완료된 환불 요청)
   await supabase.from('cs_refund_requests').delete().eq('inquiry_id', params.id)
   await supabase.from('cs_replies').delete().eq('inquiry_id', params.id)
   const { error } = await supabase.from('cs_inquiries').delete().eq('id', params.id)

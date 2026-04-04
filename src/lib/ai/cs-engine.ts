@@ -742,7 +742,7 @@ export async function handleCsReply(
   const messages: Anthropic.MessageParam[] = []
 
   // 원글
-  messages.push({ role: 'user', content: `문의 카테고리: ${category}\n\n${originalContent}` })
+  messages.push({ role: 'user', content: `문의 카테고리: ${category}\n\n<customer_message>\n${originalContent}\n</customer_message>` })
 
   // 이전 대화 — user/assistant 교대로 변환
   for (const entry of conversationHistory) {
