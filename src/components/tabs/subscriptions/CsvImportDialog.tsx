@@ -141,6 +141,7 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
 
       const data: ImportPreviewResponse = await res.json()
       setPreview(data)
+      setError(null)
       setStep('preview')
     } catch (err) {
       setError(err instanceof Error ? err.message : '업로드 중 오류가 발생했습니다')
