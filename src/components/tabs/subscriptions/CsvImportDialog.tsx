@@ -46,6 +46,7 @@ interface ImportPreviewResponse {
   missingSkus: string[]
   missingPcs: string[]
   missingCustomers: string[]
+  warnings: string[]
 }
 
 interface ConfirmResult {
@@ -266,13 +267,13 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {['PC 번호', '카톡이름', 'SKU', '상태'].map(col => (
+                {['PC 번호', '카톡이름', 'SKU'].map(col => (
                   <Badge key={col} variant="secondary" className="text-xs">{col}</Badge>
                 ))}
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-muted-foreground">선택:</span>
-                {['시작일', '종료일', 'Day', 'D-Day', '기간', '주문번호'].map(col => (
+                {['상태', '시작일', '종료일', 'Day', 'D-Day', '기간', '주문번호'].map(col => (
                   <Badge key={col} variant="outline" className="text-xs">{col}</Badge>
                 ))}
               </div>
@@ -372,6 +373,15 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
                 description={`기준일: ${referenceDate}`}
               />
             </div>
+
+            {/* Warnings for missing optional columns */}
+            {preview.warnings.length > 0 && (
+              <div className="space-y-1 rounded-md border border-blue-500/30 bg-blue-500/5 p-3">
+                {preview.warnings.map((w, i) => (
+                  <p key={i} className="text-xs text-blue-700">ℹ {w}</p>
+                ))}
+              </div>
+            )}
 
             {/* Missing items */}
             {(preview.missingSkus.length > 0 || preview.missingPcs.length > 0 || preview.missingCustomers.length > 0) && (
