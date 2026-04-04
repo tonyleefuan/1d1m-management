@@ -727,15 +727,6 @@ export function CSTab() {
                   거절
                 </Button>
               )}
-              {selectedRefund.status === 'pending' && (
-                <Button
-                  variant="outline"
-                  onClick={() => handleRefundAction('approve')}
-                  disabled={refundSubmitting}
-                >
-                  {refundSubmitting ? '처리 중...' : '승인'}
-                </Button>
-              )}
               <Button
                 onClick={() => handleRefundAction('complete')}
                 disabled={refundSubmitting}
