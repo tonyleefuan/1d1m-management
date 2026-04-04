@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       const { data: page, error: subErr } = await supabase
         .from('subscriptions')
         .select(`
-          id, customer_id, product_id, device_id, day, duration_days, send_priority,
+          id, customer_id, product_id, device_id, last_sent_day, duration_days, send_priority,
           customer:customers(kakao_friend_name),
           product:products(sku_code, message_type),
           order_item:order_items(order:orders(ordered_at))
@@ -90,7 +90,7 @@ export async function POST(req: Request) {
 
     for (const sub of subs) {
       const product = sub.product as any
-      const currentDay = sub.day
+      const currentDay = (sub.last_sent_day ?? 0) + 1
       if (currentDay < 1 || currentDay > sub.duration_days) continue
       if (product?.message_type === 'realtime') {
         realtimeProductIds.add(sub.product_id)
@@ -158,7 +158,7 @@ export async function POST(req: Request) {
       const product = sub.product as any
       const customer = sub.customer as any
       const kakaoName = customer?.kakao_friend_name || '알 수 없음'
-      const currentDay = sub.day
+      const currentDay = (sub.last_sent_day ?? 0) + 1
 
       if (currentDay < 1 || currentDay > sub.duration_days) { skippedDayRange++; continue }
 

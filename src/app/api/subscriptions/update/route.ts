@@ -99,7 +99,7 @@ export async function PATCH(req: Request) {
     // 변경 전 상태 조회 (로그용 + 검증용)
     const { data: prevSubs } = await supabase
       .from('subscriptions')
-      .select('id, status, device_id, start_date, end_date, day, duration_days, memo, customer_id, paused_at')
+      .select('id, status, device_id, start_date, end_date, last_sent_day, duration_days, memo, customer_id, paused_at')
       .in('id', targetIds)
     const prevMap = new Map(prevSubs?.map(s => [s.id, s]) || [])
 
@@ -213,23 +213,23 @@ export async function PATCH(req: Request) {
         updateData.recovery_mode = null
       }
     }
-    // day 수동 조정 (+1 또는 -1)
+    // last_sent_day 수동 조정 (+1 또는 -1)
     if (updates.day_adjust !== undefined && targetIds.length === 1) {
       const adjust = updates.day_adjust // +1 또는 -1
       if (adjust !== 1 && adjust !== -1) {
-        return NextResponse.json({ error: 'day 조정은 +1 또는 -1만 가능합니다' }, { status: 400 })
+        return NextResponse.json({ error: 'last_sent_day 조정은 +1 또는 -1만 가능합니다' }, { status: 400 })
       }
       const prev = prevMap.get(targetIds[0])
       if (prev) {
-        const newDay = prev.day + adjust
-        if (newDay < 1) {
-          return NextResponse.json({ error: 'day는 1 미만이 될 수 없습니다' }, { status: 400 })
+        const newDay = (prev.last_sent_day ?? 0) + adjust
+        if (newDay < 0) {
+          return NextResponse.json({ error: 'last_sent_day는 0 미만이 될 수 없습니다' }, { status: 400 })
         }
-        updateData.day = newDay
+        updateData.last_sent_day = newDay
         // end_date도 같이 조정
         if (prev.end_date) {
           const newEnd = new Date(prev.end_date)
-          newEnd.setDate(newEnd.getDate() - adjust) // day +1이면 end_date -1, day -1이면 end_date +1
+          newEnd.setDate(newEnd.getDate() - adjust) // last_sent_day +1이면 end_date -1, last_sent_day -1이면 end_date +1
           updateData.end_date = newEnd.toISOString().slice(0, 10)
         }
       }
@@ -308,8 +308,8 @@ export async function PATCH(req: Request) {
           null, updates.product_id, session.userId)
       }
       if (updates.day_adjust !== undefined) {
-        await logChange(subId, 'day_adjust', 'day',
-          String(prev.day), String(prev.day + updates.day_adjust),
+        await logChange(subId, 'day_adjust', 'last_sent_day',
+          String(prev.last_sent_day ?? 0), String((prev.last_sent_day ?? 0) + updates.day_adjust),
           session.userId)
       }
     }
