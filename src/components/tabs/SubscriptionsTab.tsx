@@ -570,7 +570,7 @@ export function SubscriptionsTab() {
   return (
     <div className="space-y-6">
       {/* 1. Page Header */}
-      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다">
+      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다 · Day = 마지막 발송 완료 Day (발송 모니터링의 Day는 다음 발송할 Day)">
         <Button
           size="sm"
           variant="outline"
