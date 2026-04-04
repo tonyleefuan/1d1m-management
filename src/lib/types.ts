@@ -196,19 +196,6 @@ export interface SendQueueItem {
   created_at: string
 }
 
-// --- Send Logs ---
-export interface SendLog {
-  id: string
-  subscription_id: string
-  device_id: string
-  send_date: string
-  day_number: number | null
-  status: 'sent' | 'failed'
-  sent_at: string | null
-  message_preview: string | null
-  created_at: string
-}
-
 // --- CS Inquiries ---
 export type CSCategory = 'message_never_received' | 'message_stopped' | 'pause_resume' | 'product_change' | 'cancel_refund' | 'delivery_time' | 'payment_info' | 'other'
 export type CSStatus = 'pending' | 'ai_answered' | 'escalated' | 'admin_answered' | 'dismissed' | 'closed'

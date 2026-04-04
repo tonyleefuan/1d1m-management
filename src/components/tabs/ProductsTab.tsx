@@ -36,6 +36,7 @@ function ProductFormModal({
   onSaved: () => void
   onDelete?: () => void
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [skuCode, setSkuCode] = useState(product?.sku_code || '')
   const [title, setTitle] = useState(product?.title || '')
   const [messageType, setMessageType] = useState<'fixed' | 'realtime'>(product?.message_type || 'fixed')
@@ -218,9 +219,20 @@ function ProductFormModal({
       </div>
       {product && onDelete && (
         <div className="border-t pt-4 mt-4">
-          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={onDelete}>
-            이 상품 삭제
-          </Button>
+          {!confirmDelete ? (
+            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}>
+              이 상품 삭제
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button variant="destructive" size="sm" onClick={onDelete}>
+                삭제 확인
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
+                취소
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </FormDialog>
@@ -261,7 +273,6 @@ export function ProductsTab() {
 
   const handleDelete = async () => {
     if (!editingProduct?.id) return
-    if (!confirm('정말 이 상품을 삭제하시겠습니까?')) return
 
     try {
       const res = await fetch('/api/products/delete', {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,9 @@ function UsersPanel() {
   const [editing, setEditing] = useState<any | null | undefined>(undefined)
   const { toast, showSuccess, showError, clearToast } = useToast()
 
+  const editingRef = useRef(editing)
+  useEffect(() => { editingRef.current = editing }, [editing])
+
   const fetchUsers = useCallback(async () => {
     setLoading(true)
     try {
@@ -46,8 +49,8 @@ function UsersPanel() {
 
   const handleSaved = useCallback(() => {
     fetchUsers()
-    showSuccess(editing ? '사용자가 수정되었습니다' : '사용자가 추가되었습니다')
-  }, [fetchUsers, showSuccess, editing])
+    showSuccess(editingRef.current ? '사용자가 수정되었습니다' : '사용자가 추가되었습니다')
+  }, [fetchUsers, showSuccess])
 
   return (
     <div>
@@ -198,6 +201,9 @@ function DevicesPanel() {
   const [editing, setEditing] = useState<any | null | undefined>(undefined)
   const { toast, showSuccess, showError, clearToast } = useToast()
 
+  const editingRef = useRef(editing)
+  useEffect(() => { editingRef.current = editing }, [editing])
+
   const fetchDevices = useCallback(async () => {
     setLoading(true)
     try {
@@ -214,8 +220,8 @@ function DevicesPanel() {
 
   const handleSaved = useCallback(() => {
     fetchDevices()
-    showSuccess(editing ? 'PC가 수정되었습니다' : 'PC가 추가되었습니다')
-  }, [fetchDevices, showSuccess, editing])
+    showSuccess(editingRef.current ? 'PC가 수정되었습니다' : 'PC가 추가되었습니다')
+  }, [fetchDevices, showSuccess])
 
   return (
     <div>
