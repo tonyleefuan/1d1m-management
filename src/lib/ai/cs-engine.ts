@@ -2,6 +2,7 @@ import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/supabase'
 import { calculateRefund, formatRefundSummary } from '@/lib/refund'
+import { computeSubscription, todayKST } from '@/lib/day'
 import { getSystemSettings } from '@/lib/settings'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -440,9 +441,18 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
       // 3. 환불 계산 (운영 설정 로드)
       const paymentMethod = input.payment_method as 'card' | 'bank_transfer'
       const refundSettings = await getSystemSettings(['refund_full_days', 'refund_penalty_rate', 'refund_pg_cancel_days'])
+      // 이용일수 = 구독 관리 Day (computeSubscription의 current_day)
+      const computed = computeSubscription({
+        start_date: sub.start_date,
+        duration_days: sub.duration_days,
+        last_sent_day: sub.last_sent_day ?? 0,
+        paused_days: 0,
+        paused_at: null,
+        is_cancelled: false,
+      }, todayKST())
       const calc = calculateRefund({
         paidAmount,
-        usedDays: sub.last_sent_day,
+        usedDays: computed.current_day,
         totalDays: sub.duration_days,
         paidAt,
         paymentMethod,

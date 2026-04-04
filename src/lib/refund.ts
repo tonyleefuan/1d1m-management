@@ -27,7 +27,7 @@ export interface RefundCalculation {
  */
 export function calculateRefund(params: {
   paidAmount: number    // order_items.allocated_amount
-  usedDays: number      // subscriptions.last_sent_day
+  usedDays: number      // computeSubscription의 current_day (구독 관리 Day)
   totalDays: number     // subscriptions.duration_days
   paidAt: string | Date // orders.ordered_at
   paymentMethod: 'card' | 'bank_transfer'
@@ -40,7 +40,7 @@ export function calculateRefund(params: {
   const penaltyRate = Number(settings?.refund_penalty_rate) || PENALTY_RATE
   const pgCancelDays = Number(settings?.refund_pg_cancel_days) || PG_CANCEL_DAYS
 
-  // 결제 후 경과일 계산 (KST 기준)
+  // 결제 후 경과일 (전액 환불 판단용)
   const paidDate = new Date(paidAt)
   const now = new Date()
   const daysSincePaid = Math.floor(
