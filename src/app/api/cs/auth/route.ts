@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     const trimmedOrderNo = orderNo.trim()
 
     // ── 1. IP 기반 Rate Limit (15분 5회) ──
-    const ip = headers().get('x-real-ip') || headers().get('x-forwarded-for')?.split(',').at(-1)?.trim() || 'unknown'
+    const ip = headers().get('x-real-ip') || headers().get('x-forwarded-for')?.split(',').at(0)?.trim() || 'unknown'
     const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
     const { count } = await supabase
       .from('cs_rate_limits')
