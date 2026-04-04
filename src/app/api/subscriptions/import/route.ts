@@ -95,12 +95,11 @@ function getField(row: Record<string, unknown>, colMap: Map<string, string>, fie
 function parseDate(value: unknown): string {
   if (!value) return ''
   const s = String(value).trim()
-  // Handle Excel serial date numbers
-  if (/^\d{5}$/.test(s)) {
-    const date = new Date((Number(s) - 25569) * 86400000)
-    return date.toISOString().slice(0, 10)
+  // Handle Excel serial date numbers (integer or decimal)
+  if (/^\d+(\.\d+)?$/.test(s) && Number(s) > 30000) {
+    const d = new Date((Number(s) - 25569) * 86400000)
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d)
   }
-  // Handle YYYY-MM-DD or YYYY/MM/DD
   const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
   return s
@@ -137,7 +136,8 @@ export async function POST(req: Request) {
     const formData = await req.formData()
     const file = formData.get('file') as File
     const dayInterpretation = formData.get('dayInterpretation') as string || 'already_sent'
-    const referenceDate = formData.get('referenceDate') as string || '2026-04-04'
+    const referenceDate = formData.get('referenceDate') as string
+      || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 
     if (!file) return NextResponse.json({ error: '파일을 선택해주세요' }, { status: 400 })
     if (file.size > 20 * 1024 * 1024) {

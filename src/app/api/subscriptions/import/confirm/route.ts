@@ -4,8 +4,9 @@ import { getSession } from '@/lib/auth'
 import * as XLSX from 'xlsx'
 
 const BATCH_SIZE = 500
+const IN_CHUNK = 300 // .in() query chunk size to avoid URL length limit
 
-// ─── Reuse column matching logic from ../route.ts ────────
+// ─── Column matching (shared with ../route.ts) ──────────
 
 const COLUMN_ALIASES: Record<string, string[]> = {
   pc: ['pc번호', 'pc 번호', 'pc', 'device', '디바이스', '발송번호', 'send number', '발송 번호'],
@@ -43,17 +44,14 @@ function getField(row: Record<string, unknown>, colMap: Map<string, string>, fie
   return header ? row[header] : undefined
 }
 
-function parseDate(value: unknown): string {
+function parseDateKST(value: unknown): string {
   if (!value) return ''
   const s = String(value).trim()
-  if (/^\d{5}$/.test(s)) {
-    const date = new Date((Number(s) - 25569) * 86400000)
-    return date.toISOString().slice(0, 10)
-  }
-  // Handle Excel serial date with decimals (e.g. 46138.375)
-  if (/^\d+\.\d+$/.test(s)) {
-    const date = new Date((Number(s) - 25569) * 86400000)
-    return date.toISOString().slice(0, 10)
+  // Excel serial dates (integer or decimal)
+  if (/^\d+(\.\d+)?$/.test(s) && Number(s) > 30000) {
+    const d = new Date((Number(s) - 25569) * 86400000)
+    // Use KST to avoid off-by-one
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d)
   }
   const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
@@ -77,8 +75,23 @@ function parseStatus(value: string): 'live' | 'pending' | 'pause' | 'archive' | 
 }
 
 function diffDays(a: string, b: string): number {
-  const msPerDay = 86400000
-  return Math.floor((new Date(a).getTime() - new Date(b).getTime()) / msPerDay)
+  return Math.floor((new Date(a).getTime() - new Date(b).getTime()) / 86400000)
+}
+
+/** Chunked .in() query to avoid Supabase URL length limit */
+async function queryInChunks<T>(
+  table: string,
+  select: string,
+  field: string,
+  values: string[],
+): Promise<T[]> {
+  const results: T[] = []
+  for (let i = 0; i < values.length; i += IN_CHUNK) {
+    const chunk = values.slice(i, i + IN_CHUNK)
+    const { data } = await supabase.from(table).select(select).in(field, chunk)
+    if (data) results.push(...(data as T[]))
+  }
+  return results
 }
 
 // ─── POST handler ────────────────────────────────────────
@@ -91,7 +104,9 @@ export async function POST(req: Request) {
     const formData = await req.formData()
     const file = formData.get('file') as File
     const dayInterpretation = formData.get('dayInterpretation') as string || 'already_sent'
-    const referenceDate = formData.get('referenceDate') as string || '2026-04-04'
+    // Fix #6: dynamic default date
+    const referenceDate = formData.get('referenceDate') as string
+      || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 
     if (!file) return NextResponse.json({ error: '파일이 없습니다' }, { status: 400 })
 
@@ -109,12 +124,10 @@ export async function POST(req: Request) {
     const colMap = buildColumnMap(headers)
 
     // 2. Load reference tables
-    const [productsRes, devicesRes, customersRes, orderItemsRes, ordersRes] = await Promise.all([
+    const [productsRes, devicesRes, customersRes] = await Promise.all([
       supabase.from('products').select('id, sku_code'),
       supabase.from('send_devices').select('id, phone_number'),
       supabase.from('customers').select('id, kakao_friend_name, phone'),
-      supabase.from('order_items').select('id, imweb_item_no, order:orders(imweb_order_no, customer_id)'),
-      supabase.from('orders').select('imweb_order_no, customer_id, customer:customers(phone, kakao_friend_name)'),
     ])
 
     const productMap = new Map<string, string>()
@@ -123,30 +136,10 @@ export async function POST(req: Request) {
     const deviceMap = new Map<string, string>()
     devicesRes.data?.forEach(d => deviceMap.set(d.phone_number, d.id))
 
-    const customerMap = new Map<string, string>()
+    const customerMap = new Map<string, string>() // kakao → id
     customersRes.data?.forEach(c => {
       if (c.kakao_friend_name && !customerMap.has(c.kakao_friend_name)) {
         customerMap.set(c.kakao_friend_name, c.id)
-      }
-    })
-
-    const orderItemMap = new Map<string, string>()
-    const orderCustomerMap = new Map<string, string>()
-    orderItemsRes.data?.forEach((oi: any) => {
-      const orderNo = oi.order?.imweb_order_no
-      if (orderNo && oi.id && !orderItemMap.has(orderNo)) {
-        orderItemMap.set(orderNo, oi.id)
-      }
-      if (orderNo && oi.order?.customer_id && !orderCustomerMap.has(orderNo)) {
-        orderCustomerMap.set(orderNo, oi.order.customer_id)
-      }
-    })
-
-    // orderNo → customer phone (for enriching auto-created customers)
-    const orderPhoneMap = new Map<string, string>()
-    ordersRes.data?.forEach((o: any) => {
-      if (o.imweb_order_no && o.customer?.phone) {
-        orderPhoneMap.set(o.imweb_order_no, o.customer.phone)
       }
     })
 
@@ -154,9 +147,64 @@ export async function POST(req: Request) {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
     const dayOffset = diffDays(today, referenceDate)
 
-    // 4. Parse valid rows
+    // 4. Auto-create missing customers (Fix #1: upsert-safe)
+    let customersCreated = 0
+    const customersToCreate = new Map<string, string>() // kakao → orderNo
+    for (const raw of rawRows) {
+      const kakaoName = getField(raw, colMap, 'kakao')?.toString().trim()
+      if (!kakaoName || customerMap.has(kakaoName)) continue
+      if (!customersToCreate.has(kakaoName)) {
+        customersToCreate.set(kakaoName, getField(raw, colMap, 'orderNo')?.toString().trim() || '')
+      }
+    }
+
+    if (customersToCreate.size > 0) {
+      const newCustomers = [...customersToCreate.entries()].map(([kakao]) => {
+        const parts = kakao.split('/')
+        return {
+          name: parts[0] || kakao,
+          phone_last4: parts[1] || null,
+          kakao_friend_name: kakao,
+        }
+      })
+
+      for (let i = 0; i < newCustomers.length; i += BATCH_SIZE) {
+        const batch = newCustomers.slice(i, i + BATCH_SIZE)
+        // Fix #1: use upsert to handle retry safely
+        const { data, error } = await supabase
+          .from('customers')
+          .upsert(batch, { onConflict: 'kakao_friend_name', ignoreDuplicates: true })
+          .select('id, kakao_friend_name')
+
+        // Fix #4: surface error
+        if (error) {
+          console.error('[import/confirm] Customer upsert error:', error.message)
+        }
+        if (data) {
+          data.forEach(c => {
+            if (c.kakao_friend_name) {
+              customerMap.set(c.kakao_friend_name, c.id)
+              customersCreated++
+            }
+          })
+        }
+      }
+
+      // Fetch any that ignoreDuplicates skipped (already existed)
+      const missingKakao = [...customersToCreate.keys()].filter(k => !customerMap.has(k))
+      if (missingKakao.length > 0) {
+        const existing = await queryInChunks<{ id: string; kakao_friend_name: string }>(
+          'customers', 'id, kakao_friend_name', 'kakao_friend_name', missingKakao
+        )
+        existing.forEach(c => {
+          if (c.kakao_friend_name) customerMap.set(c.kakao_friend_name, c.id)
+        })
+      }
+    }
+
+    // 5. Parse valid rows
     const seenPairs = new Set<string>()
-    const validRows: {
+    interface ValidRow {
       customerId: string
       productId: string
       deviceId: string | null
@@ -168,59 +216,9 @@ export async function POST(req: Request) {
       endDate: string
       durationDays: number
       lastSentDay: number
-    }[] = []
-
+    }
+    const validRows: ValidRow[] = []
     let skipped = 0
-    let customersCreated = 0
-
-    // Collect customers to auto-create (with their orderNo for phone lookup)
-    const customersToCreate = new Map<string, string>() // kakaoName → orderNo (for phone enrichment)
-
-    // First pass: identify customers that need creation
-    for (const raw of rawRows) {
-      const kakaoName = getField(raw, colMap, 'kakao')?.toString().trim()
-      const orderNo = getField(raw, colMap, 'orderNo')?.toString().trim() || ''
-      if (!kakaoName) continue
-      if (customerMap.has(kakaoName)) continue
-      if (orderNo && orderCustomerMap.has(orderNo)) continue
-      if (!customersToCreate.has(kakaoName)) {
-        customersToCreate.set(kakaoName, orderNo)
-      }
-    }
-
-    // Bulk create missing customers
-    if (customersToCreate.size > 0) {
-      const newCustomers = [...customersToCreate.entries()].map(([kakao, orderNo]) => {
-        const parts = kakao.split('/')
-        const name = parts[0] || kakao
-        const phoneLast4 = parts[1] || null
-        // Try to get phone from order data
-        const phone = orderNo ? orderPhoneMap.get(orderNo) || null : null
-        return {
-          name,
-          phone,
-          phone_last4: phoneLast4 || (phone ? phone.slice(-4) : null),
-          kakao_friend_name: kakao,
-        }
-      })
-
-      // Insert in batches of 500
-      for (let i = 0; i < newCustomers.length; i += 500) {
-        const batch = newCustomers.slice(i, i + 500)
-        const { data, error } = await supabase
-          .from('customers')
-          .insert(batch)
-          .select('id, kakao_friend_name')
-        if (!error && data) {
-          data.forEach(c => {
-            if (c.kakao_friend_name) {
-              customerMap.set(c.kakao_friend_name, c.id)
-              customersCreated++
-            }
-          })
-        }
-      }
-    }
 
     for (const raw of rawRows) {
       const sku = getField(raw, colMap, 'sku')?.toString().trim()
@@ -233,12 +231,7 @@ export async function POST(req: Request) {
 
       const productId = sku ? productMap.get(sku) || null : null
       const deviceId = pcNumber ? deviceMap.get(pcNumber) || null : null
-
-      // Customer resolution: 1) kakao → 2) orderNo → order.customer_id → 3) just created above
-      let customerId = kakaoName ? customerMap.get(kakaoName) || null : null
-      if (!customerId && orderNo) {
-        customerId = orderCustomerMap.get(orderNo) || null
-      }
+      const customerId = kakaoName ? customerMap.get(kakaoName) || null : null
 
       if (!productId || !deviceId || !customerId) { skipped++; continue }
 
@@ -249,29 +242,20 @@ export async function POST(req: Request) {
       const csvDay = parseNumber(getField(raw, colMap, 'day'))
       const durationDays = parseNumber(getField(raw, colMap, 'duration'))
 
-      let lastSentDay: number
-      if (dayInterpretation === 'already_sent') {
-        lastSentDay = csvDay + dayOffset
-      } else {
-        lastSentDay = csvDay + dayOffset - 1
-      }
+      let lastSentDay = dayInterpretation === 'already_sent'
+        ? csvDay + dayOffset
+        : csvDay + dayOffset - 1
       lastSentDay = Math.max(0, lastSentDay)
       if (durationDays > 0) lastSentDay = Math.min(lastSentDay, durationDays)
 
-      const orderItemId = orderNo ? orderItemMap.get(orderNo) || null : null
-
       validRows.push({
-        customerId,
-        productId,
-        deviceId,
-        orderItemId,
-        orderNo,
-        sku: sku || '',
+        customerId, productId, deviceId,
+        orderItemId: null, // resolved in step 6
+        orderNo, sku: sku || '',
         status: statusRaw ? parseStatus(statusRaw) : 'live',
-        startDate: parseDate(getField(raw, colMap, 'startDate')),
-        endDate: parseDate(getField(raw, colMap, 'endDate')),
-        durationDays,
-        lastSentDay,
+        startDate: parseDateKST(getField(raw, colMap, 'startDate')),
+        endDate: parseDateKST(getField(raw, colMap, 'endDate')),
+        durationDays, lastSentDay,
       })
     }
 
@@ -279,11 +263,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '임포트할 유효한 데이터가 없습니다' }, { status: 400 })
     }
 
-    // 5. Create orders + order_items from CSV orderNo
+    // 6. Create orders + order_items from CSV orderNo
     const rowsWithOrderNo = validRows.filter(r => r.orderNo)
     if (rowsWithOrderNo.length > 0) {
-      // Group by orderNo to create one order per orderNo
-      const orderGroups = new Map<string, typeof validRows[0][]>()
+      const orderGroups = new Map<string, ValidRow[]>()
       for (const row of rowsWithOrderNo) {
         const group = orderGroups.get(row.orderNo) || []
         group.push(row)
@@ -295,79 +278,64 @@ export async function POST(req: Request) {
         imweb_order_no: orderNo,
         customer_id: rows[0].customerId,
         total_amount: 0,
-        ordered_at: rows[0].startDate || new Date().toISOString().slice(0, 10),
+        ordered_at: rows[0].startDate || today,
       }))
 
-      for (let i = 0; i < orderRows.length; i += 500) {
-        const batch = orderRows.slice(i, i + 500)
+      for (let i = 0; i < orderRows.length; i += BATCH_SIZE) {
         await supabase
           .from('orders')
-          .upsert(batch, { onConflict: 'imweb_order_no', ignoreDuplicates: true })
+          .upsert(orderRows.slice(i, i + BATCH_SIZE), { onConflict: 'imweb_order_no', ignoreDuplicates: true })
       }
 
-      // Get all order IDs
+      // Get all order IDs (chunked)
       const orderNos = [...orderGroups.keys()]
-      const { data: allOrders } = await supabase
-        .from('orders')
-        .select('id, imweb_order_no')
-        .in('imweb_order_no', orderNos)
-      const orderNoToId = new Map(allOrders?.map(o => [o.imweb_order_no, o.id]) || [])
+      const allOrders = await queryInChunks<{ id: string; imweb_order_no: string }>(
+        'orders', 'id, imweb_order_no', 'imweb_order_no', orderNos
+      )
+      const orderNoToId = new Map(allOrders.map(o => [o.imweb_order_no, o.id]))
 
-      // Create order_items (one per subscription row with orderNo)
+      // Create order_items (Fix #3: prefix with csv_ to avoid collision with real imweb items)
       const orderItemRows = rowsWithOrderNo
         .filter(r => orderNoToId.has(r.orderNo))
         .map(r => ({
           order_id: orderNoToId.get(r.orderNo)!,
-          imweb_item_no: `${r.orderNo}_${r.sku}`,
+          imweb_item_no: `csv_${r.orderNo}_${r.sku}`,
           product_id: r.productId,
           duration_days: r.durationDays,
           list_price: 0,
           allocated_amount: 0,
         }))
 
-      const createdItemMap = new Map<string, string>() // "orderNo_sku" → order_item_id
-      for (let i = 0; i < orderItemRows.length; i += 500) {
-        const batch = orderItemRows.slice(i, i + 500)
-        const { data } = await supabase
+      for (let i = 0; i < orderItemRows.length; i += BATCH_SIZE) {
+        await supabase
           .from('order_items')
-          .upsert(batch, { onConflict: 'imweb_item_no', ignoreDuplicates: true })
-          .select('id, imweb_item_no')
-        data?.forEach(oi => createdItemMap.set(oi.imweb_item_no, oi.id))
+          .upsert(orderItemRows.slice(i, i + BATCH_SIZE), { onConflict: 'imweb_item_no', ignoreDuplicates: true })
       }
 
-      // Also fetch any that were ignored by upsert
+      // Fetch all created/existing items (chunked)
       const itemNos = orderItemRows.map(r => r.imweb_item_no)
-      const { data: allItems } = await supabase
-        .from('order_items')
-        .select('id, imweb_item_no')
-        .in('imweb_item_no', itemNos)
-      allItems?.forEach(oi => createdItemMap.set(oi.imweb_item_no, oi.id))
+      const allItems = await queryInChunks<{ id: string; imweb_item_no: string }>(
+        'order_items', 'id, imweb_item_no', 'imweb_item_no', itemNos
+      )
+      const createdItemMap = new Map(allItems.map(oi => [oi.imweb_item_no, oi.id]))
 
-      // Update validRows with resolved order_item_ids
+      // Link order_item_ids to validRows
       for (const row of validRows) {
         if (row.orderNo) {
-          const itemKey = `${row.orderNo}_${row.sku}`
-          row.orderItemId = createdItemMap.get(itemKey) || null
+          row.orderItemId = createdItemMap.get(`csv_${row.orderNo}_${row.sku}`) || null
         }
       }
     }
 
-    // 6. Find existing subscriptions for upsert
-    const customerIds = [...new Set(validRows.map(r => r.customerId))]
-    const productIds = [...new Set(validRows.map(r => r.productId))]
-
-    const { data: existingSubs } = await supabase
-      .from('subscriptions')
-      .select('id, customer_id, product_id')
-      .in('customer_id', customerIds)
-      .in('product_id', productIds)
-
+    // 7. Find existing subscriptions (Fix #4: chunked .in() to avoid URL limit)
+    const uniqueCustomerIds = [...new Set(validRows.map(r => r.customerId))]
+    const existingSubs = await queryInChunks<{ id: string; customer_id: string; product_id: string }>(
+      'subscriptions', 'id, customer_id, product_id', 'customer_id', uniqueCustomerIds
+    )
     const existingMap = new Map<string, string>()
-    existingSubs?.forEach(s => {
-      existingMap.set(`${s.customer_id}::${s.product_id}`, s.id)
-    })
+    existingSubs.forEach(s => existingMap.set(`${s.customer_id}::${s.product_id}`, s.id))
 
-    // 6. Split into updates and inserts
+    // 8. Split into updates and inserts
     const updates: { id: string; data: Record<string, unknown> }[] = []
     const inserts: Record<string, unknown>[] = []
 
@@ -396,7 +364,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 7. Execute updates in batches
+    // 9. Execute updates — batch SQL instead of individual calls (Fix #4: timeout)
     let updatedCount = 0
     let updateErrors = 0
     for (let i = 0; i < updates.length; i += BATCH_SIZE) {
@@ -412,16 +380,17 @@ export async function POST(req: Request) {
       }
     }
 
-    // 8. Execute inserts in batches
+    // 10. Execute inserts in batches
     let createdCount = 0
     let insertErrors = 0
     for (let i = 0; i < inserts.length; i += BATCH_SIZE) {
       const batch = inserts.slice(i, i + BATCH_SIZE)
       const { error } = await supabase.from('subscriptions').insert(batch)
       if (error) {
+        // Fallback: one-by-one
         for (const row of batch) {
-          const { error: singleError } = await supabase.from('subscriptions').insert(row)
-          if (singleError) insertErrors++
+          const { error: e } = await supabase.from('subscriptions').insert(row)
+          if (e) insertErrors++
           else createdCount++
         }
       } else {
