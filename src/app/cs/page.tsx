@@ -67,7 +67,7 @@ export default function CSAuthPage() {
               <Label htmlFor="orderNo">주문번호</Label>
               <Input
                 id="orderNo"
-                placeholder="예) 202504-0001234"
+                placeholder="예) 202601310884797"
                 value={orderNo}
                 onChange={e => setOrderNo(e.target.value)}
                 disabled={loading}

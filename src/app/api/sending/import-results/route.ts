@@ -102,14 +102,15 @@ export async function POST(req: Request) {
     for (let i = 0; i < sentUpdates.length; i += 500) {
       const batch = sentUpdates.slice(i, i + 500)
       for (const item of batch) {
-        const { error, count } = await supabase
+        const { error, data: updated } = await supabase
           .from('send_queues')
           .update({ status: 'sent', sent_at: item.sent_at })
           .eq('id', item.id)
           .eq('status', 'pending')  // 멱등성: 이미 처리된 행은 건너뜀
+          .select('id')
 
         if (error) throw new Error(`대기열 업데이트 실패 (${item.id}): ${error.message}`)
-        if (count && count > 0) sentCount++
+        if (updated && updated.length > 0) sentCount++
       }
     }
 
@@ -117,14 +118,15 @@ export async function POST(req: Request) {
     for (let i = 0; i < failedUpdates.length; i += 500) {
       const batch = failedUpdates.slice(i, i + 500)
       for (const item of batch) {
-        const { error, count } = await supabase
+        const { error, data: updated } = await supabase
           .from('send_queues')
           .update({ status: 'failed', sent_at: item.sent_at, error_message: '수동 발송 실패' })
           .eq('id', item.id)
           .eq('status', 'pending')  // 멱등성
+          .select('id')
 
         if (error) throw new Error(`대기열 업데이트 실패 (${item.id}): ${error.message}`)
-        if (count && count > 0) failedCount++
+        if (updated && updated.length > 0) failedCount++
       }
     }
 
