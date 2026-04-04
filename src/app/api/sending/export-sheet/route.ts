@@ -221,6 +221,7 @@ export async function POST(req: Request) {
       appended: isAppend,
     })
   } catch (err: any) {
+    console.error('[export-sheet] Error:', err.message, err.stack)
     return NextResponse.json({ error: err.message || '시트 내보내기 중 오류가 발생했습니다' }, { status: 500 })
   }
 }
