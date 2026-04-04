@@ -541,7 +541,7 @@ export function SendingTab() {
           <CardTitle className="text-sm font-medium">발송 설정</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-end gap-4">
+          <div className="flex flex-wrap items-end gap-4">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">발송 날짜</Label>
               <div className="flex items-center gap-2">
@@ -596,7 +596,7 @@ export function SendingTab() {
                 {savingSettings ? <Spinner size="xs" /> : '저장'}
               </Button>
             )}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
               {totalCount > 0 && (
                 <Button size="sm" variant="outline" onClick={() => clearQueue()} className="h-8 text-destructive hover:text-destructive">
                   {selectedDevice ? '이 PC 대기열 삭제' : '전체 대기열 삭제'}
@@ -620,7 +620,7 @@ export function SendingTab() {
           <CardTitle className="text-sm font-medium">구글시트 연동</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <Button
               size="sm"
               onClick={handleExportSheet}
@@ -652,7 +652,7 @@ export function SendingTab() {
               {importing ? <Spinner size="xs" className="mr-1" /> : <Download className="mr-1 h-3 w-3" />}
               결과 가져오기
             </Button>
-            <div className="ml-auto flex gap-4 text-xs text-muted-foreground">
+            <div className="ml-auto flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>마지막 내보내기: {formatTime(lastExportAt)}</span>
               <span>마지막 결과 수거: {formatTime(lastImportAt)}</span>
             </div>
@@ -661,7 +661,7 @@ export function SendingTab() {
       </Card>
 
       {/* 대기열 상태 */}
-      <div className="flex items-center justify-between px-4 py-2 bg-muted/30 rounded-lg">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-muted/30 rounded-lg">
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium">
             {totalSummary.total > 0 ? (
@@ -689,7 +689,7 @@ export function SendingTab() {
 
       {/* PC별 요약 카드 */}
       {devices.filter(d => d.is_active).length > 0 && (
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {devices.filter(d => d.is_active).map((d) => {
             const s = summary[d.id] || { total: 0, pending: 0, sent: 0, failed: 0 }
             return (
