@@ -25,7 +25,7 @@ import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Timeline } from '@/components/ui/timeline'
 import { Send, Pause, FileText, RefreshCw, Upload } from 'lucide-react'
 import { FloatingChatButton } from '@/components/ui/floating-chat'
-import { CsvImportDialog } from './subscriptions/CsvImportDialog'
+// CSV import removed — use scripts/import-subscriptions.ts for bulk import
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -571,10 +571,6 @@ export function SubscriptionsTab() {
     <div className="space-y-6">
       {/* 1. Page Header */}
       <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다">
-        <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
-          <Upload className="mr-1 h-3 w-3" />
-          CSV 임포트
-        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -1469,12 +1465,6 @@ export function SubscriptionsTab() {
         <Toast message={toast.message} type={toast.type} onClose={clearToast} />
       )}
 
-      {/* 8. CSV Import Dialog */}
-      <CsvImportDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        onComplete={() => fetchSubs()}
-      />
 
       {/* 9. AI Chat */}
       <FloatingChatButton tabId="subscriptions" userEmail="admin" />

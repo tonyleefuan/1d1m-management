@@ -427,6 +427,7 @@ function OrderList() {
                     />
                   </TableHead>
                   <TableHead className="w-[100px]">주문일</TableHead>
+                  <TableHead>주문번호</TableHead>
                   <TableHead>고객명</TableHead>
                   <TableHead>상품</TableHead>
                   <TableHead>상품명</TableHead>
@@ -453,6 +454,9 @@ function OrderList() {
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs tabular-nums py-1.5 whitespace-nowrap">
                       {item.order?.ordered_at?.slice(0, 10)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground py-1.5 whitespace-nowrap">
+                      {item.order?.imweb_order_no || '-'}
                     </TableCell>
                     <TableCell className="font-medium text-sm py-1.5">{item.order?.customer?.name}</TableCell>
                     <TableCell className="font-mono text-xs py-1.5">{item.product?.sku_code}</TableCell>
