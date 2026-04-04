@@ -164,17 +164,18 @@ export function CSTab() {
   }, [showError])
 
   const fetchCounts = useCallback(async () => {
-    const [escRes, aiRes, refundRes] = await Promise.all([
-      fetch('/api/admin/cs/inquiries?status=escalated'),
-      fetch('/api/admin/cs/inquiries?status=ai_answered'),
-      fetch('/api/admin/cs/refunds?status=pending'),
-    ])
-    const escData = await escRes.json()
-    const aiData = await aiRes.json()
-    const refundData = await refundRes.json()
-    setEscalatedCount(escData.data?.length || 0)
-    setAiCount(aiData.unreadAiCount ?? aiData.data?.length ?? 0)
-    setRefundPendingCount(refundData.data?.length || 0)
+    try {
+      const [escRes, aiRes, refundRes] = await Promise.all([
+        fetch('/api/admin/cs/inquiries?status=escalated'),
+        fetch('/api/admin/cs/inquiries?status=ai_answered'),
+        fetch('/api/admin/cs/refunds?status=pending'),
+      ])
+      if (escRes.ok) { const d = await escRes.json(); setEscalatedCount(d.data?.length || 0) }
+      if (aiRes.ok) { const d = await aiRes.json(); setAiCount(d.unreadAiCount ?? d.data?.length ?? 0) }
+      if (refundRes.ok) { const d = await refundRes.json(); setRefundPendingCount(d.data?.length || 0) }
+    } catch {
+      // 카운트 로드 실패는 무시 — 다음 새로고침 시 재시도
+    }
   }, [])
 
   const fetchPolicies = useCallback(async () => {
@@ -208,7 +209,7 @@ export function CSTab() {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'mark_ai_read' }),
-        }).then(() => setAiCount(0))
+        }).then(() => setAiCount(0)).catch(() => {})
       }
     }
   }, [section, fetchInquiries, fetchPolicies, fetchRefunds])
@@ -448,12 +449,13 @@ export function CSTab() {
           <Card>
             <CardContent className="p-4">
               {!chatOpen ? (
-                <button
+                <Button
+                  variant="ghost"
                   onClick={() => setChatOpen(true)}
-                  className="w-full text-left text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  className="w-full justify-start text-sm text-muted-foreground font-normal h-auto py-2"
                 >
                   💬 AI와 대화를 통해 운영 정책을 수정하거나 추가해 보세요
-                </button>
+                </Button>
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
