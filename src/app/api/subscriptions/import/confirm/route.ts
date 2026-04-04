@@ -113,7 +113,7 @@ export async function POST(req: Request) {
       supabase.from('products').select('id, sku_code'),
       supabase.from('send_devices').select('id, phone_number'),
       supabase.from('customers').select('id, kakao_friend_name'),
-      supabase.from('order_items').select('id, imweb_item_no, order:orders(imweb_order_no)'),
+      supabase.from('order_items').select('id, imweb_item_no, order:orders(imweb_order_no, customer_id)'),
     ])
 
     const productMap = new Map<string, string>()
@@ -130,10 +130,14 @@ export async function POST(req: Request) {
     })
 
     const orderItemMap = new Map<string, string>()
+    const orderCustomerMap = new Map<string, string>()
     orderItemsRes.data?.forEach((oi: any) => {
       const orderNo = oi.order?.imweb_order_no
       if (orderNo && oi.id && !orderItemMap.has(orderNo)) {
         orderItemMap.set(orderNo, oi.id)
+      }
+      if (orderNo && oi.order?.customer_id && !orderCustomerMap.has(orderNo)) {
+        orderCustomerMap.set(orderNo, oi.order.customer_id)
       }
     })
 
@@ -156,6 +160,52 @@ export async function POST(req: Request) {
     }[] = []
 
     let skipped = 0
+    let customersCreated = 0
+
+    // Collect customers to auto-create
+    const customersToCreate = new Map<string, string>() // kakaoName → placeholder
+
+    // First pass: identify customers that need creation
+    for (const raw of rawRows) {
+      const kakaoName = getField(raw, colMap, 'kakao')?.toString().trim()
+      const orderNo = getField(raw, colMap, 'orderNo')?.toString().trim() || ''
+      if (!kakaoName) continue
+      if (customerMap.has(kakaoName)) continue
+      if (orderNo && orderCustomerMap.has(orderNo)) continue
+      customersToCreate.set(kakaoName, '')
+    }
+
+    // Bulk create missing customers
+    if (customersToCreate.size > 0) {
+      const newCustomers = [...customersToCreate.keys()].map(kakao => {
+        // Parse kakao name: "홍길동/1234" → name="홍길동", phone_last4="1234"
+        const parts = kakao.split('/')
+        const name = parts[0] || kakao
+        const phoneLast4 = parts[1] || null
+        return {
+          name,
+          phone_last4: phoneLast4,
+          kakao_friend_name: kakao,
+        }
+      })
+
+      // Insert in batches of 500
+      for (let i = 0; i < newCustomers.length; i += 500) {
+        const batch = newCustomers.slice(i, i + 500)
+        const { data, error } = await supabase
+          .from('customers')
+          .insert(batch)
+          .select('id, kakao_friend_name')
+        if (!error && data) {
+          data.forEach(c => {
+            if (c.kakao_friend_name) {
+              customerMap.set(c.kakao_friend_name, c.id)
+              customersCreated++
+            }
+          })
+        }
+      }
+    }
 
     for (const raw of rawRows) {
       const sku = getField(raw, colMap, 'sku')?.toString().trim()
@@ -168,7 +218,12 @@ export async function POST(req: Request) {
 
       const productId = sku ? productMap.get(sku) || null : null
       const deviceId = pcNumber ? deviceMap.get(pcNumber) || null : null
-      const customerId = kakaoName ? customerMap.get(kakaoName) || null : null
+
+      // Customer resolution: 1) kakao → 2) orderNo → order.customer_id → 3) just created above
+      let customerId = kakaoName ? customerMap.get(kakaoName) || null : null
+      if (!customerId && orderNo) {
+        customerId = orderCustomerMap.get(orderNo) || null
+      }
 
       if (!productId || !deviceId || !customerId) { skipped++; continue }
 
@@ -289,6 +344,7 @@ export async function POST(req: Request) {
       created: createdCount,
       updated: updatedCount,
       skipped,
+      customersCreated,
       errors: updateErrors + insertErrors,
       total: rawRows.length,
     })
