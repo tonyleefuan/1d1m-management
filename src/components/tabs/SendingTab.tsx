@@ -43,7 +43,7 @@ interface QueueItem {
   day_number: number | null
   subscription?: {
     id: string
-    day: number
+    last_sent_day: number
     duration_days: number
     send_priority: number
     product?: { sku_code: string; title: string }
