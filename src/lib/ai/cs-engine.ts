@@ -781,6 +781,7 @@ export async function handleCsReply(
   originalContent: string,
   conversationHistory: ConversationEntry[],
   newReplyContent: string,
+  subscriptionId?: string | null,
 ): Promise<CsAiResult> {
   const settings = await getSystemSettings([
     'ai_cs_model', 'ai_cs_max_tokens', 'ai_cs_max_followup_iterations',
@@ -814,8 +815,12 @@ export async function handleCsReply(
 
   const messages: Anthropic.MessageParam[] = []
 
-  // 원글
-  messages.push({ role: 'user', content: `문의 카테고리: ${category}\n\n<customer_message>\n${originalContent}\n</customer_message>` })
+  // 원글 + 구독 컨텍스트
+  let firstMsg = `문의 카테고리: ${category}\n\n<customer_message>\n${originalContent}\n</customer_message>`
+  if (subscriptionId) {
+    firstMsg += `\n\n(고객이 선택한 관련 구독 ID: ${subscriptionId})`
+  }
+  messages.push({ role: 'user', content: firstMsg })
 
   // 이전 대화 — user/assistant 교대로 변환
   for (const entry of recentHistory) {

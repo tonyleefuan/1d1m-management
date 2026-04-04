@@ -112,6 +112,7 @@ async function handleCron(req: Request) {
             inquiry.content,
             conversationHistory,
             lastCustomerReply.content,
+            inquiry.subscription_id,
           )
         } else {
           // ── 신규 문의 처리 ──
