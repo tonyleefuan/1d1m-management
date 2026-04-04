@@ -109,11 +109,12 @@ export async function POST(req: Request) {
     const colMap = buildColumnMap(headers)
 
     // 2. Load reference tables
-    const [productsRes, devicesRes, customersRes, orderItemsRes] = await Promise.all([
+    const [productsRes, devicesRes, customersRes, orderItemsRes, ordersRes] = await Promise.all([
       supabase.from('products').select('id, sku_code'),
       supabase.from('send_devices').select('id, phone_number'),
-      supabase.from('customers').select('id, kakao_friend_name'),
+      supabase.from('customers').select('id, kakao_friend_name, phone'),
       supabase.from('order_items').select('id, imweb_item_no, order:orders(imweb_order_no, customer_id)'),
+      supabase.from('orders').select('imweb_order_no, customer_id, customer:customers(phone, kakao_friend_name)'),
     ])
 
     const productMap = new Map<string, string>()
@@ -141,6 +142,14 @@ export async function POST(req: Request) {
       }
     })
 
+    // orderNo → customer phone (for enriching auto-created customers)
+    const orderPhoneMap = new Map<string, string>()
+    ordersRes.data?.forEach((o: any) => {
+      if (o.imweb_order_no && o.customer?.phone) {
+        orderPhoneMap.set(o.imweb_order_no, o.customer.phone)
+      }
+    })
+
     // 3. Day offset
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
     const dayOffset = diffDays(today, referenceDate)
@@ -162,8 +171,8 @@ export async function POST(req: Request) {
     let skipped = 0
     let customersCreated = 0
 
-    // Collect customers to auto-create
-    const customersToCreate = new Map<string, string>() // kakaoName → placeholder
+    // Collect customers to auto-create (with their orderNo for phone lookup)
+    const customersToCreate = new Map<string, string>() // kakaoName → orderNo (for phone enrichment)
 
     // First pass: identify customers that need creation
     for (const raw of rawRows) {
@@ -172,19 +181,23 @@ export async function POST(req: Request) {
       if (!kakaoName) continue
       if (customerMap.has(kakaoName)) continue
       if (orderNo && orderCustomerMap.has(orderNo)) continue
-      customersToCreate.set(kakaoName, '')
+      if (!customersToCreate.has(kakaoName)) {
+        customersToCreate.set(kakaoName, orderNo)
+      }
     }
 
     // Bulk create missing customers
     if (customersToCreate.size > 0) {
-      const newCustomers = [...customersToCreate.keys()].map(kakao => {
-        // Parse kakao name: "홍길동/1234" → name="홍길동", phone_last4="1234"
+      const newCustomers = [...customersToCreate.entries()].map(([kakao, orderNo]) => {
         const parts = kakao.split('/')
         const name = parts[0] || kakao
         const phoneLast4 = parts[1] || null
+        // Try to get phone from order data
+        const phone = orderNo ? orderPhoneMap.get(orderNo) || null : null
         return {
           name,
-          phone_last4: phoneLast4,
+          phone,
+          phone_last4: phoneLast4 || (phone ? phone.slice(-4) : null),
           kakao_friend_name: kakao,
         }
       })
