@@ -42,6 +42,7 @@ export interface ImportPreviewResponse {
   missingSkus: string[]
   missingPcs: string[]
   missingCustomers: string[]
+  warnings: string[]
 }
 
 // ─── Column Matching ─────────────────────────────────────
@@ -158,15 +159,21 @@ export async function POST(req: Request) {
     const colMap = buildColumnMap(headers)
 
     // Validate required columns
-    const requiredFields = ['sku', 'kakao', 'pc', 'status'] as const
+    const requiredFields = ['sku', 'kakao', 'pc'] as const
     const missingFields = requiredFields.filter(f => !colMap.has(f))
     if (missingFields.length > 0) {
-      const nameMap: Record<string, string> = { sku: 'SKU', kakao: '카톡이름', pc: 'PC 번호', status: '상태' }
+      const nameMap: Record<string, string> = { sku: 'SKU', kakao: '카톡이름', pc: 'PC 번호' }
       const fieldNames = missingFields.map(f => nameMap[f] || f)
       return NextResponse.json({
         error: `필수 컬럼을 찾을 수 없습니다: ${fieldNames.join(', ')}. 헤더를 확인해주세요.`,
       }, { status: 400 })
     }
+
+    // Build warnings for missing optional columns
+    const warnings: string[] = []
+    if (!colMap.has('status')) warnings.push('상태 컬럼이 없어서 모두 "발송중(Live)"으로 설정됩니다')
+    if (!colMap.has('day')) warnings.push('Day 컬럼이 없어서 last_sent_day를 0으로 설정됩니다')
+    if (!colMap.has('duration')) warnings.push('기간 컬럼이 없어서 상품 기본 기간을 사용합니다')
 
     // 2. Load reference tables
     const [productsRes, devicesRes, customersRes, orderItemsRes] = await Promise.all([
@@ -314,6 +321,7 @@ export async function POST(req: Request) {
       missingSkus: [...missingSkus],
       missingPcs: [...missingPcs],
       missingCustomers: [...missingCustomers],
+      warnings,
     }
 
     return NextResponse.json(response)
