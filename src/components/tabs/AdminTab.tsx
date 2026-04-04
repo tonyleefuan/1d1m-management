@@ -17,11 +17,12 @@ import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { TABS } from '@/lib/constants'
+import { TABS, SYSTEM_SETTINGS, SYSTEM_DEFAULTS, SETTING_GROUP_LABELS } from '@/lib/constants'
+import type { SettingDef } from '@/lib/constants'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Users, Monitor, Plus, Palette, LayoutGrid, ArrowUp, ArrowDown, Sparkles, Save, Loader2 } from 'lucide-react'
+import { Users, Monitor, Plus, Palette, LayoutGrid, ArrowUp, ArrowDown, Sparkles, Save, Loader2, Settings } from 'lucide-react'
 
 // --- 사용자 관리 ---
 function UsersPanel() {
@@ -615,6 +616,168 @@ function PromptManagementPanel() {
   )
 }
 
+// --- 운영 설정 ---
+function SystemSettingsPanel() {
+  const [values, setValues] = useState<Record<string, number | string | boolean>>({ ...SYSTEM_DEFAULTS })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const { toast, showSuccess, showError, clearToast } = useToast()
+
+  useEffect(() => {
+    fetch('/api/admin/settings')
+      .then(r => r.json())
+      .then(data => {
+        setValues(prev => {
+          const merged = { ...prev }
+          for (const key of Object.keys(prev)) {
+            if (data[key] !== undefined && data[key] !== null) {
+              merged[key] = data[key]
+            }
+          }
+          return merged
+        })
+      })
+      .catch(() => showError('설정을 불러오지 못했습니다'))
+      .finally(() => setLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handleChange = (key: string, val: string) => {
+    const def = SYSTEM_SETTINGS.find(s => s.key === key)
+    if (!def) return
+    if (def.type === 'number') {
+      const parsed = val === '' ? def.defaultValue : Number(val)
+      setValues(prev => ({ ...prev, [key]: parsed }))
+    } else {
+      setValues(prev => ({ ...prev, [key]: val }))
+    }
+    setDirty(true)
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      // 변경된 것만 전송
+      const payload: Record<string, unknown> = {}
+      for (const [key, val] of Object.entries(values)) {
+        if (SYSTEM_SETTINGS.some(s => s.key === key)) {
+          payload[key] = val
+        }
+      }
+      const res = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error || '저장 실패')
+      }
+      setDirty(false)
+      showSuccess('운영 설정이 저장되었습니다')
+    } catch (e: any) {
+      showError(e.message || '저장에 실패했습니다')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleReset = (key: string) => {
+    setValues(prev => ({ ...prev, [key]: SYSTEM_DEFAULTS[key] }))
+    setDirty(true)
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    )
+  }
+
+  const groups = ['cs', 'ai', 'refund', 'system'] as const
+  const settingsByGroup = groups.map(g => ({
+    group: g,
+    label: SETTING_GROUP_LABELS[g],
+    items: SYSTEM_SETTINGS.filter(s => s.group === g),
+  }))
+
+  return (
+    <div className="space-y-6">
+      {settingsByGroup.map(({ group, label, items }) => (
+        <Card key={group}>
+          <CardContent className="p-4">
+            <h3 className="text-sm font-semibold mb-4">{label}</h3>
+            <div className="space-y-3">
+              {items.map((def: SettingDef) => {
+                const val = values[def.key]
+                const isDefault = val === def.defaultValue
+                return (
+                  <div key={def.key} className="flex items-center gap-4">
+                    <div className="w-48 shrink-0">
+                      <div className="text-sm font-medium">{def.label}</div>
+                      <div className="text-xs text-muted-foreground">{def.description}</div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-1">
+                      {def.type === 'string' ? (
+                        <Input
+                          value={String(val)}
+                          onChange={e => handleChange(def.key, e.target.value)}
+                          className="max-w-xs font-mono text-sm"
+                        />
+                      ) : (
+                        <Input
+                          type="number"
+                          value={String(val)}
+                          onChange={e => handleChange(def.key, e.target.value)}
+                          min={def.min}
+                          max={def.max}
+                          step={def.key === 'refund_penalty_rate' ? 0.05 : 1}
+                          className="w-28 font-mono text-sm tabular-nums"
+                        />
+                      )}
+                      {!isDefault && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-muted-foreground h-7 px-2"
+                          onClick={() => handleReset(def.key)}
+                        >
+                          초기화
+                        </Button>
+                      )}
+                      {def.min !== undefined && def.max !== undefined && (
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {def.min} ~ {def.max}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+
+      <div className="flex justify-end">
+        <Button onClick={handleSave} disabled={saving || !dirty}>
+          {saving ? (
+            <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4 mr-1.5" />
+          )}
+          {dirty ? '설정 저장' : '변경 없음'}
+        </Button>
+      </div>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast} />}
+    </div>
+  )
+}
+
 // --- 메인 탭 ---
 export function AdminTab() {
   return (
@@ -651,6 +814,10 @@ export function AdminTab() {
             <Sparkles className="h-4 w-4" />
             AI 프롬프트
           </TabsTrigger>
+          <TabsTrigger value="settings" className="gap-1.5">
+            <Settings className="h-4 w-4" />
+            운영 설정
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="users">
           <UsersPanel />
@@ -663,6 +830,9 @@ export function AdminTab() {
         </TabsContent>
         <TabsContent value="prompts">
           <PromptManagementPanel />
+        </TabsContent>
+        <TabsContent value="settings">
+          <SystemSettingsPanel />
         </TabsContent>
       </Tabs>
     </div>

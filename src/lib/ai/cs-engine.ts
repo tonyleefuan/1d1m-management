@@ -2,9 +2,9 @@ import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/supabase'
 import { calculateRefund, formatRefundSummary } from '@/lib/refund'
+import { getSystemSettings } from '@/lib/settings'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
-const MODEL = 'claude-sonnet-4-6'
 
 // ─── Tool definitions ────────────────────────────────────
 const CS_TOOLS: Anthropic.Tool[] = [
@@ -224,7 +224,8 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
         addedDays = Math.floor((today.getTime() - pausedDate.getTime()) / (1000 * 60 * 60 * 24))
       }
 
-      const { error } = await supabase
+      // 원자적 상태 전환: status=pause인 경우에만 업데이트 (경쟁 조건 방지)
+      const { data: updated, error } = await supabase
         .from('subscriptions')
         .update({
           status: 'live',
@@ -233,8 +234,11 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
           paused_days: (sub.paused_days || 0) + addedDays,
         })
         .eq('id', input.subscription_id)
+        .eq('status', 'pause')
+        .select('id')
+        .single()
 
-      if (error) return { success: false, error: error.message }
+      if (error || !updated) return { success: false, error: '재개 처리에 실패했습니다. 이미 처리되었거나 상태가 변경되었을 수 있습니다.' }
 
       const tomorrowStr = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       return { success: true, data: { resume_date: todayStr, sending_from: tomorrowStr, added_paused_days: addedDays } }
@@ -243,20 +247,30 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
     case 'change_product': {
       const { data: sub } = await supabase
         .from('subscriptions')
-        .select('id, product_id, duration_days, last_sent_day, customer_id, product:products(id, title)')
+        .select('id, product_id, status, duration_days, last_sent_day, customer_id, product:products(id, title, message_type)')
         .eq('id', input.subscription_id)
         .eq('customer_id', customerId)
         .single()
 
       if (!sub) return { success: false, error: '구독을 찾을 수 없습니다.' }
 
+      // 구독 상태 체크: cancel/archive 상태에서는 변경 불가
+      if (sub.status === 'cancel' || sub.status === 'archive') {
+        return { success: false, error: `현재 구독 상태(${sub.status === 'cancel' ? '취소' : '만료'})에서는 상품을 변경할 수 없습니다.` }
+      }
+
       const { data: newProduct } = await supabase
         .from('products')
-        .select('id, title, prices:product_prices(*)')
+        .select('id, title, message_type, is_active, prices:product_prices(*)')
         .eq('id', input.new_product_id)
         .single()
 
       if (!newProduct) return { success: false, error: '변경할 상품을 찾을 수 없습니다.' }
+
+      // is_active 체크
+      if (!newProduct.is_active) {
+        return { success: false, error: '해당 상품은 현재 판매 중지 상태입니다. 다른 상품을 선택해 주세요.' }
+      }
 
       // 가격 비교: 동일 duration_days, 동일 channel의 price
       const { data: currentPrices } = await supabase
@@ -291,20 +305,53 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
         }
       }
 
-      const { error } = await supabase
-        .from('subscriptions')
-        .update({ product_id: input.new_product_id })
-        .eq('id', input.subscription_id)
+      // fixed/realtime 분기 처리
+      const currentMessageType = (sub as any).product?.message_type
+      const newMessageType = newProduct.message_type
 
-      if (error) return { success: false, error: error.message }
+      if (currentMessageType === 'fixed' || newMessageType === 'fixed') {
+        // 고정 메시지 상품이 포함된 변경: Day 1부터 재시작, 남은 일수만큼만 제공
+        const remainingDays = sub.duration_days - sub.last_sent_day
+        const { error } = await supabase
+          .from('subscriptions')
+          .update({
+            product_id: input.new_product_id,
+            last_sent_day: 0,
+            duration_days: remainingDays,
+          })
+          .eq('id', input.subscription_id)
 
-      return {
-        success: true,
-        data: {
-          previous_product: (sub as any).product?.title,
-          new_product: newProduct.title,
-          day_maintained: sub.last_sent_day,
-        },
+        if (error) return { success: false, error: error.message }
+
+        return {
+          success: true,
+          data: {
+            previous_product: (sub as any).product?.title,
+            new_product: newProduct.title,
+            message_type: newMessageType,
+            reset_to_day1: true,
+            remaining_days: remainingDays,
+            note: `고정 메시지 상품 변경으로 Day 1부터 재시작됩니다. 남은 ${remainingDays}일간 발송됩니다.`,
+          },
+        }
+      } else {
+        // 실시간 메시지 상품 간 변경: 상품 코드만 교체
+        const { error } = await supabase
+          .from('subscriptions')
+          .update({ product_id: input.new_product_id })
+          .eq('id', input.subscription_id)
+
+        if (error) return { success: false, error: error.message }
+
+        return {
+          success: true,
+          data: {
+            previous_product: (sub as any).product?.title,
+            new_product: newProduct.title,
+            message_type: newMessageType,
+            day_maintained: sub.last_sent_day,
+          },
+        }
       }
     }
 
@@ -317,6 +364,7 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
         .select('id, title, sku_code, message_type, is_active')
         .eq('is_active', true)
         .ilike('title', `%${sanitized}%`)
+        .limit(10)
 
       return { success: true, data: products || [] }
     }
@@ -350,14 +398,16 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
 
       if (!order) return { success: false, error: '주문 정보를 찾을 수 없습니다.' }
 
-      // 3. 환불 계산
+      // 3. 환불 계산 (운영 설정 로드)
       const paymentMethod = input.payment_method as 'card' | 'bank_transfer'
+      const refundSettings = await getSystemSettings(['refund_full_days', 'refund_penalty_rate', 'refund_pg_cancel_days'])
       const calc = calculateRefund({
         paidAmount: orderItem.allocated_amount,
         usedDays: sub.last_sent_day,
         totalDays: sub.duration_days,
         paidAt: order.ordered_at,
         paymentMethod,
+        settings: refundSettings,
       })
 
       // 4. 계좌 정보 필요 여부 확인
@@ -436,7 +486,8 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
 
 async function buildSystemPrompt(
   customerId: string,
-  category: string
+  category: string,
+  settings: Record<string, number | string | boolean>,
 ): Promise<string> {
   // 1. Load customer info
   const { data: customer } = await supabase
@@ -463,7 +514,8 @@ async function buildSystemPrompt(
     .join('\n\n---\n\n') || ''
 
   // 3. Load previous conversation history for this customer (recent inquiries)
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const historyDays = Number(settings.ai_cs_history_days) || 7
+  const sevenDaysAgo = new Date(Date.now() - historyDays * 24 * 60 * 60 * 1000).toISOString()
   const { data: recentInquiries } = await supabase
     .from('cs_inquiries')
     .select('category, title, status, cs_replies(author_type, content)')
@@ -553,7 +605,15 @@ export async function handleCsInquiry(
   subscriptionId: string | null,
   inquiryId?: string,
 ): Promise<CsAiResult> {
-  const systemPrompt = await buildSystemPrompt(customerId, category)
+  const settings = await getSystemSettings([
+    'ai_cs_model', 'ai_cs_max_tokens', 'ai_cs_max_iterations',
+    'ai_cs_max_followup_iterations', 'ai_cs_escalation_threshold', 'ai_cs_history_days',
+  ])
+  const MODEL = String(settings.ai_cs_model)
+  const MAX_TOKENS = Number(settings.ai_cs_max_tokens)
+  const MAX_ITERATIONS = Number(settings.ai_cs_max_iterations)
+
+  const systemPrompt = await buildSystemPrompt(customerId, category, settings)
   const actions: CsAiResult['actions'] = []
   let isEscalated = false
   const toolCtx: ToolContext = { customerId, inquiryId }
@@ -569,13 +629,12 @@ export async function handleCsInquiry(
     { role: 'user', content: userMessage },
   ]
 
-  const MAX_ITERATIONS = 6
   let finalText = ''
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 2048,
+      max_tokens: MAX_TOKENS,
       system: systemPrompt,
       tools: CS_TOOLS,
       messages,
@@ -654,9 +713,18 @@ export async function handleCsReply(
   conversationHistory: ConversationEntry[],
   newReplyContent: string,
 ): Promise<CsAiResult> {
-  // AI 답변 횟수 카운트 — 2회 이상이면 에스컬레이션
+  const settings = await getSystemSettings([
+    'ai_cs_model', 'ai_cs_max_tokens', 'ai_cs_max_followup_iterations',
+    'ai_cs_escalation_threshold', 'ai_cs_history_days',
+  ])
+  const MODEL = String(settings.ai_cs_model)
+  const MAX_TOKENS = Number(settings.ai_cs_max_tokens)
+  const MAX_ITERATIONS = Number(settings.ai_cs_max_followup_iterations)
+  const ESCALATION_THRESHOLD = Number(settings.ai_cs_escalation_threshold)
+
+  // AI 답변 횟수 카운트 — N회 이상이면 에스컬레이션
   const aiReplyCount = conversationHistory.filter(e => e.author_type === 'ai').length
-  if (aiReplyCount >= 2) {
+  if (aiReplyCount >= ESCALATION_THRESHOLD) {
     return {
       reply: '추가 확인이 필요한 사항이 있어, 담당자에게 전달드렸습니다. 영업일 1일 이내에 답변 드리겠습니다. 감사합니다.',
       status: 'escalated',
@@ -664,7 +732,7 @@ export async function handleCsReply(
     }
   }
 
-  const systemPrompt = await buildSystemPrompt(customerId, category)
+  const systemPrompt = await buildSystemPrompt(customerId, category, settings)
   const actions: CsAiResult['actions'] = []
   let isEscalated = false
   const toolCtx: ToolContext = { customerId, inquiryId }
@@ -705,13 +773,12 @@ export async function handleCsReply(
     mergedMessages.unshift({ role: 'user', content: '(이전 문의 이어서)' })
   }
 
-  const MAX_ITERATIONS = 4
   let finalText = ''
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 2048,
+      max_tokens: MAX_TOKENS,
       system: systemPrompt,
       tools: CS_TOOLS,
       messages: mergedMessages,

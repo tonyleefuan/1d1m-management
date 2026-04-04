@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getCsSession } from '@/lib/cs-auth'
+import { getSystemSettings } from '@/lib/settings'
 
 export async function POST(
   req: Request,
@@ -10,15 +11,20 @@ export async function POST(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
+    const settings = await getSystemSettings(['cs_content_max_length', 'cs_rate_limit_reply', 'ai_cs_escalation_threshold'])
+    const maxLen = Number(settings.cs_content_max_length) || 2000
+    const replyRateLimit = Number(settings.cs_rate_limit_reply) || 10
+    const escalationThreshold = Number(settings.ai_cs_escalation_threshold) || 2
+
     const { content } = await req.json()
     if (!content?.trim()) {
       return NextResponse.json({ error: '문의 내용을 입력해 주세요.' }, { status: 400 })
     }
-    if (content.trim().length > 2000) {
-      return NextResponse.json({ error: '문의 내용은 2,000자 이내로 작성해 주세요.' }, { status: 400 })
+    if (content.trim().length > maxLen) {
+      return NextResponse.json({ error: `문의 내용은 ${maxLen.toLocaleString()}자 이내로 작성해 주세요.` }, { status: 400 })
     }
 
-    // ── 댓글 Rate Limit: 문의당 1시간 10회 ──
+    // ── 댓글 Rate Limit ──
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
     const { count: replyCount } = await supabase
       .from('cs_rate_limits')
@@ -27,7 +33,7 @@ export async function POST(
       .eq('action', 'reply')
       .gte('attempted_at', oneHourAgo)
 
-    if ((replyCount ?? 0) >= 10) {
+    if ((replyCount ?? 0) >= replyRateLimit) {
       return NextResponse.json({ error: '짧은 시간 내 너무 많은 문의를 등록하셨습니다. 잠시 후 다시 시도해 주세요.' }, { status: 429 })
     }
 
@@ -81,14 +87,14 @@ export async function POST(
           .eq('inquiry_id', params.id)
           .eq('author_type', 'ai')
 
-        if ((aiCount ?? 0) < 2) {
+        if ((aiCount ?? 0) < escalationThreshold) {
           // AI 재응답 가능 → pending으로 되돌림 (다음 Cron에서 handleCsReply 호출)
           await supabase
             .from('cs_inquiries')
             .update({ status: 'pending' })
             .eq('id', params.id)
         } else {
-          // AI 응답 2회 초과 → 에스컬레이션
+          // AI 응답 N회 초과 → 에스컬레이션
           await supabase
             .from('cs_inquiries')
             .update({ status: 'escalated' })

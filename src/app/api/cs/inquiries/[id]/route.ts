@@ -53,7 +53,8 @@ export async function DELETE(
     return NextResponse.json({ error: '해당 문의를 찾을 수 없습니다.' }, { status: 403 })
   }
 
-  // 답글 먼저 삭제 후 문의 삭제
+  // 관련 데이터 삭제 후 문의 삭제 (답글 + 환불 요청)
+  await supabase.from('cs_refund_requests').delete().eq('inquiry_id', params.id)
   await supabase.from('cs_replies').delete().eq('inquiry_id', params.id)
   const { error } = await supabase.from('cs_inquiries').delete().eq('id', params.id)
 

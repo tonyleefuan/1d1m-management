@@ -1,4 +1,5 @@
 import { FULL_REFUND_DAYS, PENALTY_RATE, PG_CANCEL_DAYS } from '@/lib/constants'
+import type { SystemSettings } from '@/lib/settings'
 
 /**
  * 환불 계산 결과
@@ -30,8 +31,14 @@ export function calculateRefund(params: {
   totalDays: number     // subscriptions.duration_days
   paidAt: string | Date // orders.ordered_at
   paymentMethod: 'card' | 'bank_transfer'
+  settings?: Partial<SystemSettings>  // DB 설정 (운영 설정에서 로드)
 }): RefundCalculation {
-  const { paidAmount, usedDays, totalDays, paidAt, paymentMethod } = params
+  const { paidAmount, usedDays, totalDays, paidAt, paymentMethod, settings } = params
+
+  // DB 설정 우선, 없으면 constants.ts 폴백
+  const fullRefundDays = Number(settings?.refund_full_days) || FULL_REFUND_DAYS
+  const penaltyRate = Number(settings?.refund_penalty_rate) || PENALTY_RATE
+  const pgCancelDays = Number(settings?.refund_pg_cancel_days) || PG_CANCEL_DAYS
 
   // 결제 후 경과일 계산 (KST 기준)
   const paidDate = new Date(paidAt)
@@ -40,8 +47,8 @@ export function calculateRefund(params: {
     (now.getTime() - paidDate.getTime()) / (1000 * 60 * 60 * 24)
   )
 
-  // 전액 환불: 결제 후 3일 이내
-  const isFullRefund = daysSincePaid <= FULL_REFUND_DAYS
+  // 전액 환불: 설정된 기한 이내
+  const isFullRefund = daysSincePaid <= fullRefundDays
 
   // 일일 단가 (내림)
   const dailyRate = totalDays > 0 ? Math.floor(paidAmount / totalDays) : 0
@@ -49,18 +56,18 @@ export function calculateRefund(params: {
   // 이용 금액
   const usedAmount = isFullRefund ? 0 : dailyRate * usedDays
 
-  // 위약금: 전액 환불이면 0, 아니면 결제 금액의 30%
-  const penaltyAmount = isFullRefund ? 0 : Math.floor(paidAmount * PENALTY_RATE)
+  // 위약금: 전액 환불이면 0, 아니면 설정된 비율
+  const penaltyAmount = isFullRefund ? 0 : Math.floor(paidAmount * penaltyRate)
 
   // 환불 금액 (최소 0)
   const refundAmount = isFullRefund
     ? paidAmount
     : Math.max(0, paidAmount - usedAmount - penaltyAmount)
 
-  // 계좌 정보 필요 여부: 카드 결제 + 30일 초과 시 PG 취소 불가
+  // 계좌 정보 필요 여부: 카드 결제 + N일 초과 시 PG 취소 불가
   const needsAccountInfo =
     paymentMethod === 'bank_transfer' ||
-    (paymentMethod === 'card' && daysSincePaid > PG_CANCEL_DAYS)
+    (paymentMethod === 'card' && daysSincePaid > pgCancelDays)
 
   return {
     paidAmount,

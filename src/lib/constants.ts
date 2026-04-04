@@ -148,14 +148,14 @@ export const CS_CATEGORY_GUIDES: Record<string, {
 
 /** 카테고리별 AI 응답 한도 (DB cs_policies.ai_max_replies 기본값) */
 export const CS_AI_REPLY_LIMITS: Record<string, number> = {
-  message_not_received: 3,
+  message_never_received: 3,
+  message_stopped: 2,
   pause_resume: 2,
   product_change: 2,
   cancel_refund: 4,
   delivery_time: 1,
   payment_info: 2,
   general_notice: 1,
-  onboarding: 1,
   other: 1,
 }
 
@@ -187,3 +187,63 @@ export const FULL_REFUND_DAYS = 3
 export const PENALTY_RATE = 0.3
 /** PG 카드 취소 가능 기한 (일) */
 export const PG_CANCEL_DAYS = 30
+
+// ─── 운영 설정 레지스트리 (app_settings DB 기본값) ───
+// 관리자 설정 > 운영 설정 패널에서 변경 가능
+// 기본값은 DB에 값이 없을 때 사용됨
+
+export interface SettingDef {
+  key: string
+  label: string
+  description: string
+  type: 'number' | 'string' | 'boolean'
+  defaultValue: number | string | boolean
+  group: 'cs' | 'ai' | 'refund' | 'system'
+  min?: number
+  max?: number
+}
+
+export const SYSTEM_SETTINGS: SettingDef[] = [
+  // ── CS 설정 ──
+  { key: 'cs_session_hours',       label: 'CS 세션 유효시간',       description: '고객 CS 포털 세션 유효시간 (시간)',        type: 'number', defaultValue: 1,    group: 'cs', min: 1, max: 24 },
+  { key: 'cs_rate_limit_auth',     label: '인증 시도 제한',         description: '15분당 최대 인증 시도 횟수',               type: 'number', defaultValue: 5,    group: 'cs', min: 3, max: 20 },
+  { key: 'cs_rate_limit_inquiry',  label: '문의 등록 제한',         description: '시간당 최대 문의 등록 횟수',               type: 'number', defaultValue: 20,   group: 'cs', min: 5, max: 100 },
+  { key: 'cs_rate_limit_reply',    label: '댓글 등록 제한',         description: '문의당 시간당 최대 댓글 횟수',             type: 'number', defaultValue: 10,   group: 'cs', min: 3, max: 50 },
+  { key: 'cs_content_max_length',  label: '문의 최대 글자수',       description: '문의/댓글 최대 글자수',                    type: 'number', defaultValue: 2000, group: 'cs', min: 100, max: 10000 },
+  { key: 'cs_data_retention_days', label: '문의 보관 기간',         description: '종료된 문의 자동 삭제 기간 (일)',           type: 'number', defaultValue: 7,    group: 'cs', min: 1, max: 365 },
+  { key: 'cs_cron_batch_size',     label: 'Cron 배치 크기',         description: '한 번에 처리할 최대 문의 수',              type: 'number', defaultValue: 10,   group: 'cs', min: 1, max: 50 },
+  { key: 'cs_stuck_threshold_min', label: 'Stuck 판단 시간',        description: 'processing 상태 stuck 판단 시간 (분)',     type: 'number', defaultValue: 15,   group: 'cs', min: 5, max: 60 },
+
+  // ── AI 설정 ──
+  { key: 'ai_cs_model',                   label: 'CS AI 모델',             description: 'CS 응답에 사용되는 AI 모델',                type: 'string', defaultValue: 'claude-sonnet-4-6',  group: 'ai' },
+  { key: 'ai_cs_max_tokens',              label: 'CS 최대 토큰',           description: 'CS AI 응답 최대 토큰 수',                   type: 'number', defaultValue: 2048,               group: 'ai', min: 512, max: 8192 },
+  { key: 'ai_cs_max_iterations',          label: 'CS 도구 반복 제한',      description: '신규 문의 처리 시 최대 도구 호출 반복',      type: 'number', defaultValue: 6,                  group: 'ai', min: 1, max: 15 },
+  { key: 'ai_cs_max_followup_iterations', label: 'CS 후속 반복 제한',      description: '후속 댓글 처리 시 최대 도구 호출 반복',      type: 'number', defaultValue: 4,                  group: 'ai', min: 1, max: 10 },
+  { key: 'ai_cs_escalation_threshold',    label: 'AI 에스컬레이션 임계값', description: 'AI 응답 N회 초과 시 자동 에스컬레이션',      type: 'number', defaultValue: 2,                  group: 'ai', min: 1, max: 10 },
+  { key: 'ai_cs_history_days',            label: 'CS 이력 조회 기간',      description: '고객 최근 문의 이력 조회 기간 (일)',         type: 'number', defaultValue: 7,                  group: 'ai', min: 1, max: 30 },
+
+  // ── 환불/결제 정책 ──
+  { key: 'refund_full_days',    label: '전액 환불 기한',     description: '결제 후 N일 이내 전액 환불',          type: 'number', defaultValue: 3,   group: 'refund', min: 1, max: 30 },
+  { key: 'refund_penalty_rate', label: '위약금 비율',        description: '위약금 비율 (0.3 = 30%)',             type: 'number', defaultValue: 0.3, group: 'refund', min: 0, max: 1 },
+  { key: 'refund_pg_cancel_days', label: 'PG 카드 취소 기한', description: '카드 취소 가능 기한 (일)',            type: 'number', defaultValue: 30,  group: 'refund', min: 1, max: 180 },
+
+  // ── 시스템 설정 ──
+  { key: 'admin_session_days',   label: '관리자 세션 기간',   description: '관리자 세션 유효기간 (일)',            type: 'number', defaultValue: 7,   group: 'system', min: 1, max: 30 },
+  { key: 'cron_log_retention_days', label: 'Cron 로그 보관',  description: 'Cron 실행 로그 보관 기간 (일)',        type: 'number', defaultValue: 30,  group: 'system', min: 7, max: 365 },
+]
+
+/** 설정 키 목록 (API 검증용) */
+export const SYSTEM_SETTING_KEYS = SYSTEM_SETTINGS.map(s => s.key)
+
+/** 설정 기본값 맵 */
+export const SYSTEM_DEFAULTS: Record<string, number | string | boolean> = Object.fromEntries(
+  SYSTEM_SETTINGS.map(s => [s.key, s.defaultValue])
+)
+
+/** 그룹 라벨 */
+export const SETTING_GROUP_LABELS: Record<string, string> = {
+  cs: 'CS 설정',
+  ai: 'AI 설정',
+  refund: '환불/결제 정책',
+  system: '시스템',
+}

@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { handleCsInquiry, handleCsReply } from '@/lib/ai/cs-engine'
-
-const BATCH_SIZE = 10 // 한 번에 처리할 최대 문의 수 (타임아웃 방지)
-const STUCK_THRESHOLD_MS = 15 * 60 * 1000 // 15분 이상 processing 상태면 stuck
+import { getSystemSettings } from '@/lib/settings'
 
 // Vercel Cron은 GET으로 호출 — GET을 메인 핸들러로, POST는 관리자 수동 트리거용
 export async function GET(req: Request) {
@@ -36,7 +34,15 @@ async function handleCron(req: Request) {
   const errors: Array<{ id: string; error: string }> = []
 
   try {
-    // ── 0. stuck processing 복구 (15분 이상) ──
+    // ── 설정 로드 ──
+    const settings = await getSystemSettings([
+      'cs_cron_batch_size', 'cs_stuck_threshold_min',
+      'cs_data_retention_days', 'cron_log_retention_days',
+    ])
+    const BATCH_SIZE = Number(settings.cs_cron_batch_size) || 10
+    const STUCK_THRESHOLD_MS = (Number(settings.cs_stuck_threshold_min) || 15) * 60 * 1000
+
+    // ── 0. stuck processing 복구 ──
     const stuckThreshold = new Date(Date.now() - STUCK_THRESHOLD_MS).toISOString()
     await supabase
       .from('cs_inquiries')
@@ -45,7 +51,6 @@ async function handleCron(req: Request) {
       .lt('updated_at', stuckThreshold)
 
     // ── 1. 모든 pending 문의 통합 처리 (신규 + 후속 댓글) ──
-    // 하나의 쿼리로 FIFO 순서 보장, AI 답변 유무로 신규/후속 구분
     const { data: allPendingInquiries } = await supabase
       .from('cs_inquiries')
       .select(`
@@ -149,19 +154,31 @@ async function handleCron(req: Request) {
           .eq('status', 'processing')
 
         // 처리 중에 고객이 답글을 달았으면 pending으로 되돌림
+        // AI 답변의 created_at 이후에 고객 댓글이 있는지 확인 (더 정확한 기준)
         if (aiResult.status === 'ai_answered') {
-          const { count: newCustomerReplies } = await supabase
+          const { data: latestAiReply } = await supabase
             .from('cs_replies')
-            .select('id', { count: 'exact', head: true })
+            .select('created_at')
             .eq('inquiry_id', inquiry.id)
-            .eq('author_type', 'customer')
-            .gt('created_at', inquiry.updated_at)
-          if (newCustomerReplies && newCustomerReplies > 0) {
-            await supabase
-              .from('cs_inquiries')
-              .update({ status: 'pending' })
-              .eq('id', inquiry.id)
-              .eq('status', 'ai_answered')
+            .eq('author_type', 'ai')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+
+          if (latestAiReply) {
+            const { count: newCustomerReplies } = await supabase
+              .from('cs_replies')
+              .select('id', { count: 'exact', head: true })
+              .eq('inquiry_id', inquiry.id)
+              .eq('author_type', 'customer')
+              .gt('created_at', latestAiReply.created_at)
+            if (newCustomerReplies && newCustomerReplies > 0) {
+              await supabase
+                .from('cs_inquiries')
+                .update({ status: 'pending' })
+                .eq('id', inquiry.id)
+                .eq('status', 'ai_answered')
+            }
           }
         }
 
@@ -184,8 +201,9 @@ async function handleCron(req: Request) {
       .delete()
       .lt('attempted_at', oneDayAgo)
 
-    // ── 2.5. 7일 지난 종료 문의 자동 삭제 (CS_POLICY 데이터 보존 정책) ──
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    // ── 2.5. 종료 문의 자동 삭제 (CS_POLICY 데이터 보존 정책) ──
+    const retentionDays = Number(settings.cs_data_retention_days) || 7
+    const sevenDaysAgo = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString()
     // 먼저 해당 문의의 답글 삭제
     const { data: oldInquiries } = await supabase
       .from('cs_inquiries')
@@ -196,6 +214,10 @@ async function handleCron(req: Request) {
     if (oldInquiries && oldInquiries.length > 0) {
       const oldIds = oldInquiries.map(i => i.id)
       await supabase
+        .from('cs_refund_requests')
+        .delete()
+        .in('inquiry_id', oldIds)
+      await supabase
         .from('cs_replies')
         .delete()
         .in('inquiry_id', oldIds)
@@ -204,6 +226,14 @@ async function handleCron(req: Request) {
         .delete()
         .in('id', oldIds)
     }
+
+    // ── 2.6. Cron 로그 정리 ──
+    const logRetention = Number(settings.cron_log_retention_days) || 30
+    const thirtyDaysAgo = new Date(Date.now() - logRetention * 24 * 60 * 60 * 1000).toISOString()
+    await supabase
+      .from('cs_cron_logs')
+      .delete()
+      .lt('finished_at', thirtyDaysAgo)
 
     // ── 3. Cron 로그 저장 ──
     const durationMs = Date.now() - startTime

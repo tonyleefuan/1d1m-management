@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getCsSession } from '@/lib/cs-auth'
 import { CS_CATEGORIES, CS_CATEGORY_LABELS } from '@/lib/constants'
+import { getSystemSettings } from '@/lib/settings'
 
 const VALID_CATEGORIES = CS_CATEGORIES as readonly string[]
 
@@ -9,7 +10,9 @@ export async function GET() {
   const session = await getCsSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const settings = await getSystemSettings(['cs_data_retention_days'])
+  const retentionDays = Number(settings.cs_data_retention_days) || 7
+  const sevenDaysAgo = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString()
 
   const { data, error } = await supabase
     .from('cs_inquiries')
@@ -43,11 +46,14 @@ export async function POST(req: Request) {
     if (!content?.trim()) {
       return NextResponse.json({ error: '문의 내용을 입력해 주세요.' }, { status: 400 })
     }
-    if (content.trim().length > 2000) {
-      return NextResponse.json({ error: '문의 내용은 2,000자 이내로 작성해 주세요.' }, { status: 400 })
+    const csSettings = await getSystemSettings(['cs_content_max_length', 'cs_rate_limit_inquiry'])
+    const maxLen = Number(csSettings.cs_content_max_length) || 2000
+    if (content.trim().length > maxLen) {
+      return NextResponse.json({ error: `문의 내용은 ${maxLen.toLocaleString()}자 이내로 작성해 주세요.` }, { status: 400 })
     }
 
-    // Rate limit: 20 inquiries per hour
+    // Rate limit
+    const rateLimit = Number(csSettings.cs_rate_limit_inquiry) || 20
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
     const { count } = await supabase
       .from('cs_rate_limits')
@@ -56,7 +62,7 @@ export async function POST(req: Request) {
       .eq('action', 'inquiry')
       .gte('attempted_at', oneHourAgo)
 
-    if ((count ?? 0) >= 20) {
+    if ((count ?? 0) >= rateLimit) {
       return NextResponse.json({ error: '짧은 시간 내 너무 많은 문의를 등록하셨습니다. 잠시 후 다시 시도해 주세요.' }, { status: 429 })
     }
 
