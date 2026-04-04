@@ -570,7 +570,7 @@ export function SubscriptionsTab() {
   return (
     <div className="space-y-6">
       {/* 1. Page Header */}
-      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다">
+      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다 · Day = 가장 최근 발송 Day (발송 모니터링의 Day는 다음 발송할 Day)">
         <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
           <Upload className="mr-1 h-3 w-3" />
           CSV 임포트
@@ -954,7 +954,7 @@ export function SubscriptionsTab() {
                             })
                           }}
                         >
-                          {sub.current_day > 0 ? sub.current_day : '-'}
+                          {sub.last_sent_day > 0 ? sub.last_sent_day : '-'}
                         </button>
                       </TableCell>
 
