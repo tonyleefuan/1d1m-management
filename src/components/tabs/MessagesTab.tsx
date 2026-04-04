@@ -15,7 +15,7 @@ import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
 import { cn } from '@/lib/utils'
 import { FileText, Zap, Bell, Plus, MessageSquare, CheckCircle2, AlertCircle, Save, Loader2, CalendarCheck, Sparkles, RotateCcw, Check, Wand2, X, Image as ImageIcon, Copy, RefreshCw } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table'
@@ -227,10 +227,6 @@ function SourceGenerateDialog({
   }
 
   const handleDelete = async () => {
-    if (existingStatus === 'approved') {
-      showError('승인된 메시지는 삭제할 수 없습니다')
-      return
-    }
     setDeleting(true)
     try {
       const res = await fetch('/api/daily-messages/delete', {
@@ -381,7 +377,7 @@ function SourceGenerateDialog({
                     size="sm"
                     variant="ghost"
                     onClick={handleDelete}
-                    disabled={deleting || existingStatus === 'approved'}
+                    disabled={deleting}
                     className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
                     title="메시지를 삭제하고 처음부터 다시 작성합니다"
                   >
@@ -1239,6 +1235,9 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                 <p className="text-[11px] text-muted-foreground line-clamp-1">{p.title}</p>
                 {hasTomorrowMsg ? (
                   <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-muted-foreground tabular-nums">{grid[p.id][tomorrowDate].content.length}자</span>
+                    </div>
                     <p className="text-[11px] text-muted-foreground line-clamp-3 whitespace-pre-wrap">{grid[p.id][tomorrowDate].content.slice(0, 150)}...</p>
                     <div className="flex gap-1">
                       <Button
@@ -1375,6 +1374,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                               ) : status === 'draft' ? (
                                 <StatusBadge status="warning" size="xs">초안</StatusBadge>
                               ) : null}
+                              <span className="text-[10px] text-muted-foreground tabular-nums">{content.length}자</span>
                             </div>
                             <div className="relative max-h-[400px] overflow-hidden">
                               <p className={cn(
@@ -1476,6 +1476,9 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
                   <StatusBadge status="warning" size="xs">초안</StatusBadge>
                 ) : null}
               </DialogTitle>
+              <DialogDescription>
+                <span className="text-xs tabular-nums">{viewingMessage.content.length}자</span>
+              </DialogDescription>
             </DialogHeader>
             <p className="text-sm whitespace-pre-wrap leading-relaxed">{viewingMessage.content}</p>
           </DialogContent>
