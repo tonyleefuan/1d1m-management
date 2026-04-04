@@ -9,15 +9,15 @@ const DEFAULT_SPREADSHEET_ID = '1n3izrz9w6PaXotYo3bueLy2gwg0TAbAmmc4Tu7nK7-k'
  */
 export function getSheetsClient(): sheets_v4.Sheets {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
-  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || process.env.GOOGLE_PRIVATE_KEY
 
   if (!email || !privateKey) {
-    throw new Error('Google 서비스 계정 환경변수가 설정되지 않았습니다 (GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)')
+    throw new Error(`Google 서비스 계정 환경변수 누락 (email=${!!email}, key=${!!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}, fallback=${!!process.env.GOOGLE_PRIVATE_KEY})`)
   }
 
   // private key: literal \n → actual newline
   const key = privateKey.replace(/\\n/g, '\n')
-  console.log(`[google-sheets] email=${email}, key_length=${privateKey.length}, starts_with=${key.slice(0, 30)}`)
+  console.log(`[google-sheets] email=${email}, key_len=${privateKey.length}, key_start=${key.slice(0, 27)}`)
 
   const auth = new google.auth.JWT({
     email,
