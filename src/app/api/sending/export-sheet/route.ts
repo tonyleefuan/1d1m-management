@@ -165,6 +165,17 @@ export async function POST(req: Request) {
           let totalWritten = 0
           let devicesWritten = 0
 
+          // 새로운 날짜 내보내기 시 모든 PC 시트 초기화
+          if (!isAppend) {
+            send({ type: 'clearing', message: '시트 초기화 중...' })
+            for (const [, phoneNumber] of deviceMap) {
+              try {
+                await ensureSheetTab(phoneNumber)
+                await writeSheetData(phoneNumber, [HEADER])
+              } catch { /* 탭 없으면 무시 */ }
+            }
+          }
+
           send({ type: 'start', totalDevices, totalItems: queueData.length })
 
           for (const [deviceId, items] of deviceGroups) {
@@ -200,11 +211,8 @@ export async function POST(req: Request) {
               deviceCounter++
             }
 
-            if (isAppend) {
-              await appendSheetData(phoneNumber, dataRows)
-            } else {
-              await writeSheetData(phoneNumber, [HEADER, ...dataRows])
-            }
+            // 초기화 단계에서 이미 헤더를 넣었으므로 항상 append
+            await appendSheetData(phoneNumber, dataRows)
 
             totalWritten += items.length
             devicesWritten++

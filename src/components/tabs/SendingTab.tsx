@@ -453,7 +453,9 @@ export function SendingTab() {
             if (!line.startsWith('data: ')) continue
             try {
               const data = JSON.parse(line.slice(6))
-              if (data.type === 'start') {
+              if (data.type === 'clearing') {
+                setExportProgress('시트 초기화 중...')
+              } else if (data.type === 'start') {
                 setExportProgress(`${data.totalItems}건 내보내기 시작 (${data.totalDevices}개 PC)`)
               } else if (data.type === 'device_start') {
                 setExportProgress(`${data.device} 쓰는 중... (${data.deviceIndex}/${data.totalDevices} PC, ${data.items}건)`)
