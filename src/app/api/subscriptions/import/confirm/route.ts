@@ -161,6 +161,8 @@ export async function POST(req: Request) {
       productId: string
       deviceId: string | null
       orderItemId: string | null
+      orderNo: string
+      sku: string
       status: string
       startDate: string
       endDate: string
@@ -263,6 +265,8 @@ export async function POST(req: Request) {
         productId,
         deviceId,
         orderItemId,
+        orderNo,
+        sku: sku || '',
         status: statusRaw ? parseStatus(statusRaw) : 'live',
         startDate: parseDate(getField(raw, colMap, 'startDate')),
         endDate: parseDate(getField(raw, colMap, 'endDate')),
@@ -275,7 +279,80 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '임포트할 유효한 데이터가 없습니다' }, { status: 400 })
     }
 
-    // 5. Find existing subscriptions for upsert
+    // 5. Create orders + order_items from CSV orderNo
+    const rowsWithOrderNo = validRows.filter(r => r.orderNo)
+    if (rowsWithOrderNo.length > 0) {
+      // Group by orderNo to create one order per orderNo
+      const orderGroups = new Map<string, typeof validRows[0][]>()
+      for (const row of rowsWithOrderNo) {
+        const group = orderGroups.get(row.orderNo) || []
+        group.push(row)
+        orderGroups.set(row.orderNo, group)
+      }
+
+      // Upsert orders
+      const orderRows = [...orderGroups.entries()].map(([orderNo, rows]) => ({
+        imweb_order_no: orderNo,
+        customer_id: rows[0].customerId,
+        total_amount: 0,
+        ordered_at: rows[0].startDate || new Date().toISOString().slice(0, 10),
+      }))
+
+      for (let i = 0; i < orderRows.length; i += 500) {
+        const batch = orderRows.slice(i, i + 500)
+        await supabase
+          .from('orders')
+          .upsert(batch, { onConflict: 'imweb_order_no', ignoreDuplicates: true })
+      }
+
+      // Get all order IDs
+      const orderNos = [...orderGroups.keys()]
+      const { data: allOrders } = await supabase
+        .from('orders')
+        .select('id, imweb_order_no')
+        .in('imweb_order_no', orderNos)
+      const orderNoToId = new Map(allOrders?.map(o => [o.imweb_order_no, o.id]) || [])
+
+      // Create order_items (one per subscription row with orderNo)
+      const orderItemRows = rowsWithOrderNo
+        .filter(r => orderNoToId.has(r.orderNo))
+        .map(r => ({
+          order_id: orderNoToId.get(r.orderNo)!,
+          imweb_item_no: `${r.orderNo}_${r.sku}`,
+          product_id: r.productId,
+          duration_days: r.durationDays,
+          list_price: 0,
+          allocated_amount: 0,
+        }))
+
+      const createdItemMap = new Map<string, string>() // "orderNo_sku" → order_item_id
+      for (let i = 0; i < orderItemRows.length; i += 500) {
+        const batch = orderItemRows.slice(i, i + 500)
+        const { data } = await supabase
+          .from('order_items')
+          .upsert(batch, { onConflict: 'imweb_item_no', ignoreDuplicates: true })
+          .select('id, imweb_item_no')
+        data?.forEach(oi => createdItemMap.set(oi.imweb_item_no, oi.id))
+      }
+
+      // Also fetch any that were ignored by upsert
+      const itemNos = orderItemRows.map(r => r.imweb_item_no)
+      const { data: allItems } = await supabase
+        .from('order_items')
+        .select('id, imweb_item_no')
+        .in('imweb_item_no', itemNos)
+      allItems?.forEach(oi => createdItemMap.set(oi.imweb_item_no, oi.id))
+
+      // Update validRows with resolved order_item_ids
+      for (const row of validRows) {
+        if (row.orderNo) {
+          const itemKey = `${row.orderNo}_${row.sku}`
+          row.orderItemId = createdItemMap.get(itemKey) || null
+        }
+      }
+    }
+
+    // 6. Find existing subscriptions for upsert
     const customerIds = [...new Set(validRows.map(r => r.customerId))]
     const productIds = [...new Set(validRows.map(r => r.productId))]
 
