@@ -287,8 +287,11 @@ export async function POST(req: Request) {
       })
     }
 
+    // Only send first 100 rows as preview to avoid crashing the browser
+    const previewRows = rows.slice(0, 100)
+
     const response: ImportPreviewResponse = {
-      rows,
+      rows: previewRows,
       summary,
       missingSkus: [...missingSkus],
       missingPcs: [...missingPcs],
