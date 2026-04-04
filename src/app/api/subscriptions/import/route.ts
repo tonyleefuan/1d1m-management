@@ -180,7 +180,7 @@ export async function POST(req: Request) {
       supabase.from('products').select('id, sku_code'),
       supabase.from('send_devices').select('id, phone_number'),
       supabase.from('customers').select('id, kakao_friend_name'),
-      supabase.from('order_items').select('id, imweb_item_no, order:orders(imweb_order_no)'),
+      supabase.from('order_items').select('id, imweb_item_no, order:orders(imweb_order_no, customer_id)'),
     ])
 
     const productMap = new Map<string, string>()
@@ -197,13 +197,16 @@ export async function POST(req: Request) {
       }
     })
 
-    // order_items: imweb_order_no → order_item_id (optional matching)
+    // order_items: imweb_order_no → { order_item_id, customer_id }
     const orderItemMap = new Map<string, string>()
+    const orderCustomerMap = new Map<string, string>() // orderNo → customer_id
     orderItemsRes.data?.forEach((oi: any) => {
       const orderNo = oi.order?.imweb_order_no
       if (orderNo && oi.id) {
-        // Could have multiple items per order, just use first match
         if (!orderItemMap.has(orderNo)) orderItemMap.set(orderNo, oi.id)
+      }
+      if (orderNo && oi.order?.customer_id) {
+        if (!orderCustomerMap.has(orderNo)) orderCustomerMap.set(orderNo, oi.order.customer_id)
       }
     })
 
@@ -220,6 +223,7 @@ export async function POST(req: Request) {
       skippedCustomer: 0,
       duplicateInCsv: 0,
       skippedEmpty: 0,
+      customerAutoCreate: 0,
     }
     const missingSkus = new Set<string>()
     const missingPcs = new Set<string>()
@@ -243,8 +247,19 @@ export async function POST(req: Request) {
 
       const productId = sku ? productMap.get(sku) || null : null
       const deviceId = pcNumber ? deviceMap.get(pcNumber) || null : null
-      const customerId = kakaoName ? customerMap.get(kakaoName) || null : null
       const orderItemId = orderNo ? orderItemMap.get(orderNo) || null : null
+
+      // Customer resolution: 1) kakao_friend_name → 2) orderNo → order.customer_id → 3) will auto-create
+      let customerId = kakaoName ? customerMap.get(kakaoName) || null : null
+      let customerAutoCreate = false
+      if (!customerId && orderNo) {
+        customerId = orderCustomerMap.get(orderNo) || null
+      }
+      if (!customerId && kakaoName) {
+        // Will be auto-created during confirm
+        customerAutoCreate = true
+        customerId = `__new__${kakaoName}` // placeholder for preview
+      }
 
       let skipReason: string | null = null
 
@@ -289,7 +304,10 @@ export async function POST(req: Request) {
         lastSentDay = Math.min(lastSentDay, durationDays)
       }
 
-      if (!skipReason) summary.valid++
+      if (!skipReason) {
+        summary.valid++
+        if (customerAutoCreate) summary.customerAutoCreate++
+      }
 
       rows.push({
         rowIndex: i + 1,
