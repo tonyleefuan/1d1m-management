@@ -17,6 +17,12 @@ function isCSHost(host: string): boolean {
 }
 
 export async function middleware(req: NextRequest) {
+  // Defense-in-depth: CVE-2025-29927 미들웨어 우회 방지
+  // Next.js 14.2.25에서 수정됐지만, 외부에서 이 헤더를 보내는 것 자체를 차단
+  if (req.headers.get('x-middleware-subrequest')) {
+    return new NextResponse(null, { status: 400 })
+  }
+
   const { pathname } = req.nextUrl
   const host = req.headers.get('host') || ''
 
