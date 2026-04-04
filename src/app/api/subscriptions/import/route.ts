@@ -142,7 +142,7 @@ export async function POST(req: Request) {
 
     // 1. Parse CSV/Excel
     const buffer = await file.arrayBuffer()
-    const workbook = XLSX.read(buffer, { type: 'array' })
+    const workbook = XLSX.read(buffer, { type: 'array', codepage: 65001 })
     const sheet = workbook.Sheets[workbook.SheetNames[0]]
     const rawRows = XLSX.utils.sheet_to_json(sheet) as Record<string, unknown>[]
 
