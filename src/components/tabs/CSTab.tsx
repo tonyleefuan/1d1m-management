@@ -90,7 +90,16 @@ interface RefundRow {
   inquiry?: { id: string; title: string; status: string }
 }
 
-type Section = 'escalated' | 'ai_answered' | 'refunds' | 'policies'
+interface GeneralInquiryRow {
+  id: string
+  email: string
+  content: string
+  is_read: boolean
+  admin_note: string | null
+  created_at: string
+}
+
+type Section = 'escalated' | 'ai_answered' | 'refunds' | 'general' | 'policies'
 
 const REFUND_STATUS_MAP: Record<string, StatusType> = {
   pending: 'warning',
@@ -105,10 +114,12 @@ export function CSTab() {
   const [inquiries, setInquiries] = useState<InquiryRow[]>([])
   const [policies, setPolicies] = useState<Policy[]>([])
   const [refunds, setRefunds] = useState<RefundRow[]>([])
+  const [generalInquiries, setGeneralInquiries] = useState<GeneralInquiryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [escalatedCount, setEscalatedCount] = useState(0)
   const [aiCount, setAiCount] = useState(0)
   const [refundPendingCount, setRefundPendingCount] = useState(0)
+  const [generalUnreadCount, setGeneralUnreadCount] = useState(0)
 
   // Policy chat state
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; actions?: any[] }>>([])
@@ -128,6 +139,9 @@ export function CSTab() {
   const [policyContent, setPolicyContent] = useState('')
   const [policyInstruction, setPolicyInstruction] = useState('')
   const [savingPolicy, setSavingPolicy] = useState(false)
+
+  // General inquiry detail dialog
+  const [selectedGeneral, setSelectedGeneral] = useState<GeneralInquiryRow | null>(null)
 
   // Refund detail dialog
   const [selectedRefund, setSelectedRefund] = useState<RefundRow | null>(null)
@@ -163,16 +177,32 @@ export function CSTab() {
     }
   }, [showError])
 
+  const fetchGeneralInquiries = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/admin/cs/general-inquiries')
+      if (!res.ok) throw new Error('로드 실패')
+      const data = await res.json()
+      setGeneralInquiries(data.data || [])
+    } catch (err: any) {
+      showError(err.message || '기타 문의 로드 실패')
+    } finally {
+      setLoading(false)
+    }
+  }, [showError])
+
   const fetchCounts = useCallback(async () => {
     try {
-      const [escRes, aiRes, refundRes] = await Promise.all([
+      const [escRes, aiRes, refundRes, generalRes] = await Promise.all([
         fetch('/api/admin/cs/inquiries?status=escalated'),
         fetch('/api/admin/cs/inquiries?status=ai_answered'),
         fetch('/api/admin/cs/refunds?status=pending'),
+        fetch('/api/admin/cs/general-inquiries?unread=true'),
       ])
       if (escRes.ok) { const d = await escRes.json(); setEscalatedCount(d.data?.length || 0) }
       if (aiRes.ok) { const d = await aiRes.json(); setAiCount(d.unreadAiCount ?? d.data?.length ?? 0) }
       if (refundRes.ok) { const d = await refundRes.json(); setRefundPendingCount(d.data?.length || 0) }
+      if (generalRes.ok) { const d = await generalRes.json(); setGeneralUnreadCount(d.data?.length || 0) }
     } catch {
       // 카운트 로드 실패는 무시 — 다음 새로고침 시 재시도
     }
@@ -201,6 +231,8 @@ export function CSTab() {
       fetchPolicies()
     } else if (section === 'refunds') {
       fetchRefunds()
+    } else if (section === 'general') {
+      fetchGeneralInquiries()
     } else {
       fetchInquiries(section)
       // AI 응대 탭 진입 시 읽음 처리
@@ -212,7 +244,7 @@ export function CSTab() {
         }).then(() => setAiCount(0)).catch(() => {})
       }
     }
-  }, [section, fetchInquiries, fetchPolicies, fetchRefunds])
+  }, [section, fetchInquiries, fetchPolicies, fetchRefunds, fetchGeneralInquiries])
 
   const openDetail = async (id: string) => {
     setSelectedId(id)
@@ -415,6 +447,7 @@ export function CSTab() {
           { key: 'escalated' as Section, label: '확인 필요', count: escalatedCount },
           { key: 'ai_answered' as Section, label: 'AI 응대', count: aiCount },
           { key: 'refunds' as Section, label: '환불 요청', count: refundPendingCount },
+          { key: 'general' as Section, label: '기타 문의', count: generalUnreadCount },
           { key: 'policies' as Section, label: '운영 정책', count: 0 },
         ]).map(t => (
           <Button
@@ -611,6 +644,51 @@ export function CSTab() {
                         </Button>
                       </div>
                     )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )
+      ) : section === 'general' ? (
+        /* General Inquiries Section */
+        generalInquiries.length === 0 ? (
+          <EmptyState title="기타 문의가 없습니다" />
+        ) : (
+          <div className="space-y-2">
+            {generalInquiries.map(g => (
+              <Card
+                key={g.id}
+                className={cn(
+                  'cursor-pointer hover:bg-muted/50 transition-colors',
+                  !g.is_read && 'border-l-2 border-l-foreground'
+                )}
+                onClick={() => {
+                  setSelectedGeneral(g)
+                  if (!g.is_read) {
+                    fetch('/api/admin/cs/general-inquiries', {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: g.id, action: 'mark_read' }),
+                    }).then(() => {
+                      setGeneralInquiries(prev => prev.map(i => i.id === g.id ? { ...i, is_read: true } : i))
+                      setGeneralUnreadCount(prev => Math.max(0, prev - 1))
+                    }).catch(() => {})
+                  }
+                }}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-medium">{g.email}</span>
+                        {!g.is_read && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-foreground shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-sm truncate text-muted-foreground">{g.content}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{formatDate(g.created_at)}</p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -970,6 +1048,32 @@ export function CSTab() {
               {savingPolicy ? '저장 중...' : '저장'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* General Inquiry Detail Dialog */}
+      <Dialog open={!!selectedGeneral} onOpenChange={() => setSelectedGeneral(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>기타 문의</DialogTitle>
+          </DialogHeader>
+          {selectedGeneral && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-[4rem_1fr] gap-y-2 text-sm">
+                <span className="text-muted-foreground">이메일</span>
+                <a href={`mailto:${selectedGeneral.email}`} className="text-foreground underline underline-offset-4 break-all">
+                  {selectedGeneral.email}
+                </a>
+                <span className="text-muted-foreground">접수일</span>
+                <span>{formatDate(selectedGeneral.created_at)}</span>
+              </div>
+              <Card>
+                <CardContent className="p-3">
+                  <p className="text-sm whitespace-pre-wrap">{selectedGeneral.content}</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

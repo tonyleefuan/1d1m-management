@@ -282,3 +282,13 @@ export interface CSRefundRequest {
   subscription?: Subscription & { product?: Product }
   inquiry?: CSInquiry
 }
+
+// --- CS General Inquiries (비인증 기타 문의) ---
+export interface CSGeneralInquiry {
+  id: string
+  email: string
+  content: string
+  is_read: boolean
+  admin_note: string | null
+  created_at: string
+}
