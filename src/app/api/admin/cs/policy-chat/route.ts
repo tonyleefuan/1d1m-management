@@ -35,52 +35,48 @@ export async function POST(req: Request) {
     return text
   }).join('\n\n---\n\n') || '(정책 없음)'
 
-  const systemPrompt = `당신은 1Day1Message(1D1M) CS 운영 정책 관리 어시스턴트입니다.
-관리자와 대화하며 운영 정책을 검토, 수정, 추가하는 것을 도와줍니다.
-
-## 현재 등록된 운영 정책
-${policyContext}
+  // 정적 지시사항 (캐싱) + 동적 정책 (캐싱) 분리
+  const systemPrompt: Anthropic.TextBlockParam[] = [
+    {
+      type: 'text',
+      text: `당신은 1D1M CS 운영 정책 관리 어시스턴트입니다. 관리자와 대화하며 정책을 검토/수정/추가합니다.
 
 ## 역할
-1. 관리자가 두서 없이 말해도 체계적으로 정리해 줍니다.
-2. 정책 간 모순이나 허점을 발견하면 지적합니다.
-3. 수정/추가가 필요한 경우, 구체적인 정책 문구를 제안합니다.
-4. 제안할 때는 반드시 아래 형식으로 출력하세요:
+1. 두서없는 요청도 체계적으로 정리. 2. 정책 간 모순/허점 지적. 3. 구체적 문구 제안.
 
-## 제안 형식
-정책을 수정하거나 추가할 때는 반드시 아래 JSON 블록을 포함하세요:
-
+## 제안 형식 (수정/추가 시 반드시 아래 JSON 블록 포함)
 ${'```'}policy_action
-{
-  "action": "update" | "add",
-  "id": "기존 정책 ID (update 시)",
-  "category": "카테고리",
-  "title": "정책 제목",
-  "content": "정책 내용",
-  "ai_instruction": "AI 지시사항 (선택)"
-}
+{"action":"update"|"add", "id":"정책ID(update시)", "category":"카테고리", "title":"제목", "content":"내용", "ai_instruction":"AI지시(선택)"}
 ${'```'}
 
-여러 정책을 한 번에 제안할 수 있습니다 (블록 여러 개).
+## 주의: 수정 시 ID 필수. 추가 시 action="add", id 생략. 단순 답변엔 JSON 없이. 한국어.`,
+      cache_control: { type: 'ephemeral' as const },
+    },
+    {
+      type: 'text',
+      text: `## 현재 등록된 운영 정책\n${policyContext}`,
+    },
+  ]
 
-## 주의사항
-- 기존 정책을 수정할 때는 반드시 해당 정책의 ID를 포함하세요.
-- 새 정책을 추가할 때는 action을 "add"로 하고 id는 생략하세요.
-- 정책 내용은 고객에게 보이지 않습니다. 내부 운영 기준입니다.
-- ai_instruction은 AI 자동응답 시 참고하는 추가 지시사항입니다.
-- 제안 없이 단순 질문에 답할 때는 JSON 블록을 포함하지 마세요.
-- 한국어로 대화합니다.`
+  // 히스토리 트리밍 — 최근 20턴
+  const MAX_POLICY_HISTORY = 20
+  const trimmedMessages = messages.length > MAX_POLICY_HISTORY
+    ? messages.slice(-MAX_POLICY_HISTORY)
+    : messages
 
   try {
+    // Opus → Sonnet 다운그레이드 (비용 75% 절감, 정책 정리에 Opus 불필요)
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-6',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: systemPrompt,
-      messages: messages.map(m => ({
+      messages: trimmedMessages.map(m => ({
         role: m.role,
         content: m.content,
       })),
     })
+    const u = response.usage as any
+    console.log(`[AI:policy-chat] tokens — input: ${u.input_tokens - (u.cache_read_input_tokens||0)}, cache_read: ${u.cache_read_input_tokens||0}, output: ${u.output_tokens}`)
 
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')

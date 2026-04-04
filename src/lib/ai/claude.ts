@@ -7,16 +7,28 @@ const anthropic = new Anthropic({
 const MODEL = 'claude-sonnet-4-6'
 
 const SYSTEM_RULES = `
-
 [규칙]
-- 볼드체(**), 이탤릭(*), 마크다운 서식을 사용하지 마라. 순수 Plain Text만 출력하라.
-- 영어 문법에 주의하라. 특히 3인칭 단수 동사 일치 (Iran marks, not Iran mark).
-- 글자수 제한이 명시된 경우 반드시 준수하라. "N자 내외"는 N의 ±10% 범위를 의미한다.
-- URL 규칙 (매우 중요):
-  1. 축약 URL 매핑이 제공되면 반드시 해당 bit.ly URL만 사용하라. 절대 다른 URL로 대체하지 마라.
-  2. bbc.in, reut.rs, tinyurl.com 등 제3자 축약 URL을 절대 만들거나 사용하지 마라.
-  3. 축약 URL 매핑이 없는 경우에만, 검색에서 찾은 원본 전체 URL(예: https://www.bbc.com/news/...)을 그대로 넣어라.
-  4. URL을 추측하거나 기억에서 만들어내지 마라. 검색 결과에 없는 URL은 절대 포함하지 마라.`
+- Plain Text만 출력. 볼드/이탤릭/마크다운 금지.
+- 영어 3인칭 단수 동사 일치에 주의.
+- 글자수 제한 준수. "N자 내외" = N의 ±10%.
+- URL: 축약 매핑 제공 시 해당 bit.ly만 사용. 제3자 축약 URL 생성 금지. 매핑 없으면 원본 URL. URL 추측/생성 금지.`
+
+function logTokenUsage(label: string, usage: any) {
+  const cached = usage.cache_read_input_tokens || 0
+  const created = usage.cache_creation_input_tokens || 0
+  console.log(`[AI:${label}] tokens — input: ${usage.input_tokens - cached}, cache_read: ${cached}, cache_write: ${created}, output: ${usage.output_tokens}`)
+}
+
+/** 프롬프트를 캐싱 가능한 system 블록으로 변환 */
+function buildCachedSystem(prompt: string): Anthropic.Messages.TextBlockParam[] {
+  return [
+    {
+      type: 'text' as const,
+      text: prompt + SYSTEM_RULES,
+      cache_control: { type: 'ephemeral' as const },
+    },
+  ]
+}
 
 /**
  * 프롬프트에서 글자수 규칙을 추출
@@ -98,23 +110,19 @@ async function fixCharViolations(
   generationPrompt: string,
 ): Promise<string> {
   const instructions = violations.map(v => {
-    const fieldName = v.field === 'headline' ? '영어 헤드라인' : '영어 요약'
-    return `- ${v.index}번 뉴스의 ${fieldName}: 현재 ${v.actual}자 → ${v.limit}자 이내로 줄이세요. 핵심만 남기고 축약하세요.`
+    const fieldName = v.field === 'headline' ? '헤드라인' : '요약'
+    return `- ${v.index}번 ${fieldName}: ${v.actual}자→${v.limit}자 이내로 축약`
   }).join('\n')
 
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 8192,
-    system: generationPrompt + SYSTEM_RULES,
+    max_tokens: 4096,
+    system: buildCachedSystem(generationPrompt),
     messages: [
-      { role: 'user', content: '아래 메시지를 작성해주세요.' },
-      { role: 'assistant', content: message },
-      {
-        role: 'user',
-        content: `글자수 규칙을 위반한 항목이 있습니다. 아래 항목만 수정하고, 나머지는 그대로 유지하세요.\n\n${instructions}\n\n수정된 전체 메시지를 출력하세요. URL, 한글 번역, 단어 등 다른 부분은 절대 변경하지 마세요.`,
-      },
+      { role: 'user', content: `아래 메시지에서 글자수 위반 항목만 수정하고 나머지는 그대로 유지하세요. URL/한글/단어 변경 금지.\n\n${instructions}\n\n원본 메시지:\n${message}` },
     ],
   })
+  logTokenUsage('fix-char', response.usage)
 
   return response.content
     .filter((block): block is Anthropic.TextBlock => block.type === 'text')
@@ -132,18 +140,19 @@ export async function searchNews(
   articleUrl?: string
 ): Promise<string> {
   const userMessage = articleUrl
-    ? `다음 기사를 사용하세요: ${articleUrl}\n\n대상 날짜: ${targetDate}\n\n최근 7일간 이미 다룬 주제:\n${recentHistory}`
-    : `오늘 날짜 기준으로 뉴스를 검색하세요.\n\n대상 날짜: ${targetDate}\n\n최근 7일간 이미 다룬 주제 (중복 회피):\n${recentHistory}`
+    ? `기사 URL: ${articleUrl}\n날짜: ${targetDate}\n\n기존 주제 (중복 회피):\n${recentHistory}`
+    : `날짜: ${targetDate}\n\n기존 주제 (중복 회피):\n${recentHistory}`
 
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 8192,
-    system: searchPrompt + SYSTEM_RULES,
+    max_tokens: 4096,
+    system: buildCachedSystem(searchPrompt),
     tools: articleUrl ? [] : [
       { type: 'web_search_20250305' as const, name: 'web_search', max_uses: 5 }
     ],
     messages: [{ role: 'user', content: userMessage }],
   })
+  logTokenUsage('search-news', response.usage)
 
   return response.content
     .filter((block): block is Anthropic.TextBlock => block.type === 'text')
@@ -168,33 +177,32 @@ function formatDateWithDay(dateStr: string): string {
 export async function generateMessage(
   generationPrompt: string,
   newsContext: string,
-  recentHistory: string,
+  _recentHistory: string,   // searchNews에서 이미 사용됨 — 중복 전송 제거
   targetDate: string,
   formatReference?: string,
   urlMapping?: Record<string, string>
 ): Promise<string> {
   const formattedDate = formatDateWithDay(targetDate)
-  let userContent = `아래 뉴스를 바탕으로 메시지를 작성하세요.\n\n대상 날짜: ${formattedDate}\n날짜 표기는 반드시 "${formattedDate}"을 사용하세요. 직접 계산하지 마세요.\n\n## 뉴스 내용\n${newsContext}`
+  let userContent = `날짜: ${formattedDate}\n\n## 뉴스\n${newsContext}`
 
   if (urlMapping && Object.keys(urlMapping).length > 0) {
     const mappingLines = Object.entries(urlMapping)
       .map(([original, shortened]) => `${original} → ${shortened}`)
       .join('\n')
-    userContent += `\n\n## 기사 원본 링크 축약 URL (반드시 아래 축약 URL을 사용하세요. 다른 URL을 만들거나 검색하지 마세요.)\n${mappingLines}`
+    userContent += `\n\n## 축약 URL (반드시 사용)\n${mappingLines}`
   }
 
   if (formatReference) {
-    userContent += `\n\n## 포맷 참조 (아래 메시지와 동일한 포맷/톤/구조로 작성하세요)\n${formatReference}`
+    userContent += `\n\n## 포맷 참조\n${formatReference}`
   }
-
-  userContent += `\n\n## 최근 다룬 주제 (중복 회피용)\n${recentHistory}`
 
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 8192,
-    system: generationPrompt + SYSTEM_RULES,
+    max_tokens: 4096,
+    system: buildCachedSystem(generationPrompt),
     messages: [{ role: 'user', content: userContent }],
   })
+  logTokenUsage('generate-msg', response.usage)
 
   let result = response.content
     .filter((block): block is Anthropic.TextBlock => block.type === 'text')
@@ -205,7 +213,7 @@ export async function generateMessage(
   const charLimits = extractCharLimits(generationPrompt)
   const violations = findCharViolations(result, charLimits)
   if (violations.length > 0) {
-    console.log(`[AI] 글자수 위반 ${violations.length}건 감지, 수정 요청:`, violations.map(v => `${v.index}번 ${v.field} ${v.actual}→${v.limit}자`))
+    console.log(`[AI] 글자수 위반 ${violations.length}건, 수정 요청:`, violations.map(v => `${v.index}번 ${v.field} ${v.actual}→${v.limit}자`))
     result = await fixCharViolations(result, violations, generationPrompt)
   }
 
@@ -259,13 +267,14 @@ export async function generateFromSource(
 
   const searchResponse = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 8192,
-    system: searchPrompt + SYSTEM_RULES,
+    max_tokens: 4096,
+    system: buildCachedSystem(searchPrompt),
     tools: hasArticleContent ? [] : [
       { type: 'web_search_20250305' as const, name: 'web_search', max_uses: 5 }
     ],
     messages: [{ role: 'user', content: searchBlocks }],
   })
+  logTokenUsage('source-search', searchResponse.usage)
 
   const newsContext = searchResponse.content
     .filter((block): block is Anthropic.TextBlock => block.type === 'text')
@@ -278,6 +287,8 @@ export async function generateFromSource(
 
 /**
  * 기존 메시지를 지시에 따라 수정
+ * - 메시지 2중 전송 제거 (user→assistant echo 패턴 삭제)
+ * - 프롬프트 캐싱 + max_tokens 최적화
  */
 export async function modifyMessage(
   currentMessage: string,
@@ -286,14 +297,13 @@ export async function modifyMessage(
 ): Promise<string> {
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 8192,
-    system: generationPrompt + SYSTEM_RULES,
+    max_tokens: 4096,
+    system: buildCachedSystem(generationPrompt),
     messages: [
-      { role: 'user', content: `현재 메시지:\n${currentMessage}` },
-      { role: 'assistant', content: currentMessage },
-      { role: 'user', content: `다음 지시에 따라 위 메시지를 수정해주세요: ${instruction}\n\n수정된 전체 메시지만 출력하세요.` },
+      { role: 'user', content: `현재 메시지:\n${currentMessage}\n\n지시: ${instruction}\n\n수정된 전체 메시지만 출력하세요.` },
     ],
   })
+  logTokenUsage('modify-msg', response.usage)
 
   return response.content
     .filter((block): block is Anthropic.TextBlock => block.type === 'text')

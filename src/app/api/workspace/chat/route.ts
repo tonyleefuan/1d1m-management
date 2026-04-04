@@ -7,88 +7,40 @@ export const maxDuration = 60
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
-const SYSTEM_PROMPT = `당신은 1D1M(1Day1Message) 구독 서비스의 관리 어시스턴트입니다.
-관리자가 자연어로 요청하면 DB를 조회하거나 수정합니다.
+// 정적 시스템 프롬프트 — cache_control로 캐싱 (DB 스키마 + 규칙은 거의 변하지 않음)
+const SYSTEM_PROMPT: Anthropic.Messages.TextBlockParam[] = [
+  {
+    type: 'text',
+    text: `당신은 1D1M 구독 서비스의 관리 어시스턴트입니다. 관리자가 자연어로 요청하면 DB를 조회/수정합니다.
 
 ## DB 스키마
-
 ### subscriptions
-- id (uuid PK)
-- customer_id (uuid FK → customers)
-- product_id (uuid FK → products)
-- device_id (uuid FK → send_devices, nullable) — PC 배정
-- status: 'live' | 'pending' | 'pause' | 'archive' | 'cancel'
-- start_date (date)
-- end_date (date)
-- duration_days (int)
-- day (int) — 현재 일차
-- last_sent_day (int, default 0) — 마지막 발송 완료 Day
-- paused_days (int)
-- paused_at (timestamptz, nullable)
-- is_cancelled (boolean)
-- failure_type: 'failed' | null
-- failure_date (date, nullable)
-- recovery_mode: 'bulk' | 'sequential' | null
-- send_priority (1~4, lower=higher)
-- memo (text)
-- created_at, updated_at
+id(uuid PK), customer_id(FK→customers), product_id(FK→products), device_id(FK→send_devices, nullable), status('live'|'pending'|'pause'|'archive'|'cancel'), start_date, end_date, duration_days(int), day(int, 현재 일차), last_sent_day(int, default 0), paused_days(int), paused_at(timestamptz), is_cancelled(bool), failure_type('failed'|null), failure_date, recovery_mode('bulk'|'sequential'|null), send_priority(1~4), memo, created_at, updated_at
 
 ### customers
-- id (uuid PK)
-- name (text)
-- phone (text, nullable)
-- phone_last4 (text, nullable)
-- kakao_friend_name (text, nullable)
-- memo (text, nullable)
+id(uuid PK), name, phone, phone_last4, kakao_friend_name, memo
 
 ### products
-- id (uuid PK)
-- sku_code (text, unique) — e.g. SUB-46, SUB-77
-- title (text)
-- message_type: 'fixed' | 'realtime'
-- total_days (int)
-- is_active (boolean)
+id(uuid PK), sku_code(unique, e.g. SUB-46), title, message_type('fixed'|'realtime'), total_days(int), is_active(bool)
 
 ### send_devices
-- id (uuid PK)
-- phone_number (text, unique) — e.g. 010-5535-8940
-- name (text, nullable) — e.g. PC 3
-- is_active (boolean)
-- color (text, nullable)
+id(uuid PK), phone_number(unique, e.g. 010-5535-8940), name(e.g. PC 3), is_active(bool), color
 
 ### send_queues
-- id (uuid PK)
-- subscription_id (uuid FK)
-- device_id (uuid FK)
-- send_date (date)
-- day_number (int)
-- kakao_friend_name (text)
-- message_content (text)
-- image_path (text, nullable)
-- sort_order (int)
-- status: 'pending' | 'sent' | 'failed'
-- sent_at (timestamptz, nullable)
-
-## 고객 검색 기준
-- 고객 이름 (name), 카톡이름 (kakao_friend_name), 전화번호 뒷4자리 (phone_last4)로 검색
-- 동명이인이 많으므로, 검색 결과가 여러 명이면 카톡이름이나 전화번호로 구분하여 목록을 보여주고 선택하게 한다
+id(uuid PK), subscription_id(FK), device_id(FK), send_date, day_number(int), kakao_friend_name, message_content, image_path, sort_order(int), status('pending'|'sent'|'failed'), sent_at
 
 ## 규칙
-
-1. SELECT 쿼리는 바로 실행하고 결과를 보여준다.
-2. UPDATE/INSERT/DELETE 쿼리는 **먼저 영향받는 행을 SELECT로 조회**해서 보여주고, "실행할까요?"라고 확인을 요청한다.
-3. 사용자가 "응", "ㅇㅇ", "해줘", "실행" 등으로 확인하면 실행한다.
-4. 결과는 간결하게 표 형태(마크다운)로 보여준다.
-5. 위험한 작업(대량 삭제, 전체 업데이트 등)은 경고를 추가한다.
-6. DROP TABLE, TRUNCATE, ALTER TABLE 등 스키마 변경은 거부한다.
-7. 항상 한국어로 응답한다.
-8. 쿼리 결과가 많으면 LIMIT 20으로 제한하고 "더 보시겠습니까?" 물어본다.
-9. 고객 이름으로 검색할 때는 customers 테이블을 JOIN해서 조회한다.
-10. 상품 SKU 코드(e.g. SUB-46)로 검색할 때는 products 테이블을 JOIN한다.
-11. PC(device_id) 정보를 보여줄 때는 반드시 send_devices 테이블을 JOIN해서 phone_number와 name을 함께 보여준다. UUID만 보여주지 않는다.
-12. 구독 조회 시 항상 customers(name, kakao_friend_name), products(sku_code, title), send_devices(phone_number, name)를 JOIN한다.
-11. PC 이름(e.g. PC 3)으로 검색할 때는 send_devices 테이블을 JOIN한다.
-`
+1. SELECT → 바로 실행, 결과를 마크다운 표로.
+2. UPDATE/INSERT/DELETE → 먼저 SELECT로 영향 행 보여주고 확인 요청.
+3. "응","ㅇㅇ","해줘","실행" 등이면 실행.
+4. 위험 작업(대량 삭제/전체 업데이트)은 경고. DROP/TRUNCATE/ALTER/CREATE 거부.
+5. 한국어 응답. 결과 많으면 LIMIT 20 + "더 보시겠습니까?"
+6. 고객 검색: name, kakao_friend_name, phone_last4. 동명이인이면 목록 보여주고 선택.
+7. 구독 조회 시 항상 customers(name,kakao_friend_name), products(sku_code,title), send_devices(phone_number,name) JOIN.
+8. PC 정보는 반드시 send_devices JOIN하여 phone_number+name 함께 표시.`,
+    cache_control: { type: 'ephemeral' as const },
+  },
+]
 
 const tools: Anthropic.Messages.Tool[] = [
   {
@@ -133,9 +85,13 @@ export async function POST(req: Request) {
         { status: 400 },
       )
 
-    // Build messages for Claude
+    // Build messages for Claude — 최근 20턴으로 제한 (토큰 절감)
+    const MAX_CHAT_HISTORY = 20
+    const trimmedHistory = history.length > MAX_CHAT_HISTORY
+      ? history.slice(-MAX_CHAT_HISTORY)
+      : history
     const apiMessages: Anthropic.Messages.MessageParam[] = [
-      ...history.map((h: { role: string; content: string }) => ({
+      ...trimmedHistory.map((h: { role: string; content: string }) => ({
         role: h.role as 'user' | 'assistant',
         content: h.content,
       })),
@@ -163,6 +119,8 @@ export async function POST(req: Request) {
               tools,
               messages: currentMessages,
             })
+            const u = response.usage as any
+            console.log(`[AI:workspace] tokens — input: ${u.input_tokens - (u.cache_read_input_tokens||0)}, cache_read: ${u.cache_read_input_tokens||0}, output: ${u.output_tokens}`)
 
             let hasToolUse = false
             const toolResults: Anthropic.Messages.ToolResultBlockParam[] = []
