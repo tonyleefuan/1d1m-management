@@ -5,18 +5,6 @@ import * as XLSX from 'xlsx'
 
 // ─── Types ───────────────────────────────────────────────
 
-interface CsvRow {
-  'PC 번호': string
-  '카톡이름': string
-  '시작일': string
-  '종료일': string
-  '상품': string
-  'Day': number | string
-  'D-Day': number | string
-  'SKU': string
-  '기간': number | string
-}
-
 export interface ParsedImportRow {
   rowIndex: number
   pcNumber: string
@@ -52,6 +40,50 @@ export interface ImportPreviewResponse {
   missingSkus: string[]
   missingPcs: string[]
   missingCustomers: string[]
+}
+
+// ─── Column Matching ─────────────────────────────────────
+
+// 각 필드별 가능한 헤더명 (소문자, 공백 제거 후 비교)
+const COLUMN_ALIASES: Record<string, string[]> = {
+  pc: ['pc번호', 'pc 번호', 'pc', 'device', '디바이스', '발송번호', 'send number', '발송 번호'],
+  kakao: ['카톡이름', '카톡 이름', '카카오이름', '카카오 이름', '카톡명', '친구이름', '친구 이름', 'kakao', 'kakao name'],
+  startDate: ['시작일', '시작 일', 'start date', 'start_date', 'startdate', '구독시작일', '구독 시작일'],
+  endDate: ['종료일', '종료 일', 'end date', 'end_date', 'enddate', '구독종료일', '구독 종료일', 'last date'],
+  status: ['상품', '상태', 'status', 'product status', '구독상태', '구독 상태'],
+  day: ['day', '일차', 'days'],
+  dDay: ['d-day', 'dday', 'd day', '디데이'],
+  sku: ['sku', '상품코드', '상품 코드', 'product code', 'sku code', 'sku_code'],
+  duration: ['기간', '구독기간', '구독 기간', 'duration', 'days', 'total days', 'total_days'],
+}
+
+function normalizeHeader(h: string): string {
+  return h.toLowerCase().trim().replace(/\s+/g, ' ')
+}
+
+/**
+ * CSV 헤더명을 유연하게 매칭하여 정규화된 필드명 맵을 반환.
+ * { 실제CSV헤더 → 정규화된 필드키 }
+ */
+function buildColumnMap(headers: string[]): Map<string, string> {
+  const map = new Map<string, string>() // fieldKey → actual header name
+  for (const header of headers) {
+    const norm = normalizeHeader(header)
+    for (const [fieldKey, aliases] of Object.entries(COLUMN_ALIASES)) {
+      if (map.has(fieldKey)) continue // already matched
+      if (aliases.some(a => normalizeHeader(a) === norm)) {
+        map.set(fieldKey, header)
+        break
+      }
+    }
+  }
+  return map
+}
+
+/** row에서 유연하게 매칭된 컬럼 값을 꺼내는 헬퍼 */
+function getField(row: Record<string, unknown>, colMap: Map<string, string>, fieldKey: string): unknown {
+  const header = colMap.get(fieldKey)
+  return header ? row[header] : undefined
 }
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -112,10 +144,24 @@ export async function POST(req: Request) {
     const buffer = await file.arrayBuffer()
     const workbook = XLSX.read(buffer, { type: 'array' })
     const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    const rawRows = XLSX.utils.sheet_to_json(sheet) as CsvRow[]
+    const rawRows = XLSX.utils.sheet_to_json(sheet) as Record<string, unknown>[]
 
     if (rawRows.length === 0) {
       return NextResponse.json({ error: '데이터가 없습니다' }, { status: 400 })
+    }
+
+    // Build flexible column map from actual headers
+    const headers = Object.keys(rawRows[0])
+    const colMap = buildColumnMap(headers)
+
+    // Validate required columns
+    const requiredFields = ['sku', 'kakao', 'pc'] as const
+    const missingFields = requiredFields.filter(f => !colMap.has(f))
+    if (missingFields.length > 0) {
+      const fieldNames = missingFields.map(f => f === 'sku' ? 'SKU' : f === 'kakao' ? '카톡이름' : 'PC 번호')
+      return NextResponse.json({
+        error: `필수 컬럼을 찾을 수 없습니다: ${fieldNames.join(', ')}. 헤더를 확인해주세요.`,
+      }, { status: 400 })
     }
 
     // 2. Load reference tables
@@ -161,10 +207,10 @@ export async function POST(req: Request) {
 
     for (let i = 0; i < rawRows.length; i++) {
       const raw = rawRows[i]
-      const sku = raw['SKU']?.toString().trim()
-      const pcNumber = raw['PC 번호']?.toString().trim()
-      const kakaoName = raw['카톡이름']?.toString().trim()
-      const statusRaw = raw['상품']?.toString().trim()
+      const sku = getField(raw, colMap, 'sku')?.toString().trim()
+      const pcNumber = getField(raw, colMap, 'pc')?.toString().trim()
+      const kakaoName = getField(raw, colMap, 'kakao')?.toString().trim()
+      const statusRaw = getField(raw, colMap, 'status')?.toString().trim()
 
       // Skip empty rows
       if (!sku && !pcNumber && !kakaoName) {
@@ -203,8 +249,8 @@ export async function POST(req: Request) {
         }
       }
 
-      const csvDay = parseNumber(raw['Day'])
-      const durationDays = parseNumber(raw['기간'])
+      const csvDay = parseNumber(getField(raw, colMap, 'day'))
+      const durationDays = parseNumber(getField(raw, colMap, 'duration'))
 
       // last_sent_day calculation with day offset
       let lastSentDay: number
@@ -225,11 +271,11 @@ export async function POST(req: Request) {
         rowIndex: i + 1,
         pcNumber: pcNumber || '',
         kakaoName: kakaoName || '',
-        startDate: parseDate(raw['시작일']),
-        endDate: parseDate(raw['종료일']),
+        startDate: parseDate(getField(raw, colMap, 'startDate')),
+        endDate: parseDate(getField(raw, colMap, 'endDate')),
         status: statusRaw ? parseStatus(statusRaw) : 'live',
         csvDay,
-        dDay: parseNumber(raw['D-Day']),
+        dDay: parseNumber(getField(raw, colMap, 'dDay')),
         sku: sku || '',
         durationDays,
         customerId,

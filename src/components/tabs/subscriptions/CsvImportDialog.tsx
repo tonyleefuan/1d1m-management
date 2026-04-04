@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
-import { Upload, FileText, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
+import { Upload, FileText, CheckCircle2, AlertTriangle, XCircle, Download } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -62,6 +62,21 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   onComplete: () => void
+}
+
+const SAMPLE_CSV = `PC 번호,카톡이름,시작일,종료일,상품,Day,D-Day,SKU,기간
+010-1234-5678,홍길동/1234,2025-01-01,2027-09-28,Live,459,541,SUB-46,1000
+010-1234-5678,김철수/5678,2025-03-15,2026-03-14,Pending,0,365,SUB-31,365`
+
+function downloadSampleCsv() {
+  const bom = '\uFEFF' // UTF-8 BOM for Excel compatibility
+  const blob = new Blob([bom + SAMPLE_CSV], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = '구독_임포트_예시.csv'
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 // ─── Component ───────────────────────────────────────────
@@ -242,6 +257,35 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
                   <p className="text-sm text-muted-foreground">CSV 또는 Excel 파일 선택</p>
                 </>
               )}
+            </div>
+
+            {/* Column guide + sample download */}
+            <div className="rounded-md border bg-muted/50 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium">필수 컬럼</span>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  onClick={downloadSampleCsv}
+                >
+                  <Download className="h-3 w-3" />
+                  예시 CSV 다운로드
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {['PC 번호', '카톡이름', 'SKU'].map(col => (
+                  <Badge key={col} variant="secondary" className="text-xs">{col}</Badge>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">선택:</span>
+                {['시작일', '종료일', '상품', 'Day', 'D-Day', '기간'].map(col => (
+                  <Badge key={col} variant="outline" className="text-xs">{col}</Badge>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                헤더명이 정확하지 않아도 비슷한 이름이면 자동 매칭됩니다
+              </p>
             </div>
 
             {/* Day interpretation */}
