@@ -7,9 +7,9 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { MetricCard } from '@/components/ui/metric-card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { StatusBadge } from '@/components/ui/status-badge'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { STATUS_LABELS, type SubscriptionStatus } from '@/lib/constants'
 import { Upload, FileText, CheckCircle2, AlertTriangle, XCircle, Download } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────
@@ -65,9 +65,9 @@ interface Props {
   onComplete: () => void
 }
 
-const SAMPLE_CSV = `PC 번호,카톡이름,시작일,종료일,상태,Day,D-Day,SKU,기간
-010-1234-5678,홍길동/1234,2025-01-01,2027-09-28,Live,459,541,SUB-46,1000
-010-1234-5678,김철수/5678,2025-03-15,2026-03-14,Pending,0,365,SUB-31,365`
+const SAMPLE_CSV = `PC 번호,카톡이름,시작일,종료일,상태,Day,D-Day,SKU,기간,주문번호
+010-1234-5678,홍길동/1234,2025-01-01,2027-09-28,Live,459,541,SUB-46,1000,20250101001
+010-1234-5678,김철수/5678,2025-03-15,2026-03-14,Pending,0,365,SUB-31,365,`
 
 function downloadSampleCsv() {
   const bom = '\uFEFF' // UTF-8 BOM for Excel compatibility
@@ -272,7 +272,7 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-muted-foreground">선택:</span>
-                {['시작일', '종료일', 'Day', 'D-Day', '기간'].map(col => (
+                {['시작일', '종료일', 'Day', 'D-Day', '기간', '주문번호'].map(col => (
                   <Badge key={col} variant="outline" className="text-xs">{col}</Badge>
                 ))}
               </div>
@@ -430,7 +430,9 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
                       <TableCell className="text-xs">{row.sku}</TableCell>
                       <TableCell className="text-xs max-w-[100px] truncate">{row.pcNumber}</TableCell>
                       <TableCell>
-                        <StatusBadge status={row.status as any} size="sm">{row.status}</StatusBadge>
+                        <Badge variant="outline" className="text-xs">
+                          {STATUS_LABELS[row.status as SubscriptionStatus] || row.status}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
                         {row.csvDay}→{row.lastSentDay}
