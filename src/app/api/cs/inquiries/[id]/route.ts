@@ -16,11 +16,11 @@ export async function GET(
     .single()
 
   if (error || !inquiry) {
-    return NextResponse.json({ error: '문의를 찾을 수 없습니다.' }, { status: 404 })
+    return NextResponse.json({ error: '해당 문의를 찾을 수 없습니다.' }, { status: 404 })
   }
 
   if (inquiry.customer_id !== session.customerId) {
-    return NextResponse.json({ error: '접근 권한이 없습니다.' }, { status: 403 })
+    return NextResponse.json({ error: '해당 문의를 찾을 수 없습니다.' }, { status: 403 })
   }
 
   if (inquiry.cs_replies) {
@@ -47,10 +47,10 @@ export async function DELETE(
     .single()
 
   if (!inquiry) {
-    return NextResponse.json({ error: '문의를 찾을 수 없습니다.' }, { status: 404 })
+    return NextResponse.json({ error: '해당 문의를 찾을 수 없습니다.' }, { status: 404 })
   }
   if (inquiry.customer_id !== session.customerId) {
-    return NextResponse.json({ error: '접근 권한이 없습니다.' }, { status: 403 })
+    return NextResponse.json({ error: '해당 문의를 찾을 수 없습니다.' }, { status: 403 })
   }
 
   // 답글 먼저 삭제 후 문의 삭제
@@ -58,7 +58,7 @@ export async function DELETE(
   const { error } = await supabase.from('cs_inquiries').delete().eq('id', params.id)
 
   if (error) {
-    return NextResponse.json({ error: '삭제에 실패했습니다.' }, { status: 500 })
+    return NextResponse.json({ error: '삭제 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

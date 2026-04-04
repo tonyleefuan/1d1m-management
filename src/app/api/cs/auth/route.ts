@@ -7,7 +7,7 @@ export async function POST(req: Request) {
   try {
     const { orderNo, phoneLast4 } = await req.json()
     if (!orderNo || !phoneLast4) {
-      return NextResponse.json({ error: '주문번호와 전화번호 뒷 4자리를 입력해 주세요.' }, { status: 400 })
+      return NextResponse.json({ error: '주문번호와 전화번호 뒷 4자리를 모두 입력해 주세요.' }, { status: 400 })
     }
 
     const trimmedOrderNo = orderNo.trim()
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       .gte('attempted_at', fifteenMinAgo)
 
     if ((count ?? 0) >= 5) {
-      return NextResponse.json({ error: '인증 시도 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 429 })
+      return NextResponse.json({ error: '잠시 후 다시 시도해 주세요. 인증 시도 횟수가 초과되었습니다.' }, { status: 429 })
     }
 
     // ── 2. 주문번호별 지수 백오프 잠금 ──
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
     if (lockout?.locked_until && new Date(lockout.locked_until) > new Date()) {
       const remainMin = Math.ceil((new Date(lockout.locked_until).getTime() - Date.now()) / 60000)
       return NextResponse.json({
-        error: `인증 시도 횟수를 초과했습니다. ${remainMin}분 후 다시 시도해 주세요.`,
+        error: `인증 시도 횟수가 초과되었습니다. ${remainMin}분 후에 다시 시도해 주세요.`,
       }, { status: 429 })
     }
 
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
     if (!order?.customer_id) {
       await recordAuthFailure(trimmedOrderNo, lockout)
-      return NextResponse.json({ error: '일치하는 주문 정보를 찾을 수 없습니다.' }, { status: 401 })
+      return NextResponse.json({ error: '주문 정보가 일치하지 않습니다. 주문번호와 전화번호를 다시 확인해 주세요.' }, { status: 401 })
     }
 
     // Verify phone_last4
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
 
     if (!customer || customer.phone_last4 !== phoneLast4.trim()) {
       await recordAuthFailure(trimmedOrderNo, lockout)
-      return NextResponse.json({ error: '일치하는 주문 정보를 찾을 수 없습니다.' }, { status: 401 })
+      return NextResponse.json({ error: '주문 정보가 일치하지 않습니다. 주문번호와 전화번호를 다시 확인해 주세요.' }, { status: 401 })
     }
 
     // 인증 성공 — 잠금 해제
@@ -88,7 +88,7 @@ export async function POST(req: Request) {
       customerId: customer.id,
     })
   } catch {
-    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 })
+    return NextResponse.json({ error: '일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 500 })
   }
 }
 

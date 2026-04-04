@@ -213,8 +213,8 @@ export default function CSDashboard() {
 
   const handleSubmitInquiry = async () => {
     setFormError('')
-    if (!formCategory) { setFormError('카테고리를 선택해 주세요.'); return }
-    if (!formContent.trim()) { setFormError('내용을 입력해 주세요.'); return }
+    if (!formCategory) { setFormError('문의 유형을 선택해 주세요.'); return }
+    if (!formContent.trim()) { setFormError('문의 내용을 입력해 주세요.'); return }
 
     setSubmitting(true)
     try {
@@ -229,13 +229,13 @@ export default function CSDashboard() {
       })
 
       if (res.status === 429) {
-        setFormError('문의 등록 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요.')
+        setFormError('짧은 시간 내 너무 많은 문의를 등록하셨습니다. 잠시 후 다시 시도해 주세요.')
         return
       }
 
       const data = await res.json()
       if (!res.ok) {
-        setFormError(data.error || '등록에 실패했습니다.')
+        setFormError(data.error || '문의 등록에 실패했습니다. 잠시 후 다시 시도해 주세요.')
         return
       }
 
@@ -250,14 +250,14 @@ export default function CSDashboard() {
       setSelectedProductId('')
       router.push(`/cs/inquiry/${data.data.id}`)
     } catch {
-      setFormError('서버 연결에 실패했습니다.')
+      setFormError('일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.')
     } finally {
       setSubmitting(false)
     }
   }
 
   if (loading) {
-    return <div className="text-center py-12 text-muted-foreground">불러오는 중...</div>
+    return <div className="text-center py-12 text-muted-foreground">잠시만 기다려 주세요...</div>
   }
 
   return (
@@ -265,8 +265,8 @@ export default function CSDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          {customerName && <p className="text-sm text-muted-foreground mb-0.5">{customerName}님</p>}
-          <h1 className="text-lg font-semibold">구독 현황</h1>
+          {customerName && <p className="text-sm text-muted-foreground mb-0.5">{customerName}님, 안녕하세요</p>}
+          <h1 className="text-lg font-semibold">내 구독 현황</h1>
         </div>
         <Button variant="ghost" size="sm" onClick={handleLogout} className="text-xs text-muted-foreground">
           로그아웃
@@ -278,7 +278,7 @@ export default function CSDashboard() {
         <CardContent className="p-0">
           {subs.length === 0 ? (
             <div className="p-6">
-              <EmptyState title="구독 내역이 없습니다" />
+              <EmptyState title="현재 이용 중인 구독이 없습니다" />
             </div>
           ) : (
             <div className="divide-y divide-border">
@@ -304,14 +304,14 @@ export default function CSDashboard() {
 
       {/* Inquiries */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">문의 내역</h2>
+        <h2 className="text-lg font-semibold">내 문의 내역</h2>
         <Button size="sm" onClick={() => setShowDialog(true)}>+ 새 문의</Button>
       </div>
 
       {inquiries.length === 0 ? (
         <Card>
           <CardContent className="p-6">
-            <EmptyState title="문의 내역이 없습니다" description="궁금한 점이 있으시면 새 문의를 등록해 주세요." />
+            <EmptyState title="아직 등록된 문의가 없습니다" description="궁금하신 점이 있으시면 언제든지 새 문의를 남겨 주세요." />
           </CardContent>
         </Card>
       ) : (
@@ -351,14 +351,14 @@ export default function CSDashboard() {
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>새 문의 작성</DialogTitle>
+            <DialogTitle>새 문의 등록</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>카테고리</Label>
+              <Label>어떤 도움이 필요하신가요?</Label>
               <Select value={formCategory} onValueChange={handleCategoryChange}>
                 <SelectTrigger>
-                  <SelectValue placeholder="카테고리 선택" />
+                  <SelectValue placeholder="문의 유형을 선택해 주세요" />
                 </SelectTrigger>
                 <SelectContent>
                   {CS_CATEGORIES.map(k => (
@@ -466,7 +466,7 @@ export default function CSDashboard() {
                   {formCategory === 'cancel_refund' && guideSelects['payment_method'] === 'card' && guideSelects['card_over_30_days'] === 'yes' && (
                     <div className="space-y-2 border-t border-border pt-3">
                       <p className="text-xs text-muted-foreground">
-                        결제일이 30일을 초과하여 PG사를 통한 카드 취소가 어렵습니다. 환불 받으실 계좌 정보를 입력해 주세요.
+                        결제일로부터 30일이 경과하여 PG사를 통한 카드 취소가 어려운 점 양해 부탁드립니다. 환불 받으실 계좌 정보를 아래에 입력해 주세요.
                       </p>
                       <Input
                         placeholder="은행명 (예: 국민은행)"
@@ -489,7 +489,7 @@ export default function CSDashboard() {
                   {/* 계좌이체 선택 시 환불 계좌 입력 */}
                   {formCategory === 'cancel_refund' && guideSelects['payment_method'] === 'bank_transfer' && (
                     <div className="space-y-2 border-t border-border pt-3">
-                      <p className="text-xs font-medium text-foreground">환불 받으실 계좌 정보</p>
+                      <p className="text-xs font-medium text-foreground">환불 받으실 계좌 정보를 입력해 주세요</p>
                       <Input
                         placeholder="은행명 (예: 국민은행)"
                         value={guideSelects['bank_name'] || ''}
@@ -528,7 +528,7 @@ export default function CSDashboard() {
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="구독 선택" />
+                    <SelectValue placeholder="관련 구독을 선택해 주세요" />
                   </SelectTrigger>
                   <SelectContent>
                     {subs.map(s => (
@@ -546,13 +546,13 @@ export default function CSDashboard() {
               <div className="space-y-2">
                 <Label>변경 희망 상품</Label>
                 {loadingProducts ? (
-                  <p className="text-xs text-muted-foreground">상품 목록 조회 중...</p>
+                  <p className="text-xs text-muted-foreground">변경 가능한 상품을 확인하고 있습니다...</p>
                 ) : changeableProducts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">동일 가격의 변경 가능한 상품이 없습니다.</p>
+                  <p className="text-xs text-muted-foreground">현재 동일 가격대의 변경 가능한 상품이 없습니다. 추가 문의가 필요하시면 내용을 남겨 주세요.</p>
                 ) : (
                   <Select value={selectedProductId} onValueChange={setSelectedProductId}>
                     <SelectTrigger>
-                      <SelectValue placeholder="상품을 선택해 주세요" />
+                      <SelectValue placeholder="변경을 원하시는 상품을 선택해 주세요" />
                     </SelectTrigger>
                     <SelectContent>
                       {changeableProducts.map(p => (
@@ -565,9 +565,9 @@ export default function CSDashboard() {
             )}
 
             <div className="space-y-2">
-              <Label>내용</Label>
+              <Label>문의 내용</Label>
               <Textarea
-                placeholder={CS_CATEGORY_GUIDES[formCategory]?.hint ? '' : '문의 내용을 입력해 주세요'}
+                placeholder={CS_CATEGORY_GUIDES[formCategory]?.hint ? '추가로 알려주실 내용이 있으시면 적어 주세요' : '궁금하신 점이나 도움이 필요하신 내용을 자유롭게 적어 주세요'}
                 rows={4}
                 value={formContent}
                 onChange={e => setFormContent(e.target.value)}

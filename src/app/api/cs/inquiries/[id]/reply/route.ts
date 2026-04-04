@@ -12,10 +12,10 @@ export async function POST(
   try {
     const { content } = await req.json()
     if (!content?.trim()) {
-      return NextResponse.json({ error: '내용을 입력해 주세요.' }, { status: 400 })
+      return NextResponse.json({ error: '문의 내용을 입력해 주세요.' }, { status: 400 })
     }
     if (content.trim().length > 2000) {
-      return NextResponse.json({ error: '내용은 2000자 이내로 입력해 주세요.' }, { status: 400 })
+      return NextResponse.json({ error: '문의 내용은 2,000자 이내로 작성해 주세요.' }, { status: 400 })
     }
 
     // ── 댓글 Rate Limit: 문의당 1시간 10회 ──
@@ -28,7 +28,7 @@ export async function POST(
       .gte('attempted_at', oneHourAgo)
 
     if ((replyCount ?? 0) >= 10) {
-      return NextResponse.json({ error: '답변 등록 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 429 })
+      return NextResponse.json({ error: '짧은 시간 내 너무 많은 문의를 등록하셨습니다. 잠시 후 다시 시도해 주세요.' }, { status: 429 })
     }
 
     const { data: inquiry } = await supabase
@@ -38,13 +38,13 @@ export async function POST(
       .single()
 
     if (!inquiry) {
-      return NextResponse.json({ error: '문의를 찾을 수 없습니다.' }, { status: 404 })
+      return NextResponse.json({ error: '해당 문의를 찾을 수 없습니다.' }, { status: 404 })
     }
     if (inquiry.customer_id !== session.customerId) {
-      return NextResponse.json({ error: '문의를 찾을 수 없습니다.' }, { status: 404 }) // 403 대신 404 (정보 은닉)
+      return NextResponse.json({ error: '해당 문의를 찾을 수 없습니다.' }, { status: 404 }) // 403 대신 404 (정보 은닉)
     }
     if (inquiry.status === 'closed' || inquiry.status === 'dismissed') {
-      return NextResponse.json({ error: '종료된 문의에는 답변할 수 없습니다.' }, { status: 400 })
+      return NextResponse.json({ error: '이미 종료된 문의입니다. 추가 문의가 필요하시면 새 문의를 등록해 주세요.' }, { status: 400 })
     }
 
     // Rate limit 기록
@@ -99,6 +99,6 @@ export async function POST(
 
     return NextResponse.json({ data: reply }, { status: 201 })
   } catch {
-    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 })
+    return NextResponse.json({ error: '일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 500 })
   }
 }

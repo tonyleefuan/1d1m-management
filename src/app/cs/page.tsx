@@ -19,7 +19,7 @@ export default function CSAuthPage() {
     setError('')
 
     if (!orderNo.trim() || !phoneLast4.trim()) {
-      setError('주문번호와 전화번호 뒷 4자리를 입력해 주세요.')
+      setError('주문번호와 전화번호 뒷 4자리를 모두 입력해 주세요.')
       return
     }
     if (phoneLast4.trim().length !== 4) {
@@ -36,19 +36,19 @@ export default function CSAuthPage() {
       })
 
       if (res.status === 429) {
-        setError('인증 시도 횟수를 초과했습니다. 15분 후 다시 시도해 주세요.')
+        setError('잠시 후 다시 시도해 주세요. 인증 시도 횟수가 초과되었습니다.')
         return
       }
 
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error || '인증에 실패했습니다.')
+        setError(data.error || '주문 정보가 일치하지 않습니다. 다시 확인해 주세요.')
         return
       }
 
       router.push('/cs/dashboard')
     } catch {
-      setError('서버 연결에 실패했습니다.')
+      setError('일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.')
     } finally {
       setLoading(false)
     }
@@ -58,8 +58,8 @@ export default function CSAuthPage() {
     <div className="flex items-center justify-center min-h-[60vh]">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-xl">고객 문의</CardTitle>
-          <CardDescription>주문 정보를 입력하시면 구독 현황 조회 및 문의가 가능합니다.</CardDescription>
+          <CardTitle className="text-xl">고객센터</CardTitle>
+          <CardDescription>주문 정보를 입력해 주시면 구독 현황을 확인하시고 문의하실 수 있습니다.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -67,7 +67,7 @@ export default function CSAuthPage() {
               <Label htmlFor="orderNo">주문번호</Label>
               <Input
                 id="orderNo"
-                placeholder="주문번호를 입력해 주세요"
+                placeholder="예) 202504-0001234"
                 value={orderNo}
                 onChange={e => setOrderNo(e.target.value)}
                 disabled={loading}

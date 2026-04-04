@@ -85,13 +85,13 @@ export default function InquiryDetailPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error || '등록에 실패했습니다.')
+        setError(data.error || '등록에 실패했습니다. 잠시 후 다시 시도해 주세요.')
         return
       }
       setReplyContent('')
       fetchInquiry()
     } catch {
-      setError('서버 연결에 실패했습니다.')
+      setError('일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.')
     } finally {
       setSubmitting(false)
     }
@@ -103,13 +103,13 @@ export default function InquiryDetailPage() {
       const res = await fetch(`/api/cs/inquiries/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json()
-        setError(data.error || '삭제에 실패했습니다.')
+        setError(data.error || '삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.')
         setConfirmDelete(false)
         return
       }
       router.push('/cs/dashboard')
     } catch {
-      setError('서버 연결에 실패했습니다.')
+      setError('일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.')
       setConfirmDelete(false)
     } finally {
       setDeleting(false)
@@ -117,7 +117,7 @@ export default function InquiryDetailPage() {
   }
 
   if (loading) {
-    return <div className="text-center py-12 text-muted-foreground">불러오는 중...</div>
+    return <div className="text-center py-12 text-muted-foreground">잠시만 기다려 주세요...</div>
   }
 
   if (!inquiry) return null
@@ -135,7 +135,7 @@ export default function InquiryDetailPage() {
       {/* Back + Delete */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={() => router.push('/cs/dashboard')} className="text-muted-foreground -ml-2">
-          &larr; 목록으로
+          &larr; 내 문의 목록
         </Button>
         {!confirmDelete ? (
           <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} className="text-muted-foreground text-xs">
@@ -208,7 +208,7 @@ export default function InquiryDetailPage() {
         <Card>
           <CardContent className="p-4 space-y-3">
             <Textarea
-              placeholder="추가 문의 내용을 입력해 주세요"
+              placeholder="추가로 궁금하신 점이나 필요하신 내용을 남겨 주세요"
               rows={3}
               value={replyContent}
               onChange={e => setReplyContent(e.target.value)}
@@ -217,7 +217,7 @@ export default function InquiryDetailPage() {
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="flex justify-end">
               <Button size="sm" onClick={handleReply} disabled={submitting || !replyContent.trim()}>
-                {submitting ? '등록 중...' : '답변 등록'}
+                {submitting ? '등록 중...' : '추가 문의'}
               </Button>
             </div>
           </CardContent>

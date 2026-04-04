@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getCsSession } from '@/lib/cs-auth'
-import { CS_CATEGORY_LABELS } from '@/lib/constants'
+import { CS_CATEGORIES, CS_CATEGORY_LABELS } from '@/lib/constants'
 
-const VALID_CATEGORIES = ['message_never_received', 'message_stopped', 'pause_resume', 'product_change', 'cancel_refund', 'other']
+const VALID_CATEGORIES = CS_CATEGORIES as readonly string[]
 
 export async function GET() {
   const session = await getCsSession()
@@ -38,13 +38,13 @@ export async function POST(req: Request) {
     const { category, content, subscriptionId } = await req.json()
 
     if (!category || !VALID_CATEGORIES.includes(category)) {
-      return NextResponse.json({ error: '카테고리를 선택해 주세요.' }, { status: 400 })
+      return NextResponse.json({ error: '문의 유형을 선택해 주세요.' }, { status: 400 })
     }
     if (!content?.trim()) {
-      return NextResponse.json({ error: '내용을 입력해 주세요.' }, { status: 400 })
+      return NextResponse.json({ error: '문의 내용을 입력해 주세요.' }, { status: 400 })
     }
     if (content.trim().length > 2000) {
-      return NextResponse.json({ error: '내용은 2000자 이내로 입력해 주세요.' }, { status: 400 })
+      return NextResponse.json({ error: '문의 내용은 2,000자 이내로 작성해 주세요.' }, { status: 400 })
     }
 
     // Rate limit: 20 inquiries per hour
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       .gte('attempted_at', oneHourAgo)
 
     if ((count ?? 0) >= 20) {
-      return NextResponse.json({ error: '문의 등록 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 429 })
+      return NextResponse.json({ error: '짧은 시간 내 너무 많은 문의를 등록하셨습니다. 잠시 후 다시 시도해 주세요.' }, { status: 429 })
     }
 
     await supabase.from('cs_rate_limits').insert({
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
         .eq('customer_id', session.customerId)
         .single()
       if (!sub) {
-        return NextResponse.json({ error: '유효하지 않은 구독입니다.' }, { status: 400 })
+        return NextResponse.json({ error: '해당 구독 정보를 확인할 수 없습니다. 다시 선택해 주세요.' }, { status: 400 })
       }
     }
 
@@ -95,6 +95,6 @@ export async function POST(req: Request) {
     // 문의는 pending 상태로 즉시 반환, 고객은 상세 페이지에서 폴링으로 결과 확인
     return NextResponse.json({ data: inquiry }, { status: 201 })
   } catch {
-    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 })
+    return NextResponse.json({ error: '일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 500 })
   }
 }
