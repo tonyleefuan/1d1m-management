@@ -64,7 +64,7 @@ interface Props {
   onComplete: () => void
 }
 
-const SAMPLE_CSV = `PC 번호,카톡이름,시작일,종료일,상품,Day,D-Day,SKU,기간
+const SAMPLE_CSV = `PC 번호,카톡이름,시작일,종료일,상태,Day,D-Day,SKU,기간
 010-1234-5678,홍길동/1234,2025-01-01,2027-09-28,Live,459,541,SUB-46,1000
 010-1234-5678,김철수/5678,2025-03-15,2026-03-14,Pending,0,365,SUB-31,365`
 
@@ -273,13 +273,13 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {['PC 번호', '카톡이름', 'SKU'].map(col => (
+                {['PC 번호', '카톡이름', 'SKU', '상태'].map(col => (
                   <Badge key={col} variant="secondary" className="text-xs">{col}</Badge>
                 ))}
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-muted-foreground">선택:</span>
-                {['시작일', '종료일', '상품', 'Day', 'D-Day', '기간'].map(col => (
+                {['시작일', '종료일', 'Day', 'D-Day', '기간'].map(col => (
                   <Badge key={col} variant="outline" className="text-xs">{col}</Badge>
                 ))}
               </div>
