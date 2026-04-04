@@ -167,7 +167,7 @@ export function CSTab() {
     const aiData = await aiRes.json()
     const refundData = await refundRes.json()
     setEscalatedCount(escData.data?.length || 0)
-    setAiCount(aiData.data?.length || 0)
+    setAiCount(aiData.unreadAiCount ?? aiData.data?.length ?? 0)
     setRefundPendingCount(refundData.data?.length || 0)
   }, [])
 
@@ -196,6 +196,14 @@ export function CSTab() {
       fetchRefunds()
     } else {
       fetchInquiries(section)
+      // AI 응대 탭 진입 시 읽음 처리
+      if (section === 'ai_answered') {
+        fetch('/api/admin/cs/inquiries', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'mark_ai_read' }),
+        }).then(() => setAiCount(0))
+      }
     }
   }, [section, fetchInquiries, fetchPolicies, fetchRefunds])
 
