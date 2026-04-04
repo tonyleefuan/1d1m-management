@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/cs-reply",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/30 * * * *"
     }
   ]
 }
