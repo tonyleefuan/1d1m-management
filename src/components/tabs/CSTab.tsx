@@ -94,9 +94,22 @@ interface GeneralInquiryRow {
   id: string
   email: string
   content: string
+  status: string
   is_read: boolean
-  admin_note: string | null
   created_at: string
+  updated_at: string
+}
+
+interface GeneralReply {
+  id: string
+  author_type: 'customer' | 'admin'
+  author_name: string | null
+  content: string
+  created_at: string
+}
+
+interface GeneralDetail extends GeneralInquiryRow {
+  cs_general_replies: GeneralReply[]
 }
 
 type Section = 'escalated' | 'ai_answered' | 'refunds' | 'general' | 'policies'
@@ -141,7 +154,10 @@ export function CSTab() {
   const [savingPolicy, setSavingPolicy] = useState(false)
 
   // General inquiry detail dialog
-  const [selectedGeneral, setSelectedGeneral] = useState<GeneralInquiryRow | null>(null)
+  const [selectedGeneral, setSelectedGeneral] = useState<GeneralDetail | null>(null)
+  const [generalDetailLoading, setGeneralDetailLoading] = useState(false)
+  const [generalReplyContent, setGeneralReplyContent] = useState('')
+  const [generalReplySubmitting, setGeneralReplySubmitting] = useState(false)
 
   // Refund detail dialog
   const [selectedRefund, setSelectedRefund] = useState<RefundRow | null>(null)
@@ -190,6 +206,44 @@ export function CSTab() {
       setLoading(false)
     }
   }, [showError])
+
+  const openGeneralDetail = async (id: string) => {
+    setGeneralDetailLoading(true)
+    setGeneralReplyContent('')
+    try {
+      const res = await fetch(`/api/admin/cs/general-inquiries/${id}`)
+      if (!res.ok) throw new Error('로드 실패')
+      const data = await res.json()
+      setSelectedGeneral(data.data)
+      // 목록에서도 읽음 표시
+      setGeneralInquiries(prev => prev.map(i => i.id === id ? { ...i, is_read: true } : i))
+      setGeneralUnreadCount(prev => Math.max(0, prev - 1))
+    } catch (err: any) {
+      showError(err.message)
+    } finally {
+      setGeneralDetailLoading(false)
+    }
+  }
+
+  const handleGeneralReply = async () => {
+    if (!generalReplyContent.trim() || !selectedGeneral) return
+    setGeneralReplySubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/cs/general-inquiries/${selectedGeneral.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: generalReplyContent.trim() }),
+      })
+      if (!res.ok) throw new Error('답변 등록 실패')
+      showSuccess('답변이 등록되었습니다.')
+      setSelectedGeneral(null)
+      fetchGeneralInquiries()
+    } catch (err: any) {
+      showError(err.message)
+    } finally {
+      setGeneralReplySubmitting(false)
+    }
+  }
 
   const fetchCounts = useCallback(async () => {
     try {
@@ -663,19 +717,7 @@ export function CSTab() {
                   'cursor-pointer hover:bg-muted/50 transition-colors',
                   !g.is_read && 'border-l-2 border-l-foreground'
                 )}
-                onClick={() => {
-                  setSelectedGeneral(g)
-                  if (!g.is_read) {
-                    fetch('/api/admin/cs/general-inquiries', {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ id: g.id, action: 'mark_read' }),
-                    }).then(() => {
-                      setGeneralInquiries(prev => prev.map(i => i.id === g.id ? { ...i, is_read: true } : i))
-                      setGeneralUnreadCount(prev => Math.max(0, prev - 1))
-                    }).catch(() => {})
-                  }
-                }}
+                onClick={() => openGeneralDetail(g.id)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-2">
@@ -685,6 +727,9 @@ export function CSTab() {
                         {!g.is_read && (
                           <span className="h-1.5 w-1.5 rounded-full bg-foreground shrink-0" />
                         )}
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                          {g.status === 'answered' ? '답변완료' : g.status === 'closed' ? '종료' : '대기'}
+                        </span>
                       </div>
                       <p className="text-sm truncate text-muted-foreground">{g.content}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">{formatDate(g.created_at)}</p>
@@ -1053,26 +1098,77 @@ export function CSTab() {
 
       {/* General Inquiry Detail Dialog */}
       <Dialog open={!!selectedGeneral} onOpenChange={() => setSelectedGeneral(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>기타 문의</DialogTitle>
+            <DialogTitle>
+              <div className="flex items-center gap-2">
+                기타 문의
+                {selectedGeneral && (
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-normal">
+                    {selectedGeneral.status === 'answered' ? '답변완료' : selectedGeneral.status === 'closed' ? '종료' : '대기'}
+                  </span>
+                )}
+              </div>
+            </DialogTitle>
           </DialogHeader>
-          {selectedGeneral && (
+
+          {generalDetailLoading ? (
+            <div className="flex justify-center py-8"><Spinner /></div>
+          ) : selectedGeneral ? (
             <div className="space-y-3">
-              <div className="grid grid-cols-[4rem_1fr] gap-y-2 text-sm">
-                <span className="text-muted-foreground">이메일</span>
-                <a href={`mailto:${selectedGeneral.email}`} className="text-foreground underline underline-offset-4 break-all">
+              {/* 이메일 정보 */}
+              <div className="text-xs text-muted-foreground">
+                <a href={`mailto:${selectedGeneral.email}`} className="underline underline-offset-2">
                   {selectedGeneral.email}
                 </a>
-                <span className="text-muted-foreground">접수일</span>
-                <span>{formatDate(selectedGeneral.created_at)}</span>
+                {' · '}{formatDate(selectedGeneral.created_at)}
               </div>
+
+              {/* 원본 문의 */}
               <Card>
                 <CardContent className="p-3">
+                  <p className="text-xs font-medium mb-1">문의 내용</p>
                   <p className="text-sm whitespace-pre-wrap">{selectedGeneral.content}</p>
                 </CardContent>
               </Card>
+
+              {/* 답글 스레드 */}
+              {selectedGeneral.cs_general_replies?.map(r => (
+                <Card key={r.id} className={cn(r.author_type === 'admin' && 'bg-muted/50')}>
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-medium">
+                        {r.author_type === 'customer' ? '고객' : `관리자 (${r.author_name || ''})`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{formatDate(r.created_at)}</p>
+                    </div>
+                    <p className="text-sm whitespace-pre-wrap">{r.content}</p>
+                  </CardContent>
+                </Card>
+              ))}
+
+              {/* 답변 입력 */}
+              <div className="space-y-2 pt-2 border-t">
+                <Textarea
+                  placeholder="답변 내용을 입력하세요"
+                  rows={3}
+                  value={generalReplyContent}
+                  onChange={e => setGeneralReplyContent(e.target.value)}
+                  disabled={generalReplySubmitting}
+                />
+              </div>
             </div>
+          ) : null}
+
+          {selectedGeneral && (
+            <DialogFooter>
+              <Button
+                onClick={handleGeneralReply}
+                disabled={generalReplySubmitting || !generalReplyContent.trim()}
+              >
+                {generalReplySubmitting ? '등록 중...' : '답변 등록'}
+              </Button>
+            </DialogFooter>
           )}
         </DialogContent>
       </Dialog>

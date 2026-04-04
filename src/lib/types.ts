@@ -283,12 +283,23 @@ export interface CSRefundRequest {
   inquiry?: CSInquiry
 }
 
-// --- CS General Inquiries (비인증 기타 문의) ---
+// --- CS General Inquiries (기타 문의 게시판) ---
 export interface CSGeneralInquiry {
   id: string
   email: string
   content: string
+  status: 'pending' | 'answered' | 'closed'
   is_read: boolean
-  admin_note: string | null
+  created_at: string
+  updated_at: string
+  cs_general_replies?: CSGeneralReply[]
+}
+
+export interface CSGeneralReply {
+  id: string
+  inquiry_id: string
+  author_type: 'customer' | 'admin'
+  author_name: string | null
+  content: string
   created_at: string
 }
