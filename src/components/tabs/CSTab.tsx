@@ -110,6 +110,12 @@ export function CSTab() {
   const [aiCount, setAiCount] = useState(0)
   const [refundPendingCount, setRefundPendingCount] = useState(0)
 
+  // Policy chat state
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; actions?: any[] }>>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+
   // Detail dialog state
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<InquiryDetail | null>(null)
@@ -261,6 +267,74 @@ export function CSTab() {
     }
   }
 
+  // Policy chat: AI에게 메시지 전송
+  const sendChatMessage = async () => {
+    if (!chatInput.trim() || chatLoading) return
+    const userMsg = chatInput.trim()
+    setChatInput('')
+
+    const newMessages = [...chatMessages, { role: 'user' as const, content: userMsg }]
+    setChatMessages(newMessages)
+    setChatLoading(true)
+
+    try {
+      const res = await fetch('/api/admin/cs/policy-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+        }),
+      })
+      if (!res.ok) throw new Error('AI 응답 실패')
+      const data = await res.json()
+      setChatMessages([...newMessages, {
+        role: 'assistant',
+        content: data.reply,
+        actions: data.actions,
+      }])
+    } catch (err: any) {
+      showError(err.message || 'AI 응답 실패')
+      setChatMessages(newMessages) // 실패 시 사용자 메시지만 유지
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  // Policy chat: AI 제안 적용
+  const applyPolicyAction = async (action: any) => {
+    try {
+      if (action.action === 'update' && action.id) {
+        const res = await fetch('/api/admin/cs/policies', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: action.id,
+            content: action.content,
+            ai_instruction: action.ai_instruction || null,
+          }),
+        })
+        if (!res.ok) throw new Error('수정 실패')
+        showSuccess(`"${action.title}" 정책이 수정되었습니다.`)
+      } else if (action.action === 'add') {
+        const res = await fetch('/api/admin/cs/policies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            category: action.category,
+            title: action.title,
+            content: action.content,
+            ai_instruction: action.ai_instruction || null,
+          }),
+        })
+        if (!res.ok) throw new Error('추가 실패')
+        showSuccess(`"${action.title}" 정책이 추가되었습니다.`)
+      }
+      fetchPolicies()
+    } catch (err: any) {
+      showError(err.message)
+    }
+  }
+
   const handleSavePolicy = async () => {
     if (!editPolicy) return
     setSavingPolicy(true)
@@ -369,7 +443,99 @@ export function CSTab() {
         <div className="flex justify-center py-12"><Spinner /></div>
       ) : section === 'policies' ? (
         /* Policies Section */
-        <div className="space-y-2">
+        <div className="space-y-4">
+          {/* AI 대화 영역 */}
+          <Card>
+            <CardContent className="p-4">
+              {!chatOpen ? (
+                <button
+                  onClick={() => setChatOpen(true)}
+                  className="w-full text-left text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  💬 AI와 대화를 통해 운영 정책을 수정하거나 추가해 보세요
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">운영 정책 AI 어시스턴트</p>
+                    <Button variant="ghost" size="sm" onClick={() => { setChatOpen(false); setChatMessages([]) }} className="text-xs text-muted-foreground">
+                      닫기
+                    </Button>
+                  </div>
+
+                  {/* 메시지 목록 */}
+                  {chatMessages.length > 0 && (
+                    <div className="max-h-96 overflow-y-auto space-y-3 border rounded-md p-3 bg-muted/20">
+                      {chatMessages.map((msg, i) => (
+                        <div key={i} className={msg.role === 'user' ? 'text-right' : ''}>
+                          <div className={`inline-block max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                            msg.role === 'user'
+                              ? 'bg-foreground text-background'
+                              : 'bg-muted'
+                          }`}>
+                            <p className="whitespace-pre-wrap">{msg.content}</p>
+                          </div>
+                          {/* AI 제안 적용 버튼 */}
+                          {msg.actions && msg.actions.length > 0 && (
+                            <div className="mt-2 space-y-1.5">
+                              {msg.actions.map((action: any, j: number) => (
+                                <div key={j} className="flex items-center gap-2 text-left">
+                                  <span className="text-xs text-muted-foreground">
+                                    {action.action === 'add' ? '➕' : '✏️'} {action.title}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs h-6 px-2"
+                                    onClick={() => applyPolicyAction(action)}
+                                  >
+                                    적용
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {chatLoading && (
+                        <div className="flex items-center gap-2">
+                          <div className="h-3 w-3 border-2 border-foreground border-t-transparent rounded-full animate-spin" />
+                          <span className="text-xs text-muted-foreground">생각하는 중...</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 입력 */}
+                  <div className="flex gap-2">
+                    <Textarea
+                      value={chatInput}
+                      onChange={e => setChatInput(e.target.value)}
+                      placeholder="예) 환불 정책에 부분 환불도 추가해 줘"
+                      rows={2}
+                      className="flex-1 resize-none"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          sendChatMessage()
+                        }
+                      }}
+                      disabled={chatLoading}
+                    />
+                    <Button
+                      onClick={sendChatMessage}
+                      disabled={chatLoading || !chatInput.trim()}
+                      className="self-end"
+                    >
+                      전송
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* 정책 목록 */}
           {policies.map(p => (
             <Card
               key={p.id}
