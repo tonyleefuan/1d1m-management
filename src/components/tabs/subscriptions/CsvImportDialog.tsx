@@ -52,6 +52,7 @@ interface ConfirmResult {
   ok: boolean
   created: number
   updated: number
+  skipped: number
   errors: number
   total: number
 }
@@ -150,28 +151,20 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
   // ─── Step 2: Confirm ───────────────────────────────
 
   const handleConfirm = async () => {
-    if (!preview) return
+    if (!preview || !file) return
     setLoading(true)
     setError(null)
 
     try {
-      const validRows = preview.rows
-        .filter(r => !r.skipReason)
-        .map(r => ({
-          customerId: r.customerId!,
-          productId: r.productId!,
-          deviceId: r.deviceId,
-          status: r.status,
-          startDate: r.startDate,
-          endDate: r.endDate,
-          durationDays: r.durationDays,
-          lastSentDay: r.lastSentDay,
-        }))
+      // Re-upload file to server — server re-parses to avoid sending 27k rows via JSON
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('dayInterpretation', dayInterpretation)
+      formData.append('referenceDate', referenceDate)
 
       const res = await fetch('/api/subscriptions/import/confirm', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: validRows }),
+        body: formData,
       })
 
       if (!res.ok) {
