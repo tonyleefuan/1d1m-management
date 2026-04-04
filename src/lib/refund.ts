@@ -86,7 +86,7 @@ export function calculateRefund(params: {
 /**
  * 환불 계산 결과를 사람이 읽기 쉬운 텍스트로 변환
  */
-export function formatRefundSummary(calc: RefundCalculation): string {
+export function formatRefundSummary(calc: RefundCalculation, settings?: { fullRefundDays?: number; penaltyRate?: number }): string {
   const lines: string[] = []
 
   lines.push(`결제 금액: ${calc.paidAmount.toLocaleString()}원`)
@@ -94,13 +94,15 @@ export function formatRefundSummary(calc: RefundCalculation): string {
 
   if (calc.isFullRefund) {
     lines.push(``)
-    lines.push(`결제 후 ${FULL_REFUND_DAYS}일 이내이므로 전액 환불 대상입니다.`)
+    const days = settings?.fullRefundDays || FULL_REFUND_DAYS
+    lines.push(`결제 후 ${days}일 이내이므로 전액 환불 대상입니다.`)
     lines.push(`환불 금액: ${calc.refundAmount.toLocaleString()}원`)
   } else {
     lines.push(`이용일수: ${calc.usedDays}일 / ${calc.totalDays}일`)
     lines.push(`일일 단가: ${calc.dailyRate.toLocaleString()}원`)
     lines.push(`이용 금액: ${calc.usedAmount.toLocaleString()}원`)
-    lines.push(`위약금 (${Math.round(PENALTY_RATE * 100)}%): ${calc.penaltyAmount.toLocaleString()}원`)
+    const rate = settings?.penaltyRate || PENALTY_RATE
+    lines.push(`위약금 (${Math.round(rate * 100)}%): ${calc.penaltyAmount.toLocaleString()}원`)
     lines.push(``)
     lines.push(`환불 금액: ${calc.refundAmount.toLocaleString()}원`)
     lines.push(`(${calc.paidAmount.toLocaleString()} - ${calc.usedAmount.toLocaleString()} - ${calc.penaltyAmount.toLocaleString()})`)

@@ -120,7 +120,7 @@ export async function PATCH(
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // 고객에게 거절 안내 댓글
+    // 고객에게 거절 안내 댓글 + 문의 상태를 admin_answered로 변경 (stuck 방지)
     if (refund.inquiry_id) {
       await supabase.from('cs_replies').insert({
         inquiry_id: refund.inquiry_id,
@@ -128,6 +128,10 @@ export async function PATCH(
         author_name: null,
         content: `환불 요청이 반려되었습니다. 사유: ${reject_reason.trim()}`,
       })
+      await supabase
+        .from('cs_inquiries')
+        .update({ status: 'admin_answered' })
+        .eq('id', refund.inquiry_id)
     }
 
     return NextResponse.json({ ok: true })
