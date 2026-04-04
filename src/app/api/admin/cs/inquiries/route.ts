@@ -28,5 +28,36 @@ export async function GET(req: Request) {
     cs_replies: undefined,
   }))
 
-  return NextResponse.json({ data: enriched })
+  // count_unread: admin_read_at IS NULL인 ai_answered 건수
+  let unreadAiCount = 0
+  if (status === 'ai_answered') {
+    const { count } = await supabase
+      .from('cs_inquiries')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'ai_answered')
+      .is('admin_read_at', null)
+    unreadAiCount = count || 0
+  }
+
+  return NextResponse.json({ data: enriched, unreadAiCount })
+}
+
+// PATCH: AI 응대 탭 진입 시 일괄 읽음 처리
+export async function PATCH(req: Request) {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { action } = await req.json()
+
+  if (action === 'mark_ai_read') {
+    await supabase
+      .from('cs_inquiries')
+      .update({ admin_read_at: new Date().toISOString() })
+      .eq('status', 'ai_answered')
+      .is('admin_read_at', null)
+
+    return NextResponse.json({ ok: true })
+  }
+
+  return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
 }
