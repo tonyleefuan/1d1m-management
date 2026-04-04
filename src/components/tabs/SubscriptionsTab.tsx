@@ -139,16 +139,20 @@ function getDeviceColor(device: DeviceOption | null, devices: DeviceOption[]): s
 
 // ─── API helper ──────────────────────────────────────────
 
-async function updateSubscription(id: string, updates: Record<string, unknown>): Promise<boolean> {
+async function updateSubscription(id: string, updates: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetch('/api/subscriptions/update', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, ...updates }),
     })
-    return res.ok
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return { ok: false, error: data.error }
+    }
+    return { ok: true }
   } catch {
-    return false
+    return { ok: false, error: '서버 연결에 실패했습니다' }
   }
 }
 
@@ -299,17 +303,17 @@ export function SubscriptionsTab() {
         return prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
       })
       // 2. 백그라운드 API 호출
-      const ok = await updateSubscription(id, apiUpdates)
-      if (ok) {
+      const result = await updateSubscription(id, apiUpdates)
+      if (result.ok) {
         showSuccess(successMsg)
       } else {
         // 3. 실패 시 스냅샷으로 롤백 (리페치 없음)
         if (snapshot) {
           setSubs((prev) => prev.map((s) => (s.id === id ? snapshot! : s)))
         }
-        showError('변경에 실패했습니다. 다시 시도해주세요.')
+        showError(result.error || '변경에 실패했습니다. 다시 시도해주세요.')
       }
-      return ok
+      return result.ok
     },
     [showSuccess, showError],
   )
@@ -364,12 +368,12 @@ export function SubscriptionsTab() {
   const handleProductChange = async (subId: string, productId: string) => {
     const product = products.find(p => p.id === productId)
     if (!product) return
-    const ok = await updateSubscription(subId, { product_id: productId })
-    if (ok) {
+    const result = await updateSubscription(subId, { product_id: productId })
+    if (result.ok) {
       showSuccess(`상품이 ${product.sku_code}(으)로 변경되었습니다`)
       fetchSubs()
     } else {
-      showError('상품 변경에 실패했습니다')
+      showError(result.error || '상품 변경에 실패했습니다')
     }
   }
 
@@ -393,12 +397,12 @@ export function SubscriptionsTab() {
       confirmLabel: '해소',
     })
     if (!ok) return
-    const success = await updateSubscription(sub.id, { failure_type: null, failure_date: null })
-    if (success) {
+    const result = await updateSubscription(sub.id, { failure_type: null, failure_date: null })
+    if (result.ok) {
       showSuccess('발송 실패가 해소되었습니다')
       fetchSubs()
     } else {
-      showError('해소에 실패했습니다')
+      showError(result.error || '해소에 실패했습니다')
     }
   }
 
@@ -932,10 +936,12 @@ export function SubscriptionsTab() {
                               showError(`1~${sub.duration_days} 범위의 숫자를 입력하세요`)
                               return
                             }
-                            updateSubscription(sub.id, { last_sent_day: num - 1 }).then(ok => {
-                              if (ok) {
+                            updateSubscription(sub.id, { last_sent_day: num - 1 }).then(result => {
+                              if (result.ok) {
                                 showSuccess(`Day ${num}부터 발송됩니다`)
                                 fetchSubs()
+                              } else {
+                                showError(result.error || 'Day 변경에 실패했습니다')
                               }
                             })
                           }}
@@ -1281,11 +1287,13 @@ export function SubscriptionsTab() {
                           showError(`1~${detailSub.duration_days} 범위의 숫자를 입력하세요`)
                           return
                         }
-                        const ok = await updateSubscription(detailSub.id, { last_sent_day: num - 1 })
-                        if (ok) {
+                        const result = await updateSubscription(detailSub.id, { last_sent_day: num - 1 })
+                        if (result.ok) {
                           showSuccess(`Day ${num}부터 발송됩니다`)
                           fetchSubs()
                           setDetailSub({ ...detailSub, last_sent_day: num - 1 })
+                        } else {
+                          showError(result.error || 'Day 변경에 실패했습니다')
                         }
                       }}
                     >
@@ -1302,13 +1310,13 @@ export function SubscriptionsTab() {
                           value={detailSub.resume_date || ''}
                           onChange={async (e) => {
                             const val = e.target.value || null
-                            const ok = await updateSubscription(detailSub.id, { resume_date: val })
-                            if (ok) {
+                            const result = await updateSubscription(detailSub.id, { resume_date: val })
+                            if (result.ok) {
                               setDetailSub((prev) => prev ? { ...prev, resume_date: val } : null)
                               setSubs((prev) => prev.map((s) => s.id === detailSub.id ? { ...s, resume_date: val } : s))
                               showSuccess('재개예정일이 변경되었습니다')
                             } else {
-                              showError('재개예정일 변경에 실패했습니다')
+                              showError(result.error || '재개예정일 변경에 실패했습니다')
                             }
                           }}
                         />

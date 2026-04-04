@@ -144,6 +144,12 @@ export const CS_CATEGORY_GUIDES: Record<string, {
   product_change: {
     hint: '변경을 원하시는 상품을 아래에서 선택해 주세요. 동일 가격의 상품 간 변경이 가능합니다.',
   },
+  delivery_time: {
+    hint: '발송 시간은 매일 오전 4시~13시 사이이며, 특정 시간을 선택하실 수는 없습니다. 추가 문의사항이 있으시면 아래에 남겨 주세요.',
+  },
+  payment_info: {
+    hint: '구독 현황에서 이용기간을 확인하실 수 있습니다. 결제 관련 추가 문의사항이 있으시면 아래에 남겨 주세요.',
+  },
 }
 
 /** 카테고리별 AI 응답 한도 (DB cs_policies.ai_max_replies 기본값) */
