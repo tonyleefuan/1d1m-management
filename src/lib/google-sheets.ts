@@ -8,16 +8,30 @@ const DEFAULT_SPREADSHEET_ID = '1n3izrz9w6PaXotYo3bueLy2gwg0TAbAmmc4Tu7nK7-k'
  * Google Sheets API 인증 클라이언트 생성
  */
 export function getSheetsClient(): sheets_v4.Sheets {
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
-  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || process.env.GOOGLE_PRIVATE_KEY
+  // 방법 1: GOOGLE_CREDENTIALS JSON (가장 확실)
+  // 방법 2: GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+  const credsJson = process.env.GOOGLE_CREDENTIALS
+  let email: string
+  let key: string
 
-  if (!email || !privateKey) {
-    throw new Error(`Google 서비스 계정 환경변수 누락 (email=${!!email}, key=${!!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}, fallback=${!!process.env.GOOGLE_PRIVATE_KEY})`)
+  if (credsJson) {
+    try {
+      const creds = JSON.parse(credsJson)
+      email = creds.client_email
+      key = creds.private_key
+      console.log(`[google-sheets] Using GOOGLE_CREDENTIALS, email=${email}`)
+    } catch (e) {
+      throw new Error('GOOGLE_CREDENTIALS JSON 파싱 실패')
+    }
+  } else {
+    email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || ''
+    const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || process.env.GOOGLE_PRIVATE_KEY || ''
+    if (!email || !privateKey) {
+      throw new Error(`Google 서비스 계정 환경변수 누락 (email=${!!email}, key=${!!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}, fallback=${!!process.env.GOOGLE_PRIVATE_KEY})`)
+    }
+    key = privateKey.replace(/\\n/g, '\n')
+    console.log(`[google-sheets] Using env vars, email=${email}, key_len=${privateKey.length}`)
   }
-
-  // private key: literal \n → actual newline
-  const key = privateKey.replace(/\\n/g, '\n')
-  console.log(`[google-sheets] email=${email}, key_len=${privateKey.length}, key_start=${key.slice(0, 27)}`)
 
   const auth = new google.auth.JWT({
     email,
