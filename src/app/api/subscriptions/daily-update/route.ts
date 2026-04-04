@@ -28,25 +28,25 @@ async function handleDailyUpdate(req: Request) {
   const results = { pending_to_live: 0, live_to_archive: 0, pause_to_live: 0 }
 
   // 1. pending -> live: start_date <= today AND failure_type IS NULL
-  // day를 1로 세팅 (발송 시작)
+  // last_sent_day를 0으로 세팅 (아직 발송 전)
   const { data: pendingToLive, error: e1 } = await supabase
     .from('subscriptions')
-    .update({ status: 'live', day: 1, updated_at: new Date().toISOString() })
+    .update({ status: 'live', last_sent_day: 0, updated_at: new Date().toISOString() })
     .eq('status', 'pending')
     .lte('start_date', today)
     .is('failure_type', null)
     .select('id')
   if (!e1) results.pending_to_live = pendingToLive?.length || 0
 
-  // 2. live -> archive: day > duration_days (모든 메시지 발송 완료)
+  // 2. live -> archive: last_sent_day >= duration_days (모든 메시지 발송 완료)
   const { data: archiveSubs } = await supabase
     .from('subscriptions')
-    .select('id, day, duration_days')
+    .select('id, last_sent_day, duration_days')
     .eq('status', 'live')
 
   if (archiveSubs) {
     const toArchiveIds = archiveSubs
-      .filter(s => s.day > s.duration_days)
+      .filter(s => (s.last_sent_day ?? 0) >= s.duration_days)
       .map(s => s.id)
 
     if (toArchiveIds.length > 0) {

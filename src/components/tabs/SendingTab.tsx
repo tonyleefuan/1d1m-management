@@ -844,7 +844,7 @@ export function SendingTab() {
                         {sub?.product?.sku_code || '-'}
                       </TableCell>
                       <TableCell className="py-1 text-center text-xs tabular-nums whitespace-nowrap">
-                        {item.day_number || sub?.day || '-'}
+                        {item.day_number || (sub?.last_sent_day != null ? sub.last_sent_day + 1 : '-')}
                       </TableCell>
                       <TableCell className="py-1 text-center text-xs tabular-nums whitespace-nowrap text-muted-foreground">
                         {item.message_seq || '-'}
