@@ -268,7 +268,7 @@ export default function CSDashboard() {
           {customerName && <p className="text-sm text-muted-foreground mb-0.5">{customerName}님, 안녕하세요</p>}
           <h1 className="text-lg font-semibold">내 구독 현황</h1>
         </div>
-        <Button variant="ghost" size="sm" onClick={handleLogout} className="text-xs text-muted-foreground">
+        <Button variant="ghost" size="sm" onClick={handleLogout} className="text-xs text-muted-foreground min-h-[44px]">
           로그아웃
         </Button>
       </div>
@@ -305,7 +305,7 @@ export default function CSDashboard() {
       {/* Inquiries */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">내 문의 내역</h2>
-        <Button size="sm" onClick={() => setShowDialog(true)}>+ 새 문의</Button>
+        <Button size="sm" onClick={() => setShowDialog(true)} className="min-h-[44px]">+ 새 문의</Button>
       </div>
 
       {inquiries.length === 0 ? (
@@ -321,7 +321,7 @@ export default function CSDashboard() {
             return (
               <Card
                 key={inq.id}
-                className="cursor-pointer hover:bg-muted/50 transition-colors"
+                className="cursor-pointer hover:bg-muted/50 active:bg-muted/70 transition-colors"
                 onClick={() => router.push(`/cs/inquiry/${inq.id}`)}
               >
                 <CardContent className="p-4">
@@ -349,15 +349,15 @@ export default function CSDashboard() {
 
       {/* New Inquiry Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[85dvh] flex flex-col">
           <DialogHeader>
             <DialogTitle>새 문의 등록</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1 overflow-y-auto -mx-6 px-6">
             <div className="space-y-2">
               <Label>어떤 도움이 필요하신가요?</Label>
               <Select value={formCategory} onValueChange={handleCategoryChange}>
-                <SelectTrigger>
+                <SelectTrigger className="h-11 text-base">
                   <SelectValue placeholder="문의 유형을 선택해 주세요" />
                 </SelectTrigger>
                 <SelectContent>
@@ -388,7 +388,7 @@ export default function CSDashboard() {
                     <div key={s.key} className="space-y-1.5">
                       <Label className="text-sm">{s.label}</Label>
                       <Select value={guideSelects[s.key] || ''} onValueChange={v => setGuideSelects(prev => ({ ...prev, [s.key]: v }))}>
-                        <SelectTrigger>
+                        <SelectTrigger className="h-11 text-base">
                           <SelectValue placeholder="선택해 주세요" />
                         </SelectTrigger>
                         <SelectContent>
@@ -408,7 +408,7 @@ export default function CSDashboard() {
                         type="date"
                         value={guideDates[d.key] || ''}
                         onChange={e => setGuideDates(prev => ({ ...prev, [d.key]: e.target.value }))}
-                        className="w-full"
+                        className="w-full h-11 text-base"
                       />
                     </div>
                   ))}
@@ -439,10 +439,11 @@ export default function CSDashboard() {
                       <div className="border-t border-border pt-3 space-y-2">
                         <p className="text-xs font-medium text-foreground">아래 항목을 완료하셨는지 확인해 주세요</p>
                         {guide.checklist?.map(c => (
-                          <label key={c.key} className="flex items-center gap-2 cursor-pointer">
+                          <label key={c.key} className="flex items-center gap-2 cursor-pointer min-h-[44px] py-1">
                             <Checkbox
                               checked={!!guideChecks[c.key]}
                               onCheckedChange={(checked) => setGuideChecks(prev => ({ ...prev, [c.key]: !!checked }))}
+                              className="h-5 w-5"
                             />
                             <span className="text-sm">{c.label}</span>
                           </label>
@@ -453,10 +454,11 @@ export default function CSDashboard() {
 
                   {/* 일반 체크리스트 (message_never_received 외) */}
                   {formCategory !== 'message_never_received' && guide.checklist?.map(c => (
-                    <label key={c.key} className="flex items-center gap-2 cursor-pointer">
+                    <label key={c.key} className="flex items-center gap-2 cursor-pointer min-h-[44px] py-1">
                       <Checkbox
                         checked={!!guideChecks[c.key]}
                         onCheckedChange={(checked) => setGuideChecks(prev => ({ ...prev, [c.key]: !!checked }))}
+                        className="h-5 w-5"
                       />
                       <span className="text-sm">{c.label}</span>
                     </label>
@@ -472,16 +474,19 @@ export default function CSDashboard() {
                         placeholder="은행명 (예: 국민은행)"
                         value={guideSelects['bank_name'] || ''}
                         onChange={e => setGuideSelects(prev => ({ ...prev, bank_name: e.target.value }))}
+                        className="h-11 text-base"
                       />
                       <Input
                         placeholder="계좌번호"
                         value={guideSelects['account_number'] || ''}
                         onChange={e => setGuideSelects(prev => ({ ...prev, account_number: e.target.value }))}
+                        className="h-11 text-base"
                       />
                       <Input
                         placeholder="예금주"
                         value={guideSelects['account_holder'] || ''}
                         onChange={e => setGuideSelects(prev => ({ ...prev, account_holder: e.target.value }))}
+                        className="h-11 text-base"
                       />
                     </div>
                   )}
@@ -494,16 +499,19 @@ export default function CSDashboard() {
                         placeholder="은행명 (예: 국민은행)"
                         value={guideSelects['bank_name'] || ''}
                         onChange={e => setGuideSelects(prev => ({ ...prev, bank_name: e.target.value }))}
+                        className="h-11 text-base"
                       />
                       <Input
                         placeholder="계좌번호"
                         value={guideSelects['account_number'] || ''}
                         onChange={e => setGuideSelects(prev => ({ ...prev, account_number: e.target.value }))}
+                        className="h-11 text-base"
                       />
                       <Input
                         placeholder="예금주"
                         value={guideSelects['account_holder'] || ''}
                         onChange={e => setGuideSelects(prev => ({ ...prev, account_holder: e.target.value }))}
+                        className="h-11 text-base"
                       />
                     </div>
                   )}
@@ -527,7 +535,7 @@ export default function CSDashboard() {
                     if (formCategory === 'product_change') fetchChangeableProducts(v)
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-11 text-base">
                     <SelectValue placeholder="관련 구독을 선택해 주세요" />
                   </SelectTrigger>
                   <SelectContent>
@@ -551,7 +559,7 @@ export default function CSDashboard() {
                   <p className="text-xs text-muted-foreground">현재 동일 가격대의 변경 가능한 상품이 없습니다. 추가 문의가 필요하시면 내용을 남겨 주세요.</p>
                 ) : (
                   <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                    <SelectTrigger>
+                    <SelectTrigger className="h-11 text-base">
                       <SelectValue placeholder="변경을 원하시는 상품을 선택해 주세요" />
                     </SelectTrigger>
                     <SelectContent>
@@ -572,6 +580,7 @@ export default function CSDashboard() {
                 value={formContent}
                 onChange={e => setFormContent(e.target.value)}
                 disabled={submitting}
+                className="text-base"
               />
             </div>
 
@@ -579,11 +588,11 @@ export default function CSDashboard() {
               <p className="text-sm text-destructive">{formError}</p>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)} disabled={submitting}>
+          <DialogFooter className="gap-2 pt-2">
+            <Button variant="outline" onClick={() => setShowDialog(false)} disabled={submitting} className="min-h-[44px]">
               취소
             </Button>
-            <Button onClick={handleSubmitInquiry} disabled={submitting}>
+            <Button onClick={handleSubmitInquiry} disabled={submitting} className="min-h-[44px]">
               {submitting ? '등록 중...' : '문의 등록'}
             </Button>
           </DialogFooter>

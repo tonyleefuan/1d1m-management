@@ -134,19 +134,19 @@ export default function InquiryDetailPage() {
     <div className="space-y-4">
       {/* Back + Delete */}
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={() => router.push('/cs/dashboard')} className="text-muted-foreground -ml-2">
+        <Button variant="ghost" size="sm" onClick={() => router.push('/cs/dashboard')} className="text-muted-foreground -ml-2 min-h-[44px]">
           &larr; 내 문의 목록
         </Button>
         {!confirmDelete ? (
-          <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} className="text-muted-foreground text-xs">
+          <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)} className="text-muted-foreground text-xs min-h-[44px]">
             삭제
           </Button>
         ) : (
-          <div className="flex items-center gap-1">
-            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting} className="text-xs">
+          <div className="flex items-center gap-2">
+            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting} className="text-xs min-h-[44px]">
               {deleting ? '삭제 중...' : '삭제 확인'}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} disabled={deleting} className="text-xs">
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} disabled={deleting} className="text-xs min-h-[44px]">
               취소
             </Button>
           </div>
@@ -171,7 +171,7 @@ export default function InquiryDetailPage() {
           <div className="flex items-center gap-2 mb-2">
             <span className="text-xs font-medium text-foreground">내 문의</span>
           </div>
-          <p className="text-sm whitespace-pre-wrap">{inquiry.content}</p>
+          <p className="text-sm whitespace-pre-wrap break-words">{inquiry.content}</p>
         </CardContent>
       </Card>
 
@@ -187,7 +187,7 @@ export default function InquiryDetailPage() {
                 </span>
                 <span className="text-xs text-muted-foreground">{formatDate(reply.created_at)}</span>
               </div>
-              <p className="text-sm whitespace-pre-wrap">{reply.content}</p>
+              <p className="text-sm whitespace-pre-wrap break-words">{reply.content}</p>
             </CardContent>
           </Card>
         )
@@ -213,10 +213,11 @@ export default function InquiryDetailPage() {
               value={replyContent}
               onChange={e => setReplyContent(e.target.value)}
               disabled={submitting}
+              className="text-base"
             />
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="flex justify-end">
-              <Button size="sm" onClick={handleReply} disabled={submitting || !replyContent.trim()}>
+              <Button size="sm" onClick={handleReply} disabled={submitting || !replyContent.trim()} className="min-h-[44px] min-w-[100px]">
                 {submitting ? '등록 중...' : '추가 문의'}
               </Button>
             </div>

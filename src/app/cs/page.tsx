@@ -55,7 +55,7 @@ export default function CSAuthPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-[60vh]">
+    <div className="flex items-center justify-center min-h-[calc(100dvh-7rem)]">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-xl">고객센터</CardTitle>
@@ -71,12 +71,13 @@ export default function CSAuthPage() {
                 value={orderNo}
                 onChange={e => setOrderNo(e.target.value)}
                 disabled={loading}
+                className="h-11 text-base"
               />
               <a
                 href="https://1day1message.com/shop_mypage"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground transition-colors"
+                className="inline-block text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground transition-colors py-1"
               >
                 내 주문번호 조회하기
               </a>
@@ -85,11 +86,15 @@ export default function CSAuthPage() {
               <Label htmlFor="phoneLast4">전화번호 뒷 4자리</Label>
               <Input
                 id="phoneLast4"
+                type="tel"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 placeholder="0000"
                 maxLength={4}
                 value={phoneLast4}
                 onChange={e => setPhoneLast4(e.target.value.replace(/\D/g, ''))}
                 disabled={loading}
+                className="h-11 text-base"
               />
             </div>
 
@@ -97,7 +102,7 @@ export default function CSAuthPage() {
               <p className="text-sm text-destructive">{error}</p>
             )}
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full min-h-[44px] text-base" disabled={loading}>
               {loading ? '조회 중...' : '조회하기'}
             </Button>
           </form>
