@@ -705,6 +705,37 @@ export function CSTab() {
                       <p className="text-xs text-muted-foreground">{formatDate(r.created_at)}</p>
                     </div>
                     <p className="text-sm whitespace-pre-wrap">{r.content}</p>
+                    {r.author_type === 'ai' && (
+                      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border">
+                        <span className="text-xs text-muted-foreground mr-1">AI 품질:</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-1.5 text-xs"
+                          onClick={async () => {
+                            await fetch('/api/admin/cs/feedback', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ inquiry_id: detail.id, reply_id: r.id, rating: 'good' }),
+                            })
+                            showSuccess('피드백 등록')
+                          }}
+                        >👍</Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-1.5 text-xs"
+                          onClick={async () => {
+                            await fetch('/api/admin/cs/feedback', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ inquiry_id: detail.id, reply_id: r.id, rating: 'bad' }),
+                            })
+                            showSuccess('피드백 등록')
+                          }}
+                        >👎</Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
