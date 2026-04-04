@@ -22,7 +22,23 @@ export async function GET(req: Request) {
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const enriched = data?.map(inq => ({
+  let filtered = data || []
+
+  // escalated 탭: 환불 요청이 접수된 문의는 환불 요청 탭에서 처리하므로 제외
+  if (status === 'escalated') {
+    const inquiryIds = filtered.map(i => i.id)
+    if (inquiryIds.length > 0) {
+      const { data: refundInquiries } = await supabase
+        .from('cs_refund_requests')
+        .select('inquiry_id')
+        .in('inquiry_id', inquiryIds)
+        .in('status', ['pending', 'approved'])
+      const refundInqIds = new Set(refundInquiries?.map(r => r.inquiry_id) || [])
+      filtered = filtered.filter(i => !refundInqIds.has(i.id))
+    }
+  }
+
+  const enriched = filtered.map(inq => ({
     ...inq,
     reply_count: inq.cs_replies?.length ?? 0,
     cs_replies: undefined,
