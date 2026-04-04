@@ -15,9 +15,13 @@ export function getSheetsClient(): sheets_v4.Sheets {
     throw new Error('Google 서비스 계정 환경변수가 설정되지 않았습니다 (GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)')
   }
 
+  // private key: literal \n → actual newline
+  const key = privateKey.replace(/\\n/g, '\n')
+  console.log(`[google-sheets] email=${email}, key_length=${privateKey.length}, starts_with=${key.slice(0, 30)}`)
+
   const auth = new google.auth.JWT({
     email,
-    key: privateKey.replace(/\\n/g, '\n'),
+    key,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   })
 
@@ -165,6 +169,7 @@ export async function getSheetTabNames(): Promise<string[]> {
     })
     return res.data.sheets?.map(s => s.properties?.title || '') || []
   } catch (err: any) {
+    console.error(`[google-sheets] getSheetTabNames full error:`, JSON.stringify({ message: err.message, code: err.code, status: err.status, errors: err.errors }))
     throw new Error(`시트 탭 목록 조회 실패: ${err.message}`)
   }
 }
