@@ -1,60 +1,70 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getCsSession } from '@/lib/cs-auth'
 
-// GET: 선택한 구독과 동일 가격의 변경 가능 상품 목록
-export async function GET(req: Request) {
+/**
+ * GET /api/cs/products?subscription_id=xxx
+ * 고객의 특정 구독과 동일 가격인 상품 목록을 반환한다.
+ * (상품 변경 시 선택지 제공용)
+ */
+export async function GET(req: NextRequest) {
   const session = await getCsSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { searchParams } = new URL(req.url)
-  const subscriptionId = searchParams.get('subscription_id')
-  if (!subscriptionId) return NextResponse.json({ data: [] })
+  const subscriptionId = req.nextUrl.searchParams.get('subscription_id')
+  if (!subscriptionId) {
+    return NextResponse.json({ error: 'subscription_id required' }, { status: 400 })
+  }
 
-  // 1. 구독 + 현재 상품 조회 (본인 소유 확인)
-  const { data: sub } = await supabase
+  // 1) 해당 구독이 본인 것인지 확인 + 현재 상품/기간 조회
+  const { data: sub, error: subErr } = await supabase
     .from('subscriptions')
-    .select('id, product_id, customer_id')
+    .select('id, product_id, duration_days')
     .eq('id', subscriptionId)
     .eq('customer_id', session.customerId)
     .single()
 
-  if (!sub) return NextResponse.json({ data: [] })
+  if (subErr || !sub) {
+    return NextResponse.json({ error: '구독을 찾을 수 없습니다' }, { status: 404 })
+  }
 
-  // 2. 현재 상품의 가격 조회
-  const { data: currentPrices } = await supabase
+  // 2) 현재 상품의 가격 조회
+  const { data: currentPrice } = await supabase
     .from('product_prices')
-    .select('duration_days, channel, price')
+    .select('price')
     .eq('product_id', sub.product_id)
+    .eq('duration_days', sub.duration_days)
+    .limit(1)
+    .single()
 
-  if (!currentPrices?.length) return NextResponse.json({ data: [] })
+  if (!currentPrice) {
+    return NextResponse.json({ data: [], currentPrice: null })
+  }
 
-  // 3. 모든 활성 상품 + 가격 조회
-  const { data: allProducts } = await supabase
+  // 3) 동일 가격 + 동일 기간의 다른 상품 조회
+  const { data: samePricePrices } = await supabase
+    .from('product_prices')
+    .select('product_id')
+    .eq('price', currentPrice.price)
+    .eq('duration_days', sub.duration_days)
+    .neq('product_id', sub.product_id)
+
+  const productIds = samePricePrices?.map(p => p.product_id) || []
+
+  if (productIds.length === 0) {
+    return NextResponse.json({ data: [], currentPrice: currentPrice.price })
+  }
+
+  // 4) 상품 상세 조회
+  const { data: products } = await supabase
     .from('products')
-    .select('id, title, sku_code, prices:product_prices(duration_days, channel, price)')
+    .select('id, title, sku_code')
+    .in('id', productIds)
     .eq('is_active', true)
-    .neq('id', sub.product_id) // 현재 상품 제외
-
-  if (!allProducts?.length) return NextResponse.json({ data: [] })
-
-  // 4. 동일 가격 상품 필터링 (duration_days + channel + price 일치)
-  const matchingProducts = allProducts.filter(prod => {
-    const prices = (prod as any).prices || []
-    return currentPrices.some(cp =>
-      prices.some((pp: any) =>
-        cp.duration_days === pp.duration_days &&
-        cp.channel === pp.channel &&
-        cp.price === pp.price
-      )
-    )
-  })
+    .order('title')
 
   return NextResponse.json({
-    data: matchingProducts.map(p => ({
-      id: p.id,
-      title: p.title,
-      sku_code: p.sku_code,
-    })),
+    data: products || [],
+    currentPrice: currentPrice.price,
   })
 }
