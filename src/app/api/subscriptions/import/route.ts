@@ -50,7 +50,7 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   kakao: ['카톡이름', '카톡 이름', '카카오이름', '카카오 이름', '카톡명', '친구이름', '친구 이름', 'kakao', 'kakao name'],
   startDate: ['시작일', '시작 일', 'start date', 'start_date', 'startdate', '구독시작일', '구독 시작일'],
   endDate: ['종료일', '종료 일', 'end date', 'end_date', 'enddate', '구독종료일', '구독 종료일', 'last date'],
-  status: ['상품', '상태', 'status', 'product status', '구독상태', '구독 상태'],
+  status: ['상태', '상품', 'status', 'product status', '구독상태', '구독 상태'],
   day: ['day', '일차', 'days'],
   dDay: ['d-day', 'dday', 'd day', '디데이'],
   sku: ['sku', '상품코드', '상품 코드', 'product code', 'sku code', 'sku_code'],
@@ -155,10 +155,11 @@ export async function POST(req: Request) {
     const colMap = buildColumnMap(headers)
 
     // Validate required columns
-    const requiredFields = ['sku', 'kakao', 'pc'] as const
+    const requiredFields = ['sku', 'kakao', 'pc', 'status'] as const
     const missingFields = requiredFields.filter(f => !colMap.has(f))
     if (missingFields.length > 0) {
-      const fieldNames = missingFields.map(f => f === 'sku' ? 'SKU' : f === 'kakao' ? '카톡이름' : 'PC 번호')
+      const nameMap: Record<string, string> = { sku: 'SKU', kakao: '카톡이름', pc: 'PC 번호', status: '상태' }
+      const fieldNames = missingFields.map(f => nameMap[f] || f)
       return NextResponse.json({
         error: `필수 컬럼을 찾을 수 없습니다: ${fieldNames.join(', ')}. 헤더를 확인해주세요.`,
       }, { status: 400 })
