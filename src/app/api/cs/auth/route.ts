@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     const trimmedOrderNo = orderNo.trim()
 
     // ── 1. IP 기반 Rate Limit (15분 5회) ──
-    const ip = headers().get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+    const ip = headers().get('x-real-ip') || headers().get('x-forwarded-for')?.split(',').at(-1)?.trim() || 'unknown'
     const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
     const { count } = await supabase
       .from('cs_rate_limits')
@@ -85,7 +85,6 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       customerName,
-      customerId: customer.id,
     })
   } catch {
     return NextResponse.json({ error: '일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 500 })

@@ -93,8 +93,9 @@ export async function POST(request: NextRequest) {
 async function handleGenerateDaily(request: NextRequest) {
   // Dual auth
   const authHeader = request.headers.get('authorization')
+  const envSecret = process.env.CRON_SECRET
   const cronSecret = authHeader?.replace('Bearer ', '')
-  const isValidCron = cronSecret === process.env.CRON_SECRET
+  const isValidCron = !!envSecret && cronSecret === envSecret
 
   if (!isValidCron) {
     const session = await getSession()
