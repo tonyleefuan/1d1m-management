@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       const { data: page, error: subErr } = await supabase
         .from('subscriptions')
         .select(`
-          id, customer_id, product_id, device_id, last_sent_day, duration_days, send_priority,
+          id, customer_id, product_id, device_id, last_sent_day, duration_days, send_priority, failure_type,
           customer:customers(kakao_friend_name),
           product:products(sku_code, message_type),
           order_item:order_items(order:orders(ordered_at))
@@ -148,7 +148,25 @@ export async function POST(req: Request) {
       data?.forEach(dm => realtimeMsgMap.set(dm.product_id, { content: dm.content, image_path: dm.image_path }))
     }
 
-    // 3) 대기열 레코드 생성 (순수 인메모리 — DB 쿼리 없음)
+    // 3) 실패 재발송 알림 템플릿 프리페치
+    const failedSubIds = subs.filter(s => s.failure_type === 'failed').map(s => s.id)
+    let retryNoticeContent: string | null = null
+    let retryNoticeImage: string | null = null
+    if (failedSubIds.length > 0) {
+      const { data: noticeData } = await supabase
+        .from('notice_templates')
+        .select('content, image_path')
+        .eq('notice_type', 'failure_retry_next')
+        .is('product_id', null)
+        .limit(1)
+        .maybeSingle()
+      if (noticeData) {
+        retryNoticeContent = noticeData.content
+        retryNoticeImage = noticeData.image_path
+      }
+    }
+
+    // 4) 대기열 레코드 생성
     const queueRows: any[] = []
     let sortOrder = 0
     let skippedNoMsg = 0
@@ -161,6 +179,23 @@ export async function POST(req: Request) {
       const currentDay = (sub.last_sent_day ?? 0) + 1
 
       if (currentDay < 1 || currentDay > sub.duration_days) { skippedDayRange++; continue }
+
+      // 실패 재발송 알림 삽입
+      if (sub.failure_type === 'failed' && retryNoticeContent) {
+        sortOrder++
+        queueRows.push({
+          subscription_id: sub.id,
+          device_id: deviceId,
+          send_date: date,
+          day_number: currentDay,
+          kakao_friend_name: kakaoName,
+          message_content: retryNoticeContent,
+          image_path: retryNoticeImage,
+          sort_order: sortOrder,
+          status: 'pending',
+          is_notice: true,
+        })
+      }
 
       let messages: { content: string; image_path: string | null; sort_order: number }[] = []
 
@@ -219,7 +254,7 @@ export async function POST(req: Request) {
       })
     }
 
-    // 4) 배치 삽입 (500개씩)
+    // 5) 배치 삽입 (500개씩)
     let inserted = 0
     for (let i = 0; i < queueRows.length; i += 500) {
       const batch = queueRows.slice(i, i + 500)
@@ -228,12 +263,22 @@ export async function POST(req: Request) {
       inserted += batch.length
     }
 
+    // 6) 실패 구독 failure flags 클리어
+    if (failedSubIds.length > 0) {
+      await supabase.from('subscriptions').update({
+        failure_type: null,
+        failure_date: null,
+        updated_at: new Date().toISOString(),
+      }).in('id', failedSubIds)
+    }
+
     return NextResponse.json({
       ok: true,
       generated: inserted,
       device_id: deviceId,
       subscriptions: subs.length,
       skippedNoMsg, skippedDayRange,
+      failureRetried: failedSubIds.length,
       date,
     })
   } catch (err: any) {

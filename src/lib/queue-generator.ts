@@ -82,10 +82,8 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
     return messages
   }
 
-  // Filter and compute
+  // Filter and compute (실패 구독도 포함 — 다음 발송 시 자동 재발송)
   const activeSubs = subs.filter(sub => {
-    if (sub.failure_type === 'failed') return false
-
     const computed = computeSubscription({
       start_date: sub.start_date,
       duration_days: sub.duration_days,
@@ -117,6 +115,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
   // Generate queue rows
   const queueRows: any[] = []
   let sortOrder = 0
+  const failedSubIds: string[] = [] // 실패 → 재발송 대상 추적
 
   for (const [_customerId, personSubs] of personGroups) {
     for (const sub of personSubs) {
@@ -130,6 +129,9 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
         is_cancelled: sub.is_cancelled ?? false,
       }, t)
 
+      const isFailureRetry = sub.failure_type === 'failed'
+      if (isFailureRetry) failedSubIds.push(sub.id)
+
       let daysToSend: number[]
       if (sub.recovery_mode === 'bulk') {
         daysToSend = computed.pending_days
@@ -141,6 +143,26 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
 
       for (const dayNum of daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) continue
+
+        // 실패 재발송 알림: 실패 구독의 첫 번째 Day 앞에 알림 삽입
+        if (isFailureRetry && dayNum === daysToSend[0]) {
+          const retryNotice = await getNoticeTemplate('failure_retry_next', sub.product_id)
+          if (retryNotice) {
+            sortOrder++
+            queueRows.push({
+              subscription_id: sub.id,
+              device_id: deviceId,
+              send_date: t,
+              day_number: dayNum,
+              kakao_friend_name: friendName,
+              message_content: retryNotice.content,
+              image_path: retryNotice.image_path || null,
+              sort_order: sortOrder,
+              status: 'pending',
+              is_notice: true,
+            })
+          }
+        }
 
         // Start notice: insert before Day 1 message
         if (dayNum === 1) {
@@ -210,6 +232,15 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
       const batch = queueRows.slice(i, i + 500)
       const { error } = await supabase.from('send_queues').insert(batch)
       if (error) return { error: `대기열 생성 실패: ${error.message}` }
+    }
+
+    // 실패 재발송 대상 구독의 failure flags 클리어
+    if (failedSubIds.length > 0) {
+      await supabase.from('subscriptions').update({
+        failure_type: null,
+        failure_date: null,
+        updated_at: new Date().toISOString(),
+      }).in('id', failedSubIds)
     }
 
     // 삽입된 행을 ID와 함께 다시 조회
