@@ -40,6 +40,7 @@ export async function POST(req: Request) {
   // === 사전 처리 ===
 
   // 1. not_sent 감지: 어제 send_queues에서 status='pending' 건
+  //    큐만 failed 처리, 구독에는 failure_type 설정하지 않음 (자동 재시도 허용)
   const { data: unreportedQueues } = await supabase
     .from('send_queues')
     .select('subscription_id')
@@ -47,15 +48,6 @@ export async function POST(req: Request) {
     .eq('status', 'pending')
 
   if (unreportedQueues?.length) {
-    const unreportedSubIds = [...new Set(unreportedQueues.map(q => q.subscription_id))]
-    for (const subId of unreportedSubIds) {
-      if (!subId) continue
-      await supabase.from('subscriptions').update({
-        failure_type: 'failed',
-        failure_date: yesterday,
-        updated_at: new Date().toISOString(),
-      }).eq('id', subId).is('failure_type', null)
-    }
     await supabase.from('send_queues')
       .update({ status: 'failed', error_message: 'not_sent' })
       .eq('send_date', yesterday)
@@ -108,7 +100,7 @@ export async function POST(req: Request) {
     }
   }
 
-  // 4. 3일 연속 실패 자동 중지
+  // 4. 3일 연속 실패 자동 중지 + 일시정지
   // 후보: 활성, recovery_mode 없음, 아직 auto-stop 안 된 구독
   const { data: candidates } = await supabase
     .from('subscriptions')
@@ -164,9 +156,11 @@ export async function POST(req: Request) {
         }
 
         if (consecutiveFailures >= 3) {
+          // 3일 연속 실패 → 발송 오류 + 일시정지
           await supabase.from('subscriptions').update({
             failure_type: 'failed',
             failure_date: today,
+            paused_at: now,
             updated_at: now,
           }).eq('id', subId)
         }
