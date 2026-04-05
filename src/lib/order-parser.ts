@@ -111,10 +111,11 @@ export function parseOrderRows(rows: RawOrderRow[]): ParsedOrderItem[] {
         ordered_at: row['주문일']?.trim() || '',
         total_amount: parseInt(String(row['최종주문금액'] || '0').replace(/[₩,]/g, '')) || 0,
       }
-      for (const sku of setSKUs) {
+      for (let si = 0; si < setSKUs.length; si++) {
         items.push({
           ...baseInfo,
-          product_sku: sku,
+          imweb_item_no: `${baseInfo.imweb_item_no}-S${si + 1}`, // 세트 내 개별 구분
+          product_sku: setSKUs[si],
           duration_days: null, // 각 상품의 최대 기간으로 나중에 설정
           is_addon: true,
         })
