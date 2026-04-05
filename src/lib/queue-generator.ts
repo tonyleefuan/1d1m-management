@@ -144,12 +144,15 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
         daysToSend = computed.pending_days.slice(0, 2)
       }
 
+      // 밀린 Day가 있으면 (어제 미발송) 알림 대상
+      const hasMissedDays = daysToSend.some(d => d < computed.current_day)
+
       let retryNoticePushed = false
       for (const dayNum of daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) continue
 
-        // 실패 재발송 알림 (카톡이름당 한 번만, 첫 유효 Day 앞에)
-        if (isFailureRetry && !retryNoticePushed && !retryNotifiedNames.has(friendName)) {
+        // 미발송 알림 (카톡이름당 한 번만, 첫 유효 Day 앞에)
+        if (hasMissedDays && !retryNoticePushed && !retryNotifiedNames.has(friendName)) {
           retryNoticePushed = true
           retryNotifiedNames.add(friendName)
           const retryNotice = await getNoticeTemplate('failure_retry_next', sub.product_id)
