@@ -91,6 +91,7 @@ async function streamImport(date: string) {
             try {
               const rows = await readSheetData(device.phone_number)
               let deviceRows = 0
+              let isFirstDataRow = true  // PC별 첫 행 플래그
               if (rows.length > 1) {
                 for (let r = 1; r < rows.length; r++) {
                   const row = rows[r]
@@ -99,8 +100,13 @@ async function streamImport(date: string) {
                   const resultStr = (row[4] || '').trim()
                   const resultTimeStr = (row[5] || '').trim()
                   if (!queueId) continue
-                  const status = mapResultStatus(resultStr)
+                  let status = mapResultStatus(resultStr)
                   if (!status) { skipped++; continue }
+                  // PC별 첫 행은 시스템 이슈로 실패해도 성공으로 처리
+                  if (isFirstDataRow && status === 'failed') {
+                    status = 'sent'
+                  }
+                  isFirstDataRow = false
                   updateMap.set(queueId, { id: queueId, status, sent_at: parseResultTime(resultTimeStr) })
                   deviceRows++
                 }
@@ -195,6 +201,7 @@ async function batchImport(date: string) {
       }
       if (rows.length <= 1) continue
 
+      let isFirstDataRow = true
       for (let i = 1; i < rows.length; i++) {
         const row = rows[i]
         if (!row || row.length < 7) continue
@@ -202,8 +209,13 @@ async function batchImport(date: string) {
         const resultStr = (row[4] || '').trim()
         const resultTimeStr = (row[5] || '').trim()
         if (!queueId) continue
-        const status = mapResultStatus(resultStr)
+        let status = mapResultStatus(resultStr)
         if (!status) { skipped++; continue }
+        // PC별 첫 행은 시스템 이슈로 실패해도 성공으로 처리
+        if (isFirstDataRow && status === 'failed') {
+          status = 'sent'
+        }
+        isFirstDataRow = false
         updateMap.set(queueId, { id: queueId, status, sent_at: parseResultTime(resultTimeStr) })
       }
     }
