@@ -271,14 +271,15 @@ async function updateSubscriptionStatuses(
 
   const { data: updatedQueues, error: fetchErr } = await supabase
     .from('send_queues')
-    .select('id, subscription_id, day_number, status, send_date')
+    .select('id, subscription_id, day_number, status, send_date, is_notice')
     .in('id', allUpdateIds)
 
   if (fetchErr) throw new Error(`업데이트된 큐 조회 실패: ${fetchErr.message}`)
 
   const subDayGroups = new Map<string, { subscriptionId: string; dayNumber: number; sendDate: string }>()
   for (const q of updatedQueues || []) {
-    if (!q.subscription_id || !q.day_number) continue
+    // 알림 행(is_notice)은 구독 상태 추적에서 제외 — 발송만 하고 last_sent_day에 영향 없음
+    if (!q.subscription_id || !q.day_number || q.is_notice) continue
     const key = `${q.subscription_id}:${q.day_number}`
     if (!subDayGroups.has(key)) {
       subDayGroups.set(key, { subscriptionId: q.subscription_id, dayNumber: q.day_number, sendDate: q.send_date })
@@ -290,13 +291,14 @@ async function updateSubscriptionStatuses(
   const affectedSubIds = [...new Set([...subDayGroups.values()].map(g => g.subscriptionId))]
   const { data: allSubQueues } = await supabase
     .from('send_queues')
-    .select('subscription_id, day_number, send_date, status')
+    .select('subscription_id, day_number, send_date, status, is_notice')
     .in('subscription_id', affectedSubIds)
     .eq('send_date', date)
 
   const fullStatusMap = new Map<string, string[]>()
   for (const q of allSubQueues || []) {
-    if (!q.day_number) continue
+    // 알림 행은 구독 상태 판단에서 제외
+    if (!q.day_number || q.is_notice) continue
     const key = `${q.subscription_id}:${q.day_number}`
     const arr = fullStatusMap.get(key) || []
     arr.push(q.status)
