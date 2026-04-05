@@ -39,7 +39,8 @@ export async function POST(req: Request) {
 
   // === 사전 처리 ===
 
-  // 1. not_sent 감지: 어제 send_queues에서 status='pending' 건
+  // 1. not_sent 감지: 어제 send_queues에서 status='pending' 건 → 큐만 실패 처리
+  //    (구독 failure_type은 Step 4에서 3일 연속 미발송 시에만 마킹)
   const { data: unreportedQueues } = await supabase
     .from('send_queues')
     .select('subscription_id')
@@ -47,15 +48,6 @@ export async function POST(req: Request) {
     .eq('status', 'pending')
 
   if (unreportedQueues?.length) {
-    const unreportedSubIds = [...new Set(unreportedQueues.map(q => q.subscription_id))]
-    for (const subId of unreportedSubIds) {
-      if (!subId) continue
-      await supabase.from('subscriptions').update({
-        failure_type: 'failed',
-        failure_date: yesterday,
-        updated_at: new Date().toISOString(),
-      }).eq('id', subId).is('failure_type', null)
-    }
     await supabase.from('send_queues')
       .update({ status: 'failed', error_message: 'not_sent' })
       .eq('send_date', yesterday)
