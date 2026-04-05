@@ -150,7 +150,8 @@ async function streamImport(date: string) {
           send({ type: 'db_update_done', sent: sentCount, failed: failedCount })
 
           // 구독 상태 업데이트
-          await updateSubscriptionStatuses(updates, date)
+          send({ type: 'sub_update_start' })
+          await updateSubscriptionStatuses(updates, date, (msg) => send({ type: 'sub_update_progress', message: msg }))
         }
 
         // app_settings 업데이트
@@ -265,87 +266,99 @@ async function batchImport(date: string) {
 
 // ─── 구독 상태 업데이트 (공통) ──────────────────────────────
 
-// .in() 배치 헬퍼: Supabase URL 길이 제한 우회 (500개씩)
-async function batchSelect<T>(table: string, column: string, ids: string[], select: string, extraFilters?: (q: any) => any): Promise<T[]> {
-  const results: T[] = []
-  for (let i = 0; i < ids.length; i += 500) {
-    const batch = ids.slice(i, i + 500)
-    let q = supabase.from(table).select(select).in(column, batch)
-    if (extraFilters) q = extraFilters(q)
-    const { data, error } = await q
-    if (error) throw new Error(`${table} 배치 조회 실패: ${error.message}`)
-    if (data) results.push(...(data as T[]))
-  }
-  return results
-}
-
 async function updateSubscriptionStatuses(
-  updates: { id: string; status: 'sent' | 'failed'; sent_at: string | null }[],
-  date: string
+  _updates: { id: string; status: 'sent' | 'failed'; sent_at: string | null }[],
+  date: string,
+  onProgress?: (msg: string) => void,
 ) {
-  const allUpdateIds = updates.map(u => u.id)
+  onProgress?.('큐 상태 조회 중...')
+  // 날짜 기반 단일 쿼리로 해당 날짜의 모든 큐를 가져옴
+  const allQueues: any[] = []
+  let offset = 0
+  const PAGE = 1000
+  while (true) {
+    const { data, error } = await supabase
+      .from('send_queues')
+      .select('subscription_id, day_number, status, is_notice')
+      .eq('send_date', date)
+      .range(offset, offset + PAGE - 1)
+    if (error) throw new Error(`큐 조회 실패: ${error.message}`)
+    if (!data?.length) break
+    allQueues.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+  onProgress?.(`${allQueues.length}건 조회 완료, 구독 상태 분석 중...`)
 
-  // 배치 조회 (500개씩)
-  const updatedQueues = await batchSelect<any>('send_queues', 'id', allUpdateIds, 'id, subscription_id, day_number, status, send_date, is_notice')
-
-  const subDayGroups = new Map<string, { subscriptionId: string; dayNumber: number; sendDate: string }>()
-  for (const q of updatedQueues) {
+  // 구독+Day별 상태 그룹화
+  const subDayGroups = new Map<string, { subscriptionId: string; dayNumber: number; statuses: string[] }>()
+  for (const q of allQueues) {
     if (!q.subscription_id || !q.day_number || q.is_notice) continue
     const key = `${q.subscription_id}:${q.day_number}`
     if (!subDayGroups.has(key)) {
-      subDayGroups.set(key, { subscriptionId: q.subscription_id, dayNumber: q.day_number, sendDate: q.send_date })
+      subDayGroups.set(key, { subscriptionId: q.subscription_id, dayNumber: q.day_number, statuses: [] })
     }
+    subDayGroups.get(key)!.statuses.push(q.status)
   }
 
   if (subDayGroups.size === 0) return
 
+  // 영향 받는 구독의 last_sent_day 조회 (배치)
   const affectedSubIds = [...new Set([...subDayGroups.values()].map(g => g.subscriptionId))]
-
-  // 배치 조회 (500개씩)
-  const allSubQueues = await batchSelect<any>('send_queues', 'subscription_id', affectedSubIds, 'subscription_id, day_number, send_date, status, is_notice', (q) => q.eq('send_date', date))
-
-  const fullStatusMap = new Map<string, string[]>()
-  for (const q of allSubQueues) {
-    if (!q.day_number || q.is_notice) continue
-    const key = `${q.subscription_id}:${q.day_number}`
-    const arr = fullStatusMap.get(key) || []
-    arr.push(q.status)
-    fullStatusMap.set(key, arr)
-  }
-
-  // 배치 조회 (500개씩)
-  const subData = await batchSelect<any>('subscriptions', 'id', affectedSubIds, 'id, last_sent_day')
-
   const lastSentDayMap = new Map<string, number>()
-  for (const s of subData) {
-    lastSentDayMap.set(s.id, s.last_sent_day ?? 0)
+  for (let i = 0; i < affectedSubIds.length; i += 500) {
+    const batch = affectedSubIds.slice(i, i + 500)
+    const { data } = await supabase.from('subscriptions').select('id, last_sent_day').in('id', batch)
+    for (const s of data || []) lastSentDayMap.set(s.id, s.last_sent_day ?? 0)
   }
 
+  // 구독 업데이트 분류
   const now = new Date().toISOString()
-  const sortedGroups = [...subDayGroups.entries()].sort((a, b) => a[1].dayNumber - b[1].dayNumber)
+  const sortedGroups = [...subDayGroups.values()].sort((a, b) => a.dayNumber - b.dayNumber)
 
-  for (const [key, group] of sortedGroups) {
-    const allStatuses = fullStatusMap.get(key)
-    if (!allStatuses) continue
-    if (allStatuses.includes('pending')) continue
+  const failureUpdates: string[] = []  // failure_type = 'failed' 설정 대상
+  const successUpdates: { id: string; day: number }[] = []  // last_sent_day 업데이트 대상
 
-    if (allStatuses.includes('failed')) {
-      await supabase
-        .from('subscriptions')
-        .update({ failure_type: 'failed', failure_date: group.sendDate, updated_at: now })
-        .eq('id', group.subscriptionId)
+  for (const group of sortedGroups) {
+    if (group.statuses.includes('pending')) continue
+
+    if (group.statuses.includes('failed')) {
+      failureUpdates.push(group.subscriptionId)
       continue
     }
 
-    if (allStatuses.every(s => s === 'sent')) {
+    if (group.statuses.every(s => s === 'sent')) {
       const lastSentDay = lastSentDayMap.get(group.subscriptionId) ?? 0
       if (group.dayNumber === lastSentDay + 1) {
-        await supabase
-          .from('subscriptions')
-          .update({ last_sent_day: group.dayNumber, failure_type: null, failure_date: null, updated_at: now })
-          .eq('id', group.subscriptionId)
+        successUpdates.push({ id: group.subscriptionId, day: group.dayNumber })
         lastSentDayMap.set(group.subscriptionId, group.dayNumber)
       }
+    }
+  }
+
+  onProgress?.(`구독 반영 중... (성공 ${successUpdates.length}건, 실패 ${failureUpdates.length}건)`)
+
+  // 배치 업데이트: 실패 구독 (500개씩)
+  for (let i = 0; i < failureUpdates.length; i += 500) {
+    const batch = failureUpdates.slice(i, i + 500)
+    await supabase.from('subscriptions')
+      .update({ failure_type: 'failed', failure_date: date, updated_at: now })
+      .in('id', batch)
+  }
+
+  // 배치 업데이트: 성공 구독 — day별로 그룹화해서 배치
+  const dayGroups = new Map<number, string[]>()
+  for (const u of successUpdates) {
+    const arr = dayGroups.get(u.day) || []
+    arr.push(u.id)
+    dayGroups.set(u.day, arr)
+  }
+  for (const [day, ids] of dayGroups) {
+    for (let i = 0; i < ids.length; i += 500) {
+      const batch = ids.slice(i, i + 500)
+      await supabase.from('subscriptions')
+        .update({ last_sent_day: day, failure_type: null, failure_date: null, updated_at: now })
+        .in('id', batch)
     }
   }
 }
