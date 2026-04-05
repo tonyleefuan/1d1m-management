@@ -742,17 +742,22 @@ export function SendingTab() {
 
       {/* 대기열 상태 */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-muted/30 rounded-lg">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">
-            {totalSummary.total > 0 ? (
-              <>대기열: <StatusBadge status="success" size="xs">생성 완료 ({totalSummary.total}건)</StatusBadge></>
-            ) : (
-              <>대기열: <span className="text-muted-foreground">없음</span></>
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium">
+              {totalSummary.total > 0 ? (
+                <>대기열: <StatusBadge status="success" size="xs">생성 완료 ({totalSummary.total}건)</StatusBadge></>
+              ) : (
+                <>대기열: <span className="text-muted-foreground">없음</span></>
+              )}
+            </span>
+            {sendDate && (
+              <span className="text-xs text-muted-foreground">({sendDate})</span>
             )}
-          </span>
-          {sendDate && (
-            <span className="text-xs text-muted-foreground">({sendDate})</span>
-          )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            위 발송 날짜의 대기열을 표시합니다. 다른 날짜를 보려면 발송 날짜를 변경해 주세요.
+          </p>
         </div>
         <div className="flex gap-2">
           {totalSummary.total > 0 && totalSummary.sent === 0 && totalSummary.failed === 0 && (
