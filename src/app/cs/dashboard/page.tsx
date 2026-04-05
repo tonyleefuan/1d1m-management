@@ -77,6 +77,7 @@ export default function CSDashboard() {
   const [showDialog, setShowDialog] = useState(false)
   const [formCategory, setFormCategory] = useState('')
   const [formSubId, setFormSubId] = useState('')
+  const [formSubIds, setFormSubIds] = useState<string[]>([])
   const [formContent, setFormContent] = useState('')
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -95,6 +96,8 @@ export default function CSDashboard() {
     setGuideDates({})
     setChangeableProducts([])
     setSelectedProductId('')
+    setFormSubIds([])
+    setFormSubId('')
   }
 
   const fetchData = useCallback(async () => {
@@ -148,12 +151,24 @@ export default function CSDashboard() {
     setLoadingProducts(false)
   }
 
+  const MESSAGE_CATEGORIES = ['message_never_received', 'message_stopped']
+  const needsSubSelection = MESSAGE_CATEGORIES.includes(formCategory)
+
   // 가이드 응답을 content 앞에 구조화하여 합치기
   const buildContent = () => {
     const guide = CS_CATEGORY_GUIDES[formCategory]
     if (!guide) return formContent.trim()
 
     const parts: string[] = []
+
+    // 복수 선택된 구독 정보 추가
+    if (needsSubSelection && formSubIds.length > 0) {
+      const subNames = formSubIds.map(sid => {
+        const s = subs.find(sub => sub.id === sid)
+        return s ? `${s.product?.title || '상품'} (${s.current_day}일차)` : sid
+      })
+      parts.push(`[해당 구독]\n${subNames.map(n => `- ${n}`).join('\n')}`)
+    }
 
     if (guide.checklist?.length) {
       const lines = guide.checklist.map(c =>
@@ -214,6 +229,7 @@ export default function CSDashboard() {
   const handleSubmitInquiry = async () => {
     setFormError('')
     if (!formCategory) { setFormError('문의 유형을 선택해 주세요.'); return }
+    if (needsSubSelection && formSubIds.length === 0) { setFormError('해당 구독을 선택해 주세요.'); return }
     if (!formContent.trim()) { setFormError('문의 내용을 입력해 주세요.'); return }
 
     setSubmitting(true)
@@ -224,7 +240,7 @@ export default function CSDashboard() {
         body: JSON.stringify({
           category: formCategory,
           content: buildContent(),
-          subscriptionId: formSubId || null,
+          subscriptionId: needsSubSelection ? formSubIds[0] : (formSubId || null),
         }),
       })
 
@@ -525,7 +541,28 @@ export default function CSDashboard() {
             })()}
 
             {/* 관련 구독 선택 */}
-            {subs.length >= 1 && (
+            {subs.length >= 1 && needsSubSelection ? (
+              <div className="space-y-2">
+                <Label>해당 구독 (복수 선택 가능)</Label>
+                <div className="space-y-2">
+                  {subs.map(s => (
+                    <label key={s.id} className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors">
+                      <Checkbox
+                        checked={formSubIds.includes(s.id)}
+                        onCheckedChange={(checked) => {
+                          setFormSubIds(prev =>
+                            checked
+                              ? [...prev, s.id]
+                              : prev.filter(id => id !== s.id)
+                          )
+                        }}
+                      />
+                      <span className="text-sm">{s.product?.title || '상품'} ({s.current_day}일차)</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : subs.length >= 1 && (
               <div className="space-y-2">
                 <Label>{formCategory === 'product_change' ? '변경할 구독' : '관련 구독 (선택)'}</Label>
                 <Select
