@@ -23,11 +23,9 @@ function parseResultTime(timeStr: string): string | null {
  */
 function mapResultStatus(result: string): 'sent' | 'failed' | null {
   const trimmed = (result || '').trim()
-  if (!trimmed) return null
+  if (!trimmed) return null  // 공백 = 아직 처리 안 됨 (skip)
   if (trimmed === '성공') return 'sent'
-  // "실패", "실패 - xxx", "전송실패" 등 실패 포함 값은 모두 failed 처리
-  if (trimmed.includes('실패') || trimmed === 'fail' || trimmed === 'failed') return 'failed'
-  return null
+  return 'failed'  // 성공이 아닌 모든 값은 실패
 }
 
 export async function POST(req: Request) {
