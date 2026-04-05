@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { todayKST } from '@/lib/day'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 /**
  * POST /api/sending/generate
@@ -107,9 +107,12 @@ export async function POST(req: Request) {
         return { pid, day: Number(day) }
       })
       const uniqueProductIds = [...new Set(productDayPairs.map(p => p.pid))]
-      const uniqueDays = [...new Set(productDayPairs.map(p => p.day))]
+      const allDays = productDayPairs.map(p => p.day)
+      const minDay = Math.min(...allDays)
+      const maxDay = Math.max(...allDays)
 
       // 상품 배치 × 페이지네이션으로 전체 조회
+      // IN(day_number, ...) 대신 range 쿼리로 최적화 (수천 개 IN 값 → 범위 2개)
       for (let i = 0; i < uniqueProductIds.length; i += 20) {
         const pidBatch = uniqueProductIds.slice(i, i + 20)
         let offset = 0
@@ -119,13 +122,16 @@ export async function POST(req: Request) {
             .from('messages')
             .select('product_id, day_number, content, image_path, sort_order')
             .in('product_id', pidBatch)
-            .in('day_number', uniqueDays)
+            .gte('day_number', minDay)
+            .lte('day_number', maxDay)
             .order('sort_order', { ascending: true })
             .range(offset, offset + BATCH_SIZE - 1)
           if (error) return NextResponse.json({ error: `고정 메시지 조회 실패: ${error.message}` }, { status: 500 })
           if (!data?.length) break
           for (const msg of data) {
             const key = `${msg.product_id}:${msg.day_number}`
+            // fixedKeys에 있는 조합만 저장 (range 쿼리로 여분 조회된 것 필터링)
+            if (!fixedKeys.has(key)) continue
             if (!fixedMsgMap.has(key)) fixedMsgMap.set(key, [])
             fixedMsgMap.get(key)!.push({ content: msg.content, image_path: msg.image_path, sort_order: msg.sort_order })
           }
