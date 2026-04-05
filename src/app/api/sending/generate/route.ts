@@ -241,13 +241,15 @@ export async function POST(req: Request) {
       const kakaoName = customer?.kakao_friend_name || '알 수 없음'
       const isFailureRetry = sub.failure_type === 'failed'
       if (isFailureRetry) failedSubIds.push(sub.id)
+      // 밀린 Day가 있으면 (pending_days > 1 = 어제 미발송) 알림 대상
+      const hasMissedDays = sub.daysToSend.some((d: number) => d < sub.currentDay)
 
       let retryNoticePushed = false
       for (const dayNum of sub.daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) { skippedDayRange++; continue }
 
-        // 실패 재발송 알림 (카톡이름당 한 번만, 첫 유효 Day 앞에)
-        if (isFailureRetry && !retryNoticePushed && retryNotice && !retryNotifiedNames.has(kakaoName)) {
+        // 미발송 알림 (카톡이름당 한 번만, 첫 유효 Day 앞에)
+        if (hasMissedDays && !retryNoticePushed && retryNotice && !retryNotifiedNames.has(kakaoName)) {
           retryNoticePushed = true
           retryNotifiedNames.add(kakaoName)
           sortOrder++
