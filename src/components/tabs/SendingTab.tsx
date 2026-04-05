@@ -798,7 +798,7 @@ export function SendingTab() {
               onClick={generateQueue}
               disabled={generating}
               variant={actionPhase === 'generate' ? 'default' : 'outline'}
-              className={cn('h-9', actionPhase === 'generate' && 'animate-pulse')}
+              className="h-9"
             >
               {generating ? <Spinner size="xs" className="mr-1.5" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
               대기열 생성
@@ -813,9 +813,9 @@ export function SendingTab() {
                 if (totalSummary.total === 0) { showError('먼저 대기열을 생성해 주세요.'); return }
                 handleExportSheet()
               }}
-              disabled={exporting || totalSummary.total === 0}
+              disabled={exporting}
               variant={actionPhase === 'export' ? 'default' : 'outline'}
-              className={cn('h-9', actionPhase === 'export' && 'animate-pulse')}
+              className="h-9"
             >
               {exporting ? <Spinner size="xs" className="mr-1.5" /> : <Upload className="mr-1.5 h-3.5 w-3.5" />}
               시트 내보내기
@@ -831,9 +831,9 @@ export function SendingTab() {
                 if (!lastExportAt) { showError('먼저 시트 내보내기를 해주세요.'); return }
                 handleImportResults()
               }}
-              disabled={importing || !lastExportAt}
+              disabled={importing}
               variant={actionPhase === 'import' ? 'default' : 'outline'}
-              className={cn('h-9', actionPhase === 'import' && 'animate-pulse')}
+              className="h-9"
             >
               {importing ? <Spinner size="xs" className="mr-1.5" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
               결과 가져오기
@@ -1055,7 +1055,7 @@ export function SendingTab() {
                         variant="outline"
                         className={cn(
                           'w-full h-8 text-xs justify-between',
-                          actionPhase === 'failure' && 'border-primary text-primary animate-pulse',
+                          actionPhase === 'failure' && 'border-primary text-primary',
                         )}
                         onClick={(e) => {
                           e.stopPropagation()
