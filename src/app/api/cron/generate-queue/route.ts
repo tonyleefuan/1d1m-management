@@ -37,7 +37,8 @@ export async function POST(req: Request) {
 
   // === 사전 처리 ===
 
-  // 1. not_sent 감지: 어제 send_queues에서 status='pending' 건
+  // 1. not_sent 감지: 어제 send_queues에서 status='pending' 건 → 큐만 실패 처리
+  //    (구독 failure_type은 Step 4에서 3일 연속 미발송 시에만 마킹)
   const { data: unreportedQueues } = await supabase
     .from('send_queues')
     .select('subscription_id')
@@ -45,15 +46,6 @@ export async function POST(req: Request) {
     .eq('status', 'pending')
 
   if (unreportedQueues?.length) {
-    const unreportedSubIds = [...new Set(unreportedQueues.map(q => q.subscription_id))]
-    for (const subId of unreportedSubIds) {
-      if (!subId) continue
-      await supabase.from('subscriptions').update({
-        failure_type: 'failed',
-        failure_date: yesterday,
-        updated_at: new Date().toISOString(),
-      }).eq('id', subId).is('failure_type', null)
-    }
     await supabase.from('send_queues')
       .update({ status: 'failed', error_message: 'not_sent' })
       .eq('send_date', yesterday)
@@ -106,13 +98,14 @@ export async function POST(req: Request) {
     }
   }
 
-  // 4. 2일 연속 미발송 구독 명시적 마킹
+  // 4. 3일 연속 미발송 구독 감지 → failure_type 마킹
+  //    모든 활성 구독을 검사하여 pending_days >= 3이면 오류 마킹
   const { data: allActiveSubs } = await supabase
     .from('subscriptions')
     .select('id, start_date, duration_days, last_sent_day, paused_days, paused_at, is_cancelled, failure_type, recovery_mode')
+    .eq('status', 'live')
     .eq('is_cancelled', false)
     .is('paused_at', null)
-    .eq('failure_type', 'failed')
 
   if (allActiveSubs?.length) {
     for (const sub of allActiveSubs) {
@@ -125,11 +118,24 @@ export async function POST(req: Request) {
         paused_at: sub.paused_at,
         is_cancelled: sub.is_cancelled ?? false,
       }, today)
-      if (computed.pending_days.length >= 3) {
-        // 2일 이상 연속 미발송 → 관리자 확인 필요
+      if (computed.pending_days.length >= 3 && !sub.failure_type) {
+        // 3일 이상 연속 미발송 → 관리자 확인 필요 (신규 마킹)
         await supabase.from('subscriptions').update({
           failure_type: 'failed',
           failure_date: today,
+          updated_at: new Date().toISOString(),
+        }).eq('id', sub.id)
+      } else if (computed.pending_days.length >= 3 && sub.failure_type) {
+        // 이미 실패 상태 → failure_date만 갱신
+        await supabase.from('subscriptions').update({
+          failure_date: today,
+          updated_at: new Date().toISOString(),
+        }).eq('id', sub.id)
+      } else if (computed.pending_days.length < 3 && sub.failure_type && !sub.recovery_mode) {
+        // 미발송이 3일 미만으로 줄었으면 → 자동 해소
+        await supabase.from('subscriptions').update({
+          failure_type: null,
+          failure_date: null,
           updated_at: new Date().toISOString(),
         }).eq('id', sub.id)
       }
