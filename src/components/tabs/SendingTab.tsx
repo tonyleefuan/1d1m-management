@@ -690,10 +690,46 @@ export function SendingTab() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="발송 모니터링"
-        description="PC별 발송 현황과 성공률을 모니터링합니다"
-      />
+      {/* 발송 현황 타이틀 + 날짜 탭 */}
+      {(() => {
+        const kstToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+        const kstYesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
+        const kstTomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
+        const dateLabel = sendDate === kstToday ? '오늘' : sendDate === kstTomorrow ? '내일' : sendDate === kstYesterday ? '어제' : sendDate
+        const formatShort = (d: string) => {
+          const [, m, day] = d.split('-')
+          return `${Number(m)}/${Number(day)}`
+        }
+        return (
+          <div>
+            <h2 className="text-2xl font-bold">{sendDate} 발송 현황</h2>
+            <p className="text-sm text-muted-foreground mt-1">PC별 발송 현황과 성공률을 모니터링합니다</p>
+            <div className="flex gap-1 mt-3">
+              {[
+                { date: kstYesterday, label: `어제 (${formatShort(kstYesterday)})` },
+                { date: kstToday, label: `오늘 (${formatShort(kstToday)})` },
+                { date: kstTomorrow, label: `내일 (${formatShort(kstTomorrow)})` },
+              ].map(tab => (
+                <Button
+                  key={tab.date}
+                  size="sm"
+                  variant={sendDate === tab.date ? 'default' : 'outline'}
+                  onClick={() => setSendDate(tab.date)}
+                  className="h-8 text-xs"
+                >
+                  {tab.label}
+                </Button>
+              ))}
+              <Input
+                type="date"
+                value={sendDate}
+                onChange={(e) => setSendDate(e.target.value)}
+                className="w-[140px] h-8 text-xs ml-2"
+              />
+            </div>
+          </div>
+        )
+      })()}
 
       {/* 발송 설정 */}
       <Card>
@@ -702,24 +738,6 @@ export function SendingTab() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap items-end gap-4">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">발송 날짜</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={sendDate}
-                  onChange={(e) => setSendDate(e.target.value)}
-                  className="w-[150px] h-8 text-xs"
-                />
-                {(() => {
-                  const kstToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-                  const kstTomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
-                  if (sendDate === kstToday) return <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">오늘</span>
-                  if (sendDate === kstTomorrow) return <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">내일</span>
-                  return null
-                })()}
-              </div>
-            </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">시작 시각</Label>
               <Input
