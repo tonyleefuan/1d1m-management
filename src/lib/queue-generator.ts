@@ -56,8 +56,9 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
   // Message cache
   const msgCache = new Map<string, any[]>()
 
-  async function getMessages(productId: string, messageType: string, day: number) {
-    const key = `${productId}:${day}:${messageType}`
+  async function getMessages(productId: string, messageType: string, day: number, sendDate?: string) {
+    const date = sendDate || t
+    const key = `${productId}:${day}:${messageType}:${date}`
     if (msgCache.has(key)) return msgCache.get(key)!
 
     let messages: any[] = []
@@ -66,7 +67,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
         .from('daily_messages')
         .select('content, image_path')
         .eq('product_id', productId)
-        .eq('send_date', t)
+        .eq('send_date', date)
         .limit(1)
       if (data?.length) messages = [{ content: data[0].content, image_path: data[0].image_path, sort_order: 1 }]
     } else {
@@ -142,6 +143,12 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
       for (const dayNum of daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) continue
 
+        // 실시간 상품: 해당 Day가 원래 발송됐어야 할 날짜 계산
+        const daysAgo = computed.current_day - dayNum
+        const dayDate = daysAgo > 0
+          ? new Date(new Date(t + 'T00:00:00').getTime() - daysAgo * 86400000).toISOString().slice(0, 10)
+          : t
+
         // Start notice: insert before Day 1 message
         if (dayNum === 1) {
           const startNotice = await getNoticeTemplate('start', sub.product_id)
@@ -163,7 +170,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
         }
 
         const product = sub.product as any
-        const messages = await getMessages(sub.product_id, product?.message_type, dayNum)
+        const messages = await getMessages(sub.product_id, product?.message_type, dayNum, dayDate)
         if (!messages.length) continue
 
         for (const msg of messages) {
