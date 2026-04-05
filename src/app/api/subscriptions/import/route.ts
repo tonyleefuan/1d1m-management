@@ -16,10 +16,12 @@ export interface ParsedImportRow {
   dDay: number
   sku: string
   durationDays: number
+  orderNo: string
   // Resolved IDs
   customerId: string | null
   productId: string | null
   deviceId: string | null
+  orderItemId: string | null
   // Computed
   lastSentDay: number
   // Skip reason
@@ -40,6 +42,7 @@ export interface ImportPreviewResponse {
   missingSkus: string[]
   missingPcs: string[]
   missingCustomers: string[]
+  warnings: string[]
 }
 
 // ─── Column Matching ─────────────────────────────────────
@@ -55,6 +58,7 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   dDay: ['d-day', 'dday', 'd day', '디데이'],
   sku: ['sku', '상품코드', '상품 코드', 'product code', 'sku code', 'sku_code'],
   duration: ['기간', '구독기간', '구독 기간', 'duration', 'days', 'total days', 'total_days'],
+  orderNo: ['주문번호', '주문 번호', 'order number', 'order_no', 'order no', '주문섹션품목번호'],
 }
 
 function normalizeHeader(h: string): string {
@@ -91,12 +95,11 @@ function getField(row: Record<string, unknown>, colMap: Map<string, string>, fie
 function parseDate(value: unknown): string {
   if (!value) return ''
   const s = String(value).trim()
-  // Handle Excel serial date numbers
-  if (/^\d{5}$/.test(s)) {
-    const date = new Date((Number(s) - 25569) * 86400000)
-    return date.toISOString().slice(0, 10)
+  // Handle Excel serial date numbers (integer or decimal)
+  if (/^\d+(\.\d+)?$/.test(s) && Number(s) > 30000) {
+    const d = new Date((Number(s) - 25569) * 86400000)
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d)
   }
-  // Handle YYYY-MM-DD or YYYY/MM/DD
   const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
   return s
@@ -133,7 +136,8 @@ export async function POST(req: Request) {
     const formData = await req.formData()
     const file = formData.get('file') as File
     const dayInterpretation = formData.get('dayInterpretation') as string || 'already_sent'
-    const referenceDate = formData.get('referenceDate') as string || '2026-04-04'
+    const referenceDate = formData.get('referenceDate') as string
+      || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 
     if (!file) return NextResponse.json({ error: '파일을 선택해주세요' }, { status: 400 })
     if (file.size > 20 * 1024 * 1024) {
@@ -155,21 +159,28 @@ export async function POST(req: Request) {
     const colMap = buildColumnMap(headers)
 
     // Validate required columns
-    const requiredFields = ['sku', 'kakao', 'pc', 'status'] as const
+    const requiredFields = ['sku', 'kakao', 'pc'] as const
     const missingFields = requiredFields.filter(f => !colMap.has(f))
     if (missingFields.length > 0) {
-      const nameMap: Record<string, string> = { sku: 'SKU', kakao: '카톡이름', pc: 'PC 번호', status: '상태' }
+      const nameMap: Record<string, string> = { sku: 'SKU', kakao: '카톡이름', pc: 'PC 번호' }
       const fieldNames = missingFields.map(f => nameMap[f] || f)
       return NextResponse.json({
         error: `필수 컬럼을 찾을 수 없습니다: ${fieldNames.join(', ')}. 헤더를 확인해주세요.`,
       }, { status: 400 })
     }
 
+    // Build warnings for missing optional columns
+    const warnings: string[] = []
+    if (!colMap.has('status')) warnings.push('상태 컬럼이 없어서 모두 "발송중(Live)"으로 설정됩니다')
+    if (!colMap.has('day')) warnings.push('Day 컬럼이 없어서 last_sent_day를 0으로 설정됩니다')
+    if (!colMap.has('duration')) warnings.push('기간 컬럼이 없어서 상품 기본 기간을 사용합니다')
+
     // 2. Load reference tables
-    const [productsRes, devicesRes, customersRes] = await Promise.all([
+    const [productsRes, devicesRes, customersRes, orderItemsRes] = await Promise.all([
       supabase.from('products').select('id, sku_code'),
       supabase.from('send_devices').select('id, phone_number'),
       supabase.from('customers').select('id, kakao_friend_name'),
+      supabase.from('order_items').select('id, imweb_item_no, order:orders(imweb_order_no, customer_id)'),
     ])
 
     const productMap = new Map<string, string>()
@@ -186,6 +197,19 @@ export async function POST(req: Request) {
       }
     })
 
+    // order_items: imweb_order_no → { order_item_id, customer_id }
+    const orderItemMap = new Map<string, string>()
+    const orderCustomerMap = new Map<string, string>() // orderNo → customer_id
+    orderItemsRes.data?.forEach((oi: any) => {
+      const orderNo = oi.order?.imweb_order_no
+      if (orderNo && oi.id) {
+        if (!orderItemMap.has(orderNo)) orderItemMap.set(orderNo, oi.id)
+      }
+      if (orderNo && oi.order?.customer_id) {
+        if (!orderCustomerMap.has(orderNo)) orderCustomerMap.set(orderNo, oi.order.customer_id)
+      }
+    })
+
     // 3. Compute today for day offset
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
     const dayOffset = diffDays(today, referenceDate)
@@ -199,6 +223,7 @@ export async function POST(req: Request) {
       skippedCustomer: 0,
       duplicateInCsv: 0,
       skippedEmpty: 0,
+      customerAutoCreate: 0,
     }
     const missingSkus = new Set<string>()
     const missingPcs = new Set<string>()
@@ -212,6 +237,7 @@ export async function POST(req: Request) {
       const pcNumber = getField(raw, colMap, 'pc')?.toString().trim()
       const kakaoName = getField(raw, colMap, 'kakao')?.toString().trim()
       const statusRaw = getField(raw, colMap, 'status')?.toString().trim()
+      const orderNo = getField(raw, colMap, 'orderNo')?.toString().trim() || ''
 
       // Skip empty rows
       if (!sku && !pcNumber && !kakaoName) {
@@ -221,7 +247,19 @@ export async function POST(req: Request) {
 
       const productId = sku ? productMap.get(sku) || null : null
       const deviceId = pcNumber ? deviceMap.get(pcNumber) || null : null
-      const customerId = kakaoName ? customerMap.get(kakaoName) || null : null
+      const orderItemId = orderNo ? orderItemMap.get(orderNo) || null : null
+
+      // Customer resolution: 1) kakao_friend_name → 2) orderNo → order.customer_id → 3) will auto-create
+      let customerId = kakaoName ? customerMap.get(kakaoName) || null : null
+      let customerAutoCreate = false
+      if (!customerId && orderNo) {
+        customerId = orderCustomerMap.get(orderNo) || null
+      }
+      if (!customerId && kakaoName) {
+        // Will be auto-created during confirm
+        customerAutoCreate = true
+        customerId = `__new__${kakaoName}` // placeholder for preview
+      }
 
       let skipReason: string | null = null
 
@@ -266,7 +304,10 @@ export async function POST(req: Request) {
         lastSentDay = Math.min(lastSentDay, durationDays)
       }
 
-      if (!skipReason) summary.valid++
+      if (!skipReason) {
+        summary.valid++
+        if (customerAutoCreate) summary.customerAutoCreate++
+      }
 
       rows.push({
         rowIndex: i + 1,
@@ -279,9 +320,11 @@ export async function POST(req: Request) {
         dDay: parseNumber(getField(raw, colMap, 'dDay')),
         sku: sku || '',
         durationDays,
+        orderNo,
         customerId,
         productId,
         deviceId,
+        orderItemId,
         lastSentDay,
         skipReason,
       })
@@ -296,6 +339,7 @@ export async function POST(req: Request) {
       missingSkus: [...missingSkus],
       missingPcs: [...missingPcs],
       missingCustomers: [...missingCustomers],
+      warnings,
     }
 
     return NextResponse.json(response)

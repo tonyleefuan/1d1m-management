@@ -26,7 +26,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 기존 고객 조회
+    // 기존 고객 조회 — 1차: phone 매칭
     const phones = Array.from(phoneToItem.keys())
     const { data: existingCustomers } = await supabase
       .from('customers')
@@ -34,7 +34,34 @@ export async function POST(req: Request) {
       .in('phone', phones)
     const phoneToId = new Map(existingCustomers?.map(c => [c.phone, c.id]) || [])
 
-    // 새 고객 일괄 생성
+    // 2차: phone 매칭 실패한 고객 → kakao_friend_name으로 fallback 매칭
+    const unmatchedPhones = phones.filter(phone => !phoneToId.has(phone))
+    if (unmatchedPhones.length > 0) {
+      const kakaoNames = unmatchedPhones.map(phone => {
+        const item = phoneToItem.get(phone)!
+        return item.customer_name + '/' + phone.slice(-4)
+      })
+      const { data: kakaoMatched } = await supabase
+        .from('customers')
+        .select('id, kakao_friend_name')
+        .in('kakao_friend_name', kakaoNames)
+
+      const kakaoToId = new Map(kakaoMatched?.map(c => [c.kakao_friend_name, c.id]) || [])
+
+      // 매칭된 고객은 phone도 업데이트 (다음에는 phone으로 바로 매칭되도록)
+      for (const phone of unmatchedPhones) {
+        const item = phoneToItem.get(phone)!
+        const kakaoName = item.customer_name + '/' + phone.slice(-4)
+        const existingId = kakaoToId.get(kakaoName)
+        if (existingId) {
+          phoneToId.set(phone, existingId)
+          // phone 채우기
+          await supabase.from('customers').update({ phone, phone_last4: phone.slice(-4) }).eq('id', existingId)
+        }
+      }
+    }
+
+    // 새 고객 일괄 생성 (phone도 kakao도 매칭 안 된 고객만)
     const newCustomerRows = phones
       .filter(phone => !phoneToId.has(phone))
       .map(phone => {
@@ -177,12 +204,47 @@ export async function POST(req: Request) {
       })
 
     if (subRows.length > 0) {
-      const { error: subErr } = await supabase
-        .from('subscriptions')
-        .insert(subRows)
+      // 기존 구독 체크 — CSV 임포트로 이미 생성된 구독과 중복 방지
+      const subCustomerIds = [...new Set(subRows.map((r: any) => r.customer_id).filter(Boolean))] as string[]
+      const subProductIds = [...new Set(subRows.map((r: any) => r.product_id).filter(Boolean))] as string[]
 
-      if (subErr) {
-        return NextResponse.json({ error: `구독 생성 실패: ${subErr.message}` }, { status: 500 })
+      const { data: existingSubs } = await supabase
+        .from('subscriptions')
+        .select('customer_id, product_id')
+        .in('customer_id', subCustomerIds)
+        .in('product_id', subProductIds)
+
+      const existingSubSet = new Set(
+        existingSubs?.map(s => `${s.customer_id}::${s.product_id}`) || []
+      )
+
+      // 이미 있는 구독은 order_item_id만 연결, 신규만 insert
+      const newSubRows = []
+      for (const row of subRows) {
+        const key = `${row.customer_id}::${row.product_id}`
+        if (existingSubSet.has(key)) {
+          // 기존 구독에 order_item_id 연결
+          if (row.order_item_id) {
+            await supabase
+              .from('subscriptions')
+              .update({ order_item_id: row.order_item_id })
+              .eq('customer_id', row.customer_id)
+              .eq('product_id', row.product_id)
+              .is('order_item_id', null)
+          }
+        } else {
+          newSubRows.push(row)
+        }
+      }
+
+      if (newSubRows.length > 0) {
+        const { error: subErr } = await supabase
+          .from('subscriptions')
+          .insert(newSubRows)
+
+        if (subErr) {
+          return NextResponse.json({ error: `구독 생성 실패: ${subErr.message}` }, { status: 500 })
+        }
       }
     }
 

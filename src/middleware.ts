@@ -28,8 +28,8 @@ export async function middleware(req: NextRequest) {
 
   // ─── CS 전용 도메인 (1d1m.space) ───
   if (isCSHost(host)) {
-    // 정적 파일 통과
-    if (pathname.startsWith('/_next') || pathname.startsWith('/favicon')) {
+    // 정적 파일 통과 (public 디렉토리 포함)
+    if (pathname.startsWith('/_next') || pathname.startsWith('/favicon') || pathname.endsWith('.png') || pathname.endsWith('.ico') || pathname.endsWith('.svg') || pathname.endsWith('.jpg') || pathname.endsWith('.webp')) {
       return NextResponse.next()
     }
 

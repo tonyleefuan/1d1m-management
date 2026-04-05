@@ -26,7 +26,7 @@ import { Timeline } from '@/components/ui/timeline'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Send, Pause, FileText, RefreshCw, Upload, AlertTriangle, ChevronDown, CheckCircle2 } from 'lucide-react'
 import { FloatingChatButton } from '@/components/ui/floating-chat'
-import { CsvImportDialog } from './subscriptions/CsvImportDialog'
+// CSV import removed — use scripts/import-subscriptions.ts for bulk import
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -628,11 +628,7 @@ export function SubscriptionsTab() {
   return (
     <div className="space-y-6">
       {/* 1. Page Header */}
-      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다">
-        <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
-          <Upload className="mr-1 h-3 w-3" />
-          CSV 임포트
-        </Button>
+      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다 · Day = 가장 최근 발송 Day (발송 모니터링의 Day는 다음 발송할 Day)">
         <Button
           size="sm"
           variant="outline"
@@ -852,8 +848,12 @@ export function SubscriptionsTab() {
                       <TableHead className="w-[110px]">PC</TableHead>
                       <TableHead className="min-w-[80px]">고객명</TableHead>
                       <TableHead className="min-w-[80px]">카톡이름</TableHead>
-                      <TableHead className="w-[50px] text-center cursor-pointer select-none" onClick={() => toggleSort('day')}>
-                        Day <SortIcon field="day" />
+                      <TableHead
+                        className="w-[50px] text-center cursor-pointer select-none"
+                        onClick={() => toggleSort('day')}
+                        title="가장 최근 발송 Day (발송 모니터링의 Day는 다음 발송할 Day)"
+                      >
+                        최근 발송 <SortIcon field="day" />
                       </TableHead>
                       <TableHead className="w-[90px]">상품</TableHead>
                       <TableHead className="min-w-[120px]">상품명</TableHead>
@@ -1100,7 +1100,7 @@ export function SubscriptionsTab() {
                             })
                           }}
                         >
-                          {sub.current_day > 0 ? sub.current_day : '-'}
+                          {sub.last_sent_day > 0 ? sub.last_sent_day : '-'}
                         </button>
                       </TableCell>
 
@@ -1618,12 +1618,6 @@ export function SubscriptionsTab() {
         <Toast message={toast.message} type={toast.type} onClose={clearToast} />
       )}
 
-      {/* 8. CSV Import Dialog */}
-      <CsvImportDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        onComplete={() => fetchSubs()}
-      />
 
       {/* 9. AI Chat */}
       <FloatingChatButton tabId="subscriptions" userEmail="admin" />

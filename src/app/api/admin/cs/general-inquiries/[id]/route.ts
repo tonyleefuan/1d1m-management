@@ -52,7 +52,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     .insert({
       inquiry_id: params.id,
       author_type: 'admin',
-      author_name: session.name || '관리자',
+      author_name: session.username || '관리자',
       content: content.trim(),
     })
 

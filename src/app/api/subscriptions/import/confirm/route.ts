@@ -4,8 +4,9 @@ import { getSession } from '@/lib/auth'
 import * as XLSX from 'xlsx'
 
 const BATCH_SIZE = 500
+const IN_CHUNK = 300 // .in() query chunk size to avoid URL length limit
 
-// ─── Reuse column matching logic from ../route.ts ────────
+// ─── Column matching (shared with ../route.ts) ──────────
 
 const COLUMN_ALIASES: Record<string, string[]> = {
   pc: ['pc번호', 'pc 번호', 'pc', 'device', '디바이스', '발송번호', 'send number', '발송 번호'],
@@ -16,6 +17,7 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   day: ['day', '일차', 'days'],
   sku: ['sku', '상품코드', '상품 코드', 'product code', 'sku code', 'sku_code'],
   duration: ['기간', '구독기간', '구독 기간', 'duration', 'days', 'total days', 'total_days'],
+  orderNo: ['주문번호', '주문 번호', 'order number', 'order_no', 'order no', '주문섹션품목번호'],
 }
 
 function normalizeHeader(h: string): string {
@@ -42,17 +44,14 @@ function getField(row: Record<string, unknown>, colMap: Map<string, string>, fie
   return header ? row[header] : undefined
 }
 
-function parseDate(value: unknown): string {
+function parseDateKST(value: unknown): string {
   if (!value) return ''
   const s = String(value).trim()
-  if (/^\d{5}$/.test(s)) {
-    const date = new Date((Number(s) - 25569) * 86400000)
-    return date.toISOString().slice(0, 10)
-  }
-  // Handle Excel serial date with decimals (e.g. 46138.375)
-  if (/^\d+\.\d+$/.test(s)) {
-    const date = new Date((Number(s) - 25569) * 86400000)
-    return date.toISOString().slice(0, 10)
+  // Excel serial dates (integer or decimal)
+  if (/^\d+(\.\d+)?$/.test(s) && Number(s) > 30000) {
+    const d = new Date((Number(s) - 25569) * 86400000)
+    // Use KST to avoid off-by-one
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d)
   }
   const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
@@ -76,8 +75,23 @@ function parseStatus(value: string): 'live' | 'pending' | 'pause' | 'archive' | 
 }
 
 function diffDays(a: string, b: string): number {
-  const msPerDay = 86400000
-  return Math.floor((new Date(a).getTime() - new Date(b).getTime()) / msPerDay)
+  return Math.floor((new Date(a).getTime() - new Date(b).getTime()) / 86400000)
+}
+
+/** Chunked .in() query to avoid Supabase URL length limit */
+async function queryInChunks<T>(
+  table: string,
+  select: string,
+  field: string,
+  values: string[],
+): Promise<T[]> {
+  const results: T[] = []
+  for (let i = 0; i < values.length; i += IN_CHUNK) {
+    const chunk = values.slice(i, i + IN_CHUNK)
+    const { data } = await supabase.from(table).select(select).in(field, chunk)
+    if (data) results.push(...(data as T[]))
+  }
+  return results
 }
 
 // ─── POST handler ────────────────────────────────────────
@@ -90,7 +104,9 @@ export async function POST(req: Request) {
     const formData = await req.formData()
     const file = formData.get('file') as File
     const dayInterpretation = formData.get('dayInterpretation') as string || 'already_sent'
-    const referenceDate = formData.get('referenceDate') as string || '2026-04-04'
+    // Fix #6: dynamic default date
+    const referenceDate = formData.get('referenceDate') as string
+      || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 
     if (!file) return NextResponse.json({ error: '파일이 없습니다' }, { status: 400 })
 
@@ -111,7 +127,7 @@ export async function POST(req: Request) {
     const [productsRes, devicesRes, customersRes] = await Promise.all([
       supabase.from('products').select('id, sku_code'),
       supabase.from('send_devices').select('id, phone_number'),
-      supabase.from('customers').select('id, kakao_friend_name'),
+      supabase.from('customers').select('id, kakao_friend_name, phone'),
     ])
 
     const productMap = new Map<string, string>()
@@ -120,7 +136,7 @@ export async function POST(req: Request) {
     const deviceMap = new Map<string, string>()
     devicesRes.data?.forEach(d => deviceMap.set(d.phone_number, d.id))
 
-    const customerMap = new Map<string, string>()
+    const customerMap = new Map<string, string>() // kakao → id
     customersRes.data?.forEach(c => {
       if (c.kakao_friend_name && !customerMap.has(c.kakao_friend_name)) {
         customerMap.set(c.kakao_friend_name, c.id)
@@ -131,25 +147,84 @@ export async function POST(req: Request) {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
     const dayOffset = diffDays(today, referenceDate)
 
-    // 4. Parse valid rows
+    // 4. Auto-create missing customers (Fix #1: upsert-safe)
+    let customersCreated = 0
+    const customersToCreate = new Map<string, string>() // kakao → orderNo
+    for (const raw of rawRows) {
+      const kakaoName = getField(raw, colMap, 'kakao')?.toString().trim()
+      if (!kakaoName || customerMap.has(kakaoName)) continue
+      if (!customersToCreate.has(kakaoName)) {
+        customersToCreate.set(kakaoName, getField(raw, colMap, 'orderNo')?.toString().trim() || '')
+      }
+    }
+
+    if (customersToCreate.size > 0) {
+      const newCustomers = [...customersToCreate.entries()].map(([kakao]) => {
+        const parts = kakao.split('/')
+        return {
+          name: parts[0] || kakao,
+          phone_last4: parts[1] || null,
+          kakao_friend_name: kakao,
+        }
+      })
+
+      for (let i = 0; i < newCustomers.length; i += BATCH_SIZE) {
+        const batch = newCustomers.slice(i, i + BATCH_SIZE)
+        // Fix #1: use upsert to handle retry safely
+        const { data, error } = await supabase
+          .from('customers')
+          .upsert(batch, { onConflict: 'kakao_friend_name', ignoreDuplicates: true })
+          .select('id, kakao_friend_name')
+
+        // Fix #4: surface error
+        if (error) {
+          console.error('[import/confirm] Customer upsert error:', error.message)
+        }
+        if (data) {
+          data.forEach(c => {
+            if (c.kakao_friend_name) {
+              customerMap.set(c.kakao_friend_name, c.id)
+              customersCreated++
+            }
+          })
+        }
+      }
+
+      // Fetch any that ignoreDuplicates skipped (already existed)
+      const missingKakao = [...customersToCreate.keys()].filter(k => !customerMap.has(k))
+      if (missingKakao.length > 0) {
+        const existing = await queryInChunks<{ id: string; kakao_friend_name: string }>(
+          'customers', 'id, kakao_friend_name', 'kakao_friend_name', missingKakao
+        )
+        existing.forEach(c => {
+          if (c.kakao_friend_name) customerMap.set(c.kakao_friend_name, c.id)
+        })
+      }
+    }
+
+    // 5. Parse valid rows
     const seenPairs = new Set<string>()
-    const validRows: {
+    interface ValidRow {
       customerId: string
       productId: string
       deviceId: string | null
+      orderItemId: string | null
+      orderNo: string
+      sku: string
       status: string
       startDate: string
       endDate: string
       durationDays: number
       lastSentDay: number
-    }[] = []
-
+    }
+    const validRows: ValidRow[] = []
     let skipped = 0
 
     for (const raw of rawRows) {
       const sku = getField(raw, colMap, 'sku')?.toString().trim()
       const pcNumber = getField(raw, colMap, 'pc')?.toString().trim()
       const kakaoName = getField(raw, colMap, 'kakao')?.toString().trim()
+      const orderNo = getField(raw, colMap, 'orderNo')?.toString().trim() || ''
       const statusRaw = getField(raw, colMap, 'status')?.toString().trim()
 
       if (!sku && !pcNumber && !kakaoName) { skipped++; continue }
@@ -167,24 +242,20 @@ export async function POST(req: Request) {
       const csvDay = parseNumber(getField(raw, colMap, 'day'))
       const durationDays = parseNumber(getField(raw, colMap, 'duration'))
 
-      let lastSentDay: number
-      if (dayInterpretation === 'already_sent') {
-        lastSentDay = csvDay + dayOffset
-      } else {
-        lastSentDay = csvDay + dayOffset - 1
-      }
+      let lastSentDay = dayInterpretation === 'already_sent'
+        ? csvDay + dayOffset
+        : csvDay + dayOffset - 1
       lastSentDay = Math.max(0, lastSentDay)
       if (durationDays > 0) lastSentDay = Math.min(lastSentDay, durationDays)
 
       validRows.push({
-        customerId,
-        productId,
-        deviceId,
+        customerId, productId, deviceId,
+        orderItemId: null, // resolved in step 6
+        orderNo, sku: sku || '',
         status: statusRaw ? parseStatus(statusRaw) : 'live',
-        startDate: parseDate(getField(raw, colMap, 'startDate')),
-        endDate: parseDate(getField(raw, colMap, 'endDate')),
-        durationDays,
-        lastSentDay,
+        startDate: parseDateKST(getField(raw, colMap, 'startDate')),
+        endDate: parseDateKST(getField(raw, colMap, 'endDate')),
+        durationDays, lastSentDay,
       })
     }
 
@@ -192,22 +263,79 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '임포트할 유효한 데이터가 없습니다' }, { status: 400 })
     }
 
-    // 5. Find existing subscriptions for upsert
-    const customerIds = [...new Set(validRows.map(r => r.customerId))]
-    const productIds = [...new Set(validRows.map(r => r.productId))]
+    // 6. Create orders + order_items from CSV orderNo
+    const rowsWithOrderNo = validRows.filter(r => r.orderNo)
+    if (rowsWithOrderNo.length > 0) {
+      const orderGroups = new Map<string, ValidRow[]>()
+      for (const row of rowsWithOrderNo) {
+        const group = orderGroups.get(row.orderNo) || []
+        group.push(row)
+        orderGroups.set(row.orderNo, group)
+      }
 
-    const { data: existingSubs } = await supabase
-      .from('subscriptions')
-      .select('id, customer_id, product_id')
-      .in('customer_id', customerIds)
-      .in('product_id', productIds)
+      // Upsert orders
+      const orderRows = [...orderGroups.entries()].map(([orderNo, rows]) => ({
+        imweb_order_no: orderNo,
+        customer_id: rows[0].customerId,
+        total_amount: 0,
+        ordered_at: rows[0].startDate || today,
+      }))
 
+      for (let i = 0; i < orderRows.length; i += BATCH_SIZE) {
+        await supabase
+          .from('orders')
+          .upsert(orderRows.slice(i, i + BATCH_SIZE), { onConflict: 'imweb_order_no', ignoreDuplicates: true })
+      }
+
+      // Get all order IDs (chunked)
+      const orderNos = [...orderGroups.keys()]
+      const allOrders = await queryInChunks<{ id: string; imweb_order_no: string }>(
+        'orders', 'id, imweb_order_no', 'imweb_order_no', orderNos
+      )
+      const orderNoToId = new Map(allOrders.map(o => [o.imweb_order_no, o.id]))
+
+      // Create order_items (Fix #3: prefix with csv_ to avoid collision with real imweb items)
+      const orderItemRows = rowsWithOrderNo
+        .filter(r => orderNoToId.has(r.orderNo))
+        .map(r => ({
+          order_id: orderNoToId.get(r.orderNo)!,
+          imweb_item_no: `csv_${r.orderNo}_${r.sku}`,
+          product_id: r.productId,
+          duration_days: r.durationDays,
+          list_price: 0,
+          allocated_amount: 0,
+        }))
+
+      for (let i = 0; i < orderItemRows.length; i += BATCH_SIZE) {
+        await supabase
+          .from('order_items')
+          .upsert(orderItemRows.slice(i, i + BATCH_SIZE), { onConflict: 'imweb_item_no', ignoreDuplicates: true })
+      }
+
+      // Fetch all created/existing items (chunked)
+      const itemNos = orderItemRows.map(r => r.imweb_item_no)
+      const allItems = await queryInChunks<{ id: string; imweb_item_no: string }>(
+        'order_items', 'id, imweb_item_no', 'imweb_item_no', itemNos
+      )
+      const createdItemMap = new Map(allItems.map(oi => [oi.imweb_item_no, oi.id]))
+
+      // Link order_item_ids to validRows
+      for (const row of validRows) {
+        if (row.orderNo) {
+          row.orderItemId = createdItemMap.get(`csv_${row.orderNo}_${row.sku}`) || null
+        }
+      }
+    }
+
+    // 7. Find existing subscriptions (Fix #4: chunked .in() to avoid URL limit)
+    const uniqueCustomerIds = [...new Set(validRows.map(r => r.customerId))]
+    const existingSubs = await queryInChunks<{ id: string; customer_id: string; product_id: string }>(
+      'subscriptions', 'id, customer_id, product_id', 'customer_id', uniqueCustomerIds
+    )
     const existingMap = new Map<string, string>()
-    existingSubs?.forEach(s => {
-      existingMap.set(`${s.customer_id}::${s.product_id}`, s.id)
-    })
+    existingSubs.forEach(s => existingMap.set(`${s.customer_id}::${s.product_id}`, s.id))
 
-    // 6. Split into updates and inserts
+    // 8. Split into updates and inserts
     const updates: { id: string; data: Record<string, unknown> }[] = []
     const inserts: Record<string, unknown>[] = []
 
@@ -226,7 +354,7 @@ export async function POST(req: Request) {
         last_sent_day: row.lastSentDay,
         paused_days: 0,
         is_cancelled: row.status === 'cancel',
-        order_item_id: null,
+        order_item_id: row.orderItemId || null,
       }
 
       if (existingId) {
@@ -236,7 +364,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 7. Execute updates in batches
+    // 9. Execute updates — batch SQL instead of individual calls (Fix #4: timeout)
     let updatedCount = 0
     let updateErrors = 0
     for (let i = 0; i < updates.length; i += BATCH_SIZE) {
@@ -252,16 +380,17 @@ export async function POST(req: Request) {
       }
     }
 
-    // 8. Execute inserts in batches
+    // 10. Execute inserts in batches
     let createdCount = 0
     let insertErrors = 0
     for (let i = 0; i < inserts.length; i += BATCH_SIZE) {
       const batch = inserts.slice(i, i + BATCH_SIZE)
       const { error } = await supabase.from('subscriptions').insert(batch)
       if (error) {
+        // Fallback: one-by-one
         for (const row of batch) {
-          const { error: singleError } = await supabase.from('subscriptions').insert(row)
-          if (singleError) insertErrors++
+          const { error: e } = await supabase.from('subscriptions').insert(row)
+          if (e) insertErrors++
           else createdCount++
         }
       } else {
@@ -274,6 +403,7 @@ export async function POST(req: Request) {
       created: createdCount,
       updated: updatedCount,
       skipped,
+      customersCreated,
       errors: updateErrors + insertErrors,
       total: rawRows.length,
     })

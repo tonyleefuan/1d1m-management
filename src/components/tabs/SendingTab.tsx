@@ -130,6 +130,7 @@ export function SendingTab() {
 
   // 구글시트 연동
   const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState('')
   const [importing, setImporting] = useState(false)
   const [lastExportAt, setLastExportAt] = useState<string | null>(null)
   const [lastImportAt, setLastImportAt] = useState<string | null>(null)
@@ -434,17 +435,60 @@ export function SendingTab() {
     }
 
     setExporting(true)
+    setExportProgress('준비 중...')
     try {
       const res = await fetch('/api/sending/export-sheet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: sendDate, force: true }),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || '시트 내보내기 실패')
 
-      let msg = `구글시트 내보내기 완료: ${json.total}건 (${json.devices}개 PC)`
-      if (json.autoImported) {
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error || '시트 내보내기 실패')
+      }
+
+      // SSE 스트리밍 응답 처리
+      const reader = res.body?.getReader()
+      const decoder = new TextDecoder()
+      let lastResult: { total?: number; devices?: number; autoImported?: boolean } = {}
+
+      if (reader) {
+        let buffer = ''
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.type === 'clearing') {
+                setExportProgress('시트 초기화 중...')
+              } else if (data.type === 'start') {
+                setExportProgress(`${data.totalItems}건 내보내기 시작 (${data.totalDevices}개 PC)`)
+              } else if (data.type === 'device_start') {
+                setExportProgress(`${data.device} 쓰는 중... (${data.deviceIndex}/${data.totalDevices} PC, ${data.items}건)`)
+              } else if (data.type === 'device_done') {
+                setExportProgress(`${data.device} 완료 (${data.deviceIndex}/${data.totalDevices} PC, 누적 ${data.totalWritten}건)`)
+              } else if (data.type === 'complete') {
+                lastResult = data
+              } else if (data.type === 'error') {
+                throw new Error(data.error)
+              }
+            } catch (e) {
+              if (e instanceof Error && e.message !== 'Unexpected end of JSON input') throw e
+            }
+          }
+        }
+      }
+
+      let msg = `구글시트 내보내기 완료: ${lastResult.total ?? 0}건 (${lastResult.devices ?? 0}개 PC)`
+      if (lastResult.autoImported) {
         msg += '\n(이전 미수거 결과를 자동으로 가져왔습니다)'
       }
       showSuccess(msg)
@@ -454,6 +498,30 @@ export function SendingTab() {
       showError(err instanceof Error ? err.message : '시트 내보내기에 실패했습니다')
     }
     setExporting(false)
+    setExportProgress('')
+  }
+
+  const handleClearSheet = async () => {
+    const ok = await confirm({
+      title: '구글시트 초기화',
+      description: '모든 PC 시트의 데이터를 삭제하고 헤더만 남깁니다. 계속하시겠습니까?',
+      variant: 'warning',
+      confirmLabel: '초기화',
+    })
+    if (!ok) return
+
+    setExporting(true)
+    setExportProgress('시트 초기화 중...')
+    try {
+      const res = await fetch('/api/sending/clear-sheet', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || '시트 초기화 실패')
+      showSuccess(json.message || '시트 초기화 완료')
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '시트 초기화에 실패했습니다')
+    }
+    setExporting(false)
+    setExportProgress('')
   }
 
   const handleExportSelected = async () => {
@@ -748,6 +816,9 @@ export function SendingTab() {
               {exporting ? <Spinner size="xs" className="mr-1" /> : <Upload className="mr-1 h-3 w-3" />}
               구글시트 내보내기
             </Button>
+            {exportProgress && (
+              <span className="text-xs text-muted-foreground animate-pulse">{exportProgress}</span>
+            )}
             {selectedIds.size > 0 && (
               <Button
                 size="sm"
@@ -773,6 +844,15 @@ export function SendingTab() {
             >
               {importing ? <Spinner size="xs" className="mr-1" /> : <Download className="mr-1 h-3 w-3" />}
               결과 가져오기
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleClearSheet}
+              disabled={exporting}
+              className="h-8 text-destructive hover:text-destructive"
+            >
+              시트 초기화
             </Button>
             <div className="ml-auto flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>마지막 내보내기: {formatTime(lastExportAt)}</span>

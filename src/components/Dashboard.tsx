@@ -29,10 +29,16 @@ const TAB_COMPONENTS: Record<string, React.ComponentType> = {
 // 모든 유효한 탭 ID 집합 (TABS 원본 기준)
 const VALID_TAB_IDS = new Set(TABS.map(t => t.id))
 
-function getHashTab(): string | null {
+/** URL pathname에서 탭 ID 추출 */
+function getPathTab(): string | null {
   if (typeof window === 'undefined') return null
-  const hash = window.location.hash.slice(1)
-  return VALID_TAB_IDS.has(hash) ? hash : null
+  const seg = window.location.pathname.split('/').filter(Boolean)[0]
+  return seg && VALID_TAB_IDS.has(seg) ? seg : null
+}
+
+/** 탭 ID → URL 경로 (첫 번째 탭은 /) */
+function tabToPath(id: string, firstTabId: string): string {
+  return id === firstTabId ? '/' : `/${id}`
 }
 
 // ─── Error Boundary ─────────────────────────────────────
@@ -74,12 +80,13 @@ class TabErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 interface Props {
   userName: string
   userRole: string
+  initialTab: string | null
 }
 
-export function Dashboard({ userName, userRole }: Props) {
+export function Dashboard({ userName, userRole, initialTab }: Props) {
   const router = useRouter()
   const [tabs, setTabs] = useState<TabConfig[]>(TABS)
-  const [tab, setTab] = useState(() => getHashTab() || TABS[0].id)
+  const [tab, setTab] = useState(() => initialTab || getPathTab() || TABS[0].id)
   const [ready, setReady] = useState(false)
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
@@ -112,13 +119,13 @@ export function Dashboard({ userName, userRole }: Props) {
           // Validate current tab against visible tabs
           const visibleTabs = ordered.filter(t => t.visible)
           if (visibleTabs.length > 0) {
-            const hashTab = getHashTab()
-            const currentTab = hashTab || tab
+            const pathTab = getPathTab()
+            const currentTab = pathTab || tab
             const isCurrentVisible = visibleTabs.some(t => t.id === currentTab)
             if (!isCurrentVisible) {
               const first = visibleTabs[0].id
               setTab(first)
-              window.history.replaceState(null, '', `#${first}`)
+              window.history.replaceState(null, '', tabToPath(first, ordered[0]?.id || TABS[0].id))
             }
           }
         }
@@ -130,29 +137,37 @@ export function Dashboard({ userName, userRole }: Props) {
       .finally(() => setReady(true))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync tab state with hash changes (browser back/forward)
+  // Sync tab state with popstate (browser back/forward)
   useEffect(() => {
-    const onHashChange = () => {
-      const hashTab = getHashTab()
-      if (!hashTab) return
-      // 현재 visible 탭 목록에서만 허용
+    const onPopState = () => {
+      const pathTab = getPathTab()
       const visibleTabs = tabsRef.current.filter(t => t.visible)
-      if (visibleTabs.some(t => t.id === hashTab)) {
-        setTab(hashTab)
+      const firstTabId = visibleTabs[0]?.id || TABS[0].id
+
+      // / (루트)이면 첫 번째 탭
+      if (!pathTab) {
+        if (visibleTabs.length > 0) {
+          setTab(firstTabId)
+        }
+        return
+      }
+
+      if (visibleTabs.some(t => t.id === pathTab)) {
+        setTab(pathTab)
       }
     }
-    window.addEventListener('hashchange', onHashChange)
-    window.addEventListener('popstate', onHashChange)
+    window.addEventListener('popstate', onPopState)
     return () => {
-      window.removeEventListener('hashchange', onHashChange)
-      window.removeEventListener('popstate', onHashChange)
+      window.removeEventListener('popstate', onPopState)
     }
   }, [])
 
   const handleTabChange = useCallback((id: string) => {
     if (id === tab) return
     setTab(id)
-    window.history.pushState(null, '', `#${id}`)
+    const visibleTabs = tabsRef.current.filter(t => t.visible)
+    const firstTabId = visibleTabs[0]?.id || TABS[0].id
+    window.history.pushState(null, '', tabToPath(id, firstTabId))
   }, [tab])
 
   const handleLogout = useCallback(async () => {
@@ -163,6 +178,7 @@ export function Dashboard({ userName, userRole }: Props) {
 
   const ActiveTab = TAB_COMPONENTS[tab]
   const visibleTabs = tabs.filter(t => t.visible)
+  const firstTabId = visibleTabs[0]?.id || TABS[0].id
 
   return (
     <div className="min-h-screen bg-muted/40">
@@ -195,19 +211,24 @@ export function Dashboard({ userName, userRole }: Props) {
             ))
           ) : (
             visibleTabs.map(t => (
-              <Button
+              <a
                 key={t.id}
-                variant="ghost"
-                onClick={() => handleTabChange(t.id)}
+                href={tabToPath(t.id, firstTabId)}
+                onClick={(e) => {
+                  // Cmd+Click 또는 Ctrl+Click → 새 탭에서 열기 (기본 동작)
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+                  e.preventDefault()
+                  handleTabChange(t.id)
+                }}
                 className={cn(
-                  'px-4 py-2.5 h-auto text-sm whitespace-nowrap rounded-none border-b-2 transition-colors',
+                  'px-4 py-2.5 text-sm whitespace-nowrap border-b-2 transition-colors inline-flex items-center',
                   tab === t.id
                     ? 'border-foreground text-foreground font-medium'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
                 )}
               >
                 {t.label}
-              </Button>
+              </a>
             ))
           )}
         </div>

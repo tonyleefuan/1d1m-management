@@ -76,15 +76,8 @@ export async function POST(req: Request) {
           : String(lastExportSetting.value))
       : null
 
-    const isAppend = lastExportDate === date // 같은 날짜면 이어 붙이기
-
-    // 같은 날짜에 전체 내보내기(선택 아님)를 또 하려는 경우 경고
-    if (isAppend && !queueIds && !force) {
-      return NextResponse.json({
-        warning: `오늘(${date}) 이미 시트로 내보냈습니다. 다시 내보내려면 force: true를 전달하세요.`,
-        already_exported: true,
-      }, { status: 409 })
-    }
+    // 같은 날짜 + 선택 내보내기 = 이어 붙이기, force 전체 재내보내기 = 초기화
+    const isAppend = lastExportDate === date && (!!queueIds || !force)
 
     // --- 발송 설정 조회 ---
     const { data: settingsData } = await supabase
@@ -150,77 +143,108 @@ export async function POST(req: Request) {
       deviceGroups.set(item.device_id, group)
     }
 
-    // --- 시트에 쓰기 ---
+    // --- SSE 스트리밍으로 PC별 진행상황 전송 ---
     const datePrefix = toYYMMDD(date)
     const HEADER = ['이름/채팅방명', '텍스트', '파일', '예약시간', '처리결과', '처리일시', 'queue_id']
-    let totalWritten = 0
-    let devicesWritten = 0
+    const totalDevices = deviceGroups.size
 
-    for (const [deviceId, items] of deviceGroups) {
-      const phoneNumber = deviceMap.get(deviceId)
-      if (!phoneNumber) continue
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (data: Record<string, unknown>) => {
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`))
+        }
 
-      await ensureSheetTab(phoneNumber)
+        try {
+          let totalWritten = 0
+          let devicesWritten = 0
 
-      const dataRows: string[][] = []
-      let deviceCounter = 0
+          // 새 날짜 또는 force 전체 재내보내기 시 모든 PC 시트 초기화
+          if (!isAppend) {
+            send({ type: 'clearing', message: '시트 초기화 중...' })
+            for (const [, phoneNumber] of deviceMap) {
+              try {
+                await ensureSheetTab(phoneNumber)
+                await writeSheetData(phoneNumber, [HEADER])
+              } catch { /* 탭 없으면 무시 */ }
+            }
+          }
 
-      for (const item of items) {
-        const isImage = !!item.image_path && !item.message_content
-        const delay = isImage ? fileDelay : msgDelay
-        const elapsedSeconds = deviceCounter > 0 ? deviceCounter * delay : 0
-        const estimatedSeconds = baseSeconds + elapsedSeconds
-        const h = Math.floor(estimatedSeconds / 3600) % 24
-        const m = Math.floor((estimatedSeconds % 3600) / 60)
-        const estimatedTime = `${datePrefix} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+          send({ type: 'start', totalDevices, totalItems: queueData.length })
 
-        dataRows.push([
-          item.kakao_friend_name || '',
-          isImage ? '' : (item.message_content || ''),
-          isImage ? (item.image_path || '') : '',
-          estimatedTime,
-          '', // 처리결과
-          '', // 처리일시
-          item.id, // queue_id
-        ])
+          for (const [deviceId, items] of deviceGroups) {
+            const phoneNumber = deviceMap.get(deviceId)
+            if (!phoneNumber) continue
 
-        deviceCounter++
-      }
+            send({ type: 'device_start', device: phoneNumber, deviceIndex: devicesWritten + 1, totalDevices, items: items.length })
 
-      if (isAppend) {
-        // 같은 날짜: 이어 붙이기 (헤더 없이 데이터만)
-        await appendSheetData(phoneNumber, dataRows)
-      } else {
-        // 다른 날짜: 초기화 후 헤더 + 데이터
-        await writeSheetData(phoneNumber, [HEADER, ...dataRows])
-      }
+            await ensureSheetTab(phoneNumber)
 
-      totalWritten += items.length
-      devicesWritten++
-    }
+            const dataRows: string[][] = []
+            let deviceCounter = 0
 
-    // --- app_settings 업데이트 ---
-    const now = new Date().toISOString()
-    await supabase.from('app_settings').upsert({
-      key: 'last_sheet_export_at',
-      value: JSON.stringify(now),
-      updated_at: now,
+            for (const item of items) {
+              const isImage = !!item.image_path && !item.message_content
+              const delay = isImage ? fileDelay : msgDelay
+              const elapsedSeconds = deviceCounter > 0 ? deviceCounter * delay : 0
+              const estimatedSeconds = baseSeconds + elapsedSeconds
+              const h = Math.floor(estimatedSeconds / 3600) % 24
+              const m = Math.floor((estimatedSeconds % 3600) / 60)
+              const estimatedTime = `${datePrefix} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+
+              dataRows.push([
+                item.kakao_friend_name || '',
+                isImage ? '' : (item.message_content || ''),
+                isImage ? (item.image_path || '') : '',
+                estimatedTime,
+                '', // 처리결과
+                '', // 처리일시
+                item.id, // queue_id
+              ])
+
+              deviceCounter++
+            }
+
+            // 초기화 단계에서 이미 헤더를 넣었으므로 항상 append
+            await appendSheetData(phoneNumber, dataRows)
+
+            totalWritten += items.length
+            devicesWritten++
+
+            send({ type: 'device_done', device: phoneNumber, deviceIndex: devicesWritten, totalDevices, itemsWritten: items.length, totalWritten })
+          }
+
+          // --- app_settings 업데이트 ---
+          const now = new Date().toISOString()
+          await supabase.from('app_settings').upsert({
+            key: 'last_sheet_export_at',
+            value: JSON.stringify(now),
+            updated_at: now,
+          })
+          await supabase.from('app_settings').upsert({
+            key: 'last_sheet_export_date',
+            value: JSON.stringify(date),
+            updated_at: now,
+          })
+
+          send({ type: 'complete', ok: true, devices: devicesWritten, total: totalWritten, date, autoImported, appended: !!isAppend })
+        } catch (err: any) {
+          console.error('[export-sheet] Error:', err.message, err.stack)
+          send({ type: 'error', error: err.message || '시트 내보내기 중 오류가 발생했습니다' })
+        } finally {
+          controller.close()
+        }
+      },
     })
-    await supabase.from('app_settings').upsert({
-      key: 'last_sheet_export_date',
-      value: JSON.stringify(date),
-      updated_at: now,
-    })
 
-    return NextResponse.json({
-      ok: true,
-      devices: devicesWritten,
-      total: totalWritten,
-      date,
-      autoImported,
-      appended: isAppend,
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     })
   } catch (err: any) {
+    console.error('[export-sheet] Error:', err.message, err.stack)
     return NextResponse.json({ error: err.message || '시트 내보내기 중 오류가 발생했습니다' }, { status: 500 })
   }
 }
