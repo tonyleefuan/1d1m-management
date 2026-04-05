@@ -678,6 +678,11 @@ export function SendingTab() {
           <p className="text-xs text-muted-foreground mt-1">
             위 발송 날짜의 대기열을 표시합니다. 다른 날짜를 보려면 발송 날짜를 변경해 주세요.
           </p>
+          {totalSummary.total > 0 && totalSummary.pending === totalSummary.total && lastExportAt && (
+            <p className="text-xs text-foreground mt-1 font-medium">
+              💡 발송 완료 후 &quot;결과 가져오기&quot; 버튼을 눌러야 발송 결과가 반영됩니다.
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           {totalSummary.total > 0 && totalSummary.sent === 0 && totalSummary.failed === 0 && (
