@@ -265,22 +265,31 @@ async function batchImport(date: string) {
 
 // ─── 구독 상태 업데이트 (공통) ──────────────────────────────
 
+// .in() 배치 헬퍼: Supabase URL 길이 제한 우회 (500개씩)
+async function batchSelect<T>(table: string, column: string, ids: string[], select: string, extraFilters?: (q: any) => any): Promise<T[]> {
+  const results: T[] = []
+  for (let i = 0; i < ids.length; i += 500) {
+    const batch = ids.slice(i, i + 500)
+    let q = supabase.from(table).select(select).in(column, batch)
+    if (extraFilters) q = extraFilters(q)
+    const { data, error } = await q
+    if (error) throw new Error(`${table} 배치 조회 실패: ${error.message}`)
+    if (data) results.push(...(data as T[]))
+  }
+  return results
+}
+
 async function updateSubscriptionStatuses(
   updates: { id: string; status: 'sent' | 'failed'; sent_at: string | null }[],
   date: string
 ) {
   const allUpdateIds = updates.map(u => u.id)
 
-  const { data: updatedQueues, error: fetchErr } = await supabase
-    .from('send_queues')
-    .select('id, subscription_id, day_number, status, send_date, is_notice')
-    .in('id', allUpdateIds)
-
-  if (fetchErr) throw new Error(`업데이트된 큐 조회 실패: ${fetchErr.message}`)
+  // 배치 조회 (500개씩)
+  const updatedQueues = await batchSelect<any>('send_queues', 'id', allUpdateIds, 'id, subscription_id, day_number, status, send_date, is_notice')
 
   const subDayGroups = new Map<string, { subscriptionId: string; dayNumber: number; sendDate: string }>()
-  for (const q of updatedQueues || []) {
-    // 알림 행(is_notice)은 구독 상태 추적에서 제외 — 발송만 하고 last_sent_day에 영향 없음
+  for (const q of updatedQueues) {
     if (!q.subscription_id || !q.day_number || q.is_notice) continue
     const key = `${q.subscription_id}:${q.day_number}`
     if (!subDayGroups.has(key)) {
@@ -291,15 +300,12 @@ async function updateSubscriptionStatuses(
   if (subDayGroups.size === 0) return
 
   const affectedSubIds = [...new Set([...subDayGroups.values()].map(g => g.subscriptionId))]
-  const { data: allSubQueues } = await supabase
-    .from('send_queues')
-    .select('subscription_id, day_number, send_date, status, is_notice')
-    .in('subscription_id', affectedSubIds)
-    .eq('send_date', date)
+
+  // 배치 조회 (500개씩)
+  const allSubQueues = await batchSelect<any>('send_queues', 'subscription_id', affectedSubIds, 'subscription_id, day_number, send_date, status, is_notice', (q) => q.eq('send_date', date))
 
   const fullStatusMap = new Map<string, string[]>()
-  for (const q of allSubQueues || []) {
-    // 알림 행은 구독 상태 판단에서 제외
+  for (const q of allSubQueues) {
     if (!q.day_number || q.is_notice) continue
     const key = `${q.subscription_id}:${q.day_number}`
     const arr = fullStatusMap.get(key) || []
@@ -307,13 +313,11 @@ async function updateSubscriptionStatuses(
     fullStatusMap.set(key, arr)
   }
 
-  const { data: subData } = await supabase
-    .from('subscriptions')
-    .select('id, last_sent_day')
-    .in('id', affectedSubIds)
+  // 배치 조회 (500개씩)
+  const subData = await batchSelect<any>('subscriptions', 'id', affectedSubIds, 'id, last_sent_day')
 
   const lastSentDayMap = new Map<string, number>()
-  for (const s of subData || []) {
+  for (const s of subData) {
     lastSentDayMap.set(s.id, s.last_sent_day ?? 0)
   }
 
