@@ -246,6 +246,7 @@ export async function POST(req: Request) {
             message_content: retryNotice.content || '',
             image_path: retryNotice.image_path,
             sort_order: sortOrder,
+            message_seq: null,
             status: 'pending',
             is_notice: true,
           })
@@ -265,6 +266,7 @@ export async function POST(req: Request) {
               message_content: startNotice.content || '',
               image_path: startNotice.image_path,
               sort_order: sortOrder,
+              message_seq: null,
               status: 'pending',
               is_notice: true,
             })
@@ -300,6 +302,7 @@ export async function POST(req: Request) {
             sort_order: sortOrder,
             message_seq: `${seqNum}/${totalItems}`,
             status: 'pending',
+            is_notice: false,
           })
           if (msg.image_path) {
             sortOrder++
@@ -315,6 +318,7 @@ export async function POST(req: Request) {
               sort_order: sortOrder,
               message_seq: `${seqNum}/${totalItems}`,
               status: 'pending',
+              is_notice: false,
             })
           }
         }
@@ -333,6 +337,7 @@ export async function POST(req: Request) {
               message_content: endNotice.content || '',
               image_path: endNotice.image_path,
               sort_order: sortOrder,
+              message_seq: null,
               status: 'pending',
               is_notice: true,
             })
