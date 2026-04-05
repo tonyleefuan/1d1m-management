@@ -5,6 +5,7 @@ const CONTACTS_FOLDER_ID = '1bb7ZabqQnC1XdC76hVAmD2fPFKX4AGUR'
 
 /**
  * Google Drive API 인증 클라이언트 생성
+ * google-sheets.ts와 동일한 인증 방식 사용
  */
 export function getDriveClient(): drive_v3.Drive {
   const credsJson = process.env.GOOGLE_CREDENTIALS
