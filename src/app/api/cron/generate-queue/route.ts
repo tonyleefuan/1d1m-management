@@ -106,32 +106,61 @@ export async function POST(req: Request) {
     }
   }
 
-  // 4. 2일 연속 미발송 구독 명시적 마킹
-  const { data: allActiveSubs } = await supabase
+  // 4. 3일 연속 실패 자동 중지
+  // 후보: 활성, recovery_mode 없음, 아직 auto-stop 안 된 구독
+  const { data: candidates } = await supabase
     .from('subscriptions')
-    .select('id, start_date, duration_days, last_sent_day, paused_days, paused_at, is_cancelled, failure_type, recovery_mode')
+    .select('id')
     .eq('is_cancelled', false)
     .is('paused_at', null)
-    .eq('failure_type', 'failed')
+    .is('recovery_mode', null)
+    .is('failure_type', null)
 
-  if (allActiveSubs?.length) {
-    for (const sub of allActiveSubs) {
-      if (sub.recovery_mode) continue // recovery 중이면 스킵
-      const computed = computeSubscription({
-        start_date: sub.start_date,
-        duration_days: sub.duration_days,
-        last_sent_day: sub.last_sent_day ?? 0,
-        paused_days: sub.paused_days ?? 0,
-        paused_at: sub.paused_at,
-        is_cancelled: sub.is_cancelled ?? false,
-      }, today)
-      if (computed.pending_days.length >= 3) {
-        // 2일 이상 연속 미발송 → 관리자 확인 필요
-        await supabase.from('subscriptions').update({
-          failure_type: 'failed',
-          failure_date: today,
-          updated_at: new Date().toISOString(),
-        }).eq('id', sub.id)
+  if (candidates?.length) {
+    const candidateIds = candidates.map(c => c.id)
+
+    // 모든 후보의 최근 send_queue 기록 한 번에 조회
+    const { data: recentQueues } = await supabase
+      .from('send_queues')
+      .select('subscription_id, send_date, status, is_notice')
+      .in('subscription_id', candidateIds)
+      .eq('is_notice', false)
+      .order('send_date', { ascending: false })
+
+    if (recentQueues?.length) {
+      // 구독별로 그룹화
+      const subQueues = new Map<string, Map<string, string[]>>()
+      for (const q of recentQueues) {
+        if (!subQueues.has(q.subscription_id)) subQueues.set(q.subscription_id, new Map())
+        const dateMap = subQueues.get(q.subscription_id)!
+        if (!dateMap.has(q.send_date)) dateMap.set(q.send_date, [])
+        dateMap.get(q.send_date)!.push(q.status)
+      }
+
+      const now = new Date().toISOString()
+      for (const [subId, dateMap] of subQueues) {
+        // 최근 3개 날짜만 확인
+        const dates = [...dateMap.keys()].sort().reverse().slice(0, 3)
+        if (dates.length < 3) continue
+
+        let consecutiveFailures = 0
+        for (const date of dates) {
+          const statuses = dateMap.get(date)!
+          if (statuses.includes('pending')) break // 판단 보류
+          if (statuses.includes('failed')) {
+            consecutiveFailures++
+          } else {
+            break // 전부 성공 — 연속 끊김
+          }
+        }
+
+        if (consecutiveFailures >= 3) {
+          await supabase.from('subscriptions').update({
+            failure_type: 'failed',
+            failure_date: today,
+            updated_at: now,
+          }).eq('id', subId)
+        }
       }
     }
   }
