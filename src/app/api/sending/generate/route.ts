@@ -99,8 +99,8 @@ export async function POST(req: Request) {
 
       if (computed.computed_status !== 'active') continue
       if (computed.pending_days.length === 0) continue
-      // 3일 이상 밀린 건 recovery_mode 없으면 스킵 (관리자 확인 필요)
-      if (sub.recovery_mode === null && computed.pending_days.length >= 3) continue
+      // 4일 이상 밀린 건 recovery_mode 없으면 스킵 (관리자 확인 필요)
+      if (sub.recovery_mode === null && computed.pending_days.length >= 4) continue
 
       let daysToSend: number[]
       if (sub.recovery_mode === 'bulk') {
@@ -108,8 +108,8 @@ export async function POST(req: Request) {
       } else if (sub.recovery_mode === 'sequential') {
         daysToSend = [(sub.last_sent_day ?? 0) + 1]
       } else {
-        // 기본: 최대 2일치 (실패 재발송 + 오늘 메시지)
-        daysToSend = computed.pending_days.slice(0, 2)
+        // 기본: 최대 3일치 (실패 재발송 포함)
+        daysToSend = computed.pending_days.slice(0, 3)
       }
 
       activeSubs.push({ ...sub, daysToSend })
