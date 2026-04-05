@@ -18,6 +18,9 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog'
 import type { Order, OrderItem, Product, Customer } from '@/lib/types'
 
 interface UploadPreviewItem {
@@ -175,6 +178,7 @@ function UploadPreview({
   showError: (msg: string) => void
 }) {
   const [saving, setSaving] = useState(false)
+  const [confirmResult, setConfirmResult] = useState<{ orders: number; items: number; subs: number } | null>(null)
 
   const handleConfirm = async () => {
     setSaving(true)
@@ -190,11 +194,7 @@ function UploadPreview({
         return
       }
       const d = await res.json()
-      showSuccess(`저장 완료! 주문 ${d.saved_orders}건, 품목 ${d.saved_items}건, 구독 ${d.saved_subscriptions}건 생성`)
-
-      // 연락처 동기화는 confirm API에서 자동 처리됨 (CSV → Google Drive 업로드)
-
-      onConfirm()
+      setConfirmResult({ orders: d.saved_orders, items: d.saved_items, subs: d.saved_subscriptions })
     } catch {
       showError('서버 연결 실패')
     } finally {
@@ -204,6 +204,43 @@ function UploadPreview({
 
   return (
     <div className="space-y-4">
+      {/* 등록 완료 다이얼로그 */}
+      <Dialog open={!!confirmResult} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>주문 등록 완료 ✅</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-2xl font-bold">{confirmResult?.orders || 0}</p>
+                <p className="text-xs text-muted-foreground">주문</p>
+              </div>
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-2xl font-bold">{confirmResult?.items || 0}</p>
+                <p className="text-xs text-muted-foreground">품목</p>
+              </div>
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-2xl font-bold">{confirmResult?.subs || 0}</p>
+                <p className="text-xs text-muted-foreground">구독</p>
+              </div>
+            </div>
+            <div className="p-3 bg-muted/50 rounded-lg border">
+              <p className="text-sm font-medium">📇 구글 주소록 동기화</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                연락처 CSV가 구글 드라이브에 업로드되었습니다.<br />
+                구글 주소록에는 약 5분 뒤 자동 반영됩니다.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => { setConfirmResult(null); onConfirm() }} className="w-full">
+              확인
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Statistics */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <MetricCard title="총 건수" value={String(result.total)} icon={Package} />
