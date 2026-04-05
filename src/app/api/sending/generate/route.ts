@@ -153,17 +153,19 @@ export async function POST(req: Request) {
     let retryNoticeContent: string | null = null
     let retryNoticeImage: string | null = null
     if (failedSubIds.length > 0) {
-      const { data: noticeData } = await supabase
-        .from('notice_templates')
-        .select('content, image_path')
-        .eq('notice_type', 'failure_retry_next')
-        .is('product_id', null)
-        .limit(1)
-        .maybeSingle()
-      if (noticeData) {
-        retryNoticeContent = noticeData.content
-        retryNoticeImage = noticeData.image_path
-      }
+      try {
+        const { data: noticeData } = await supabase
+          .from('notice_templates')
+          .select('content, image_path')
+          .eq('notice_type', 'failure_retry_next')
+          .is('product_id', null)
+          .limit(1)
+          .maybeSingle()
+        if (noticeData) {
+          retryNoticeContent = noticeData.content
+          retryNoticeImage = noticeData.image_path || null
+        }
+      } catch { /* 알림 템플릿 조회 실패해도 메시지 생성은 계속 */ }
     }
 
     // 4) 대기열 레코드 생성
@@ -259,17 +261,21 @@ export async function POST(req: Request) {
     for (let i = 0; i < queueRows.length; i += 500) {
       const batch = queueRows.slice(i, i + 500)
       const { error } = await supabase.from('send_queues').insert(batch)
-      if (error) return NextResponse.json({ error: `대기열 삽입 실패: ${error.message}` }, { status: 500 })
+      if (error) {
+        console.error(`[generate] 대기열 삽입 실패 batch ${i}-${i + batch.length}:`, error.message, JSON.stringify(batch[0]))
+        return NextResponse.json({ error: `대기열 삽입 실패: ${error.message}` }, { status: 500 })
+      }
       inserted += batch.length
     }
 
-    // 6) 실패 구독 failure flags 클리어
-    if (failedSubIds.length > 0) {
+    // 6) 실패 구독 failure flags 클리어 (500개씩 배치)
+    for (let i = 0; i < failedSubIds.length; i += 500) {
+      const batch = failedSubIds.slice(i, i + 500)
       await supabase.from('subscriptions').update({
         failure_type: null,
         failure_date: null,
         updated_at: new Date().toISOString(),
-      }).in('id', failedSubIds)
+      }).in('id', batch)
     }
 
     return NextResponse.json({
