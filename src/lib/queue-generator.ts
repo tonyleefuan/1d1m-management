@@ -200,6 +200,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
             image_path: msg.image_path || null,
             sort_order: sortOrder,
             status: 'pending',
+            is_notice: false,
           })
         }
 
