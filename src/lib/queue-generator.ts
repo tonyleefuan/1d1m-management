@@ -99,7 +99,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
 
     const pendingCount = computed.pending_days.length
     if (pendingCount === 0) return false
-    if (sub.recovery_mode === null && pendingCount >= 3) return false
+    if (sub.recovery_mode === null && pendingCount >= 4) return false
 
     return true
   })
@@ -136,7 +136,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
       } else if (sub.recovery_mode === 'sequential') {
         daysToSend = [(sub.last_sent_day ?? 0) + 1]
       } else {
-        daysToSend = computed.pending_days.slice(0, 2)
+        daysToSend = computed.pending_days.slice(0, 3)
       }
 
       for (const dayNum of daysToSend) {
