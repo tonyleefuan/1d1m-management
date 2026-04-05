@@ -630,19 +630,6 @@ export function SendingTab() {
     setFailureSubmitting(false)
   }
 
-  // ─── 버튼 상태 가이드 ───
-  const getActionPhase = () => {
-    if (totalSummary.total === 0) return 'generate' // 대기열 생성 필요
-    if (!lastExportAt) return 'export' // 내보내기 필요
-    // 내보내기 후 결과 수거 안 했으면
-    const exportTime = new Date(lastExportAt).getTime()
-    const importTime = lastImportAt ? new Date(lastImportAt).getTime() : 0
-    if (exportTime > importTime) return 'import' // 결과 가져오기 필요
-    if (totalSummary.failed > 0) return 'failure' // 실패 처리 필요
-    return 'done'
-  }
-  const actionPhase = getActionPhase()
-
   // ─── Helpers ───
 
   const getDeviceName = (id: string) => {
@@ -659,6 +646,18 @@ export function SendingTab() {
     }),
     { total: 0, pending: 0, sent: 0, failed: 0 },
   )
+
+  // ─── 버튼 상태 가이드 ───
+  const getActionPhase = () => {
+    if (totalSummary.total === 0) return 'generate'
+    if (totalSummary.failed > 0) return 'failure' // 실패 처리 우선
+    if (!lastExportAt) return 'export'
+    const exportTime = new Date(lastExportAt).getTime()
+    const importTime = lastImportAt ? new Date(lastImportAt).getTime() : 0
+    if (exportTime > importTime) return 'import'
+    return 'done'
+  }
+  const actionPhase = getActionPhase()
 
   const displaySummary = selectedDevice ? (summary[selectedDevice] || { total: 0, pending: 0, sent: 0, failed: 0 }) : totalSummary
 
@@ -954,7 +953,7 @@ export function SendingTab() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-6 px-2 text-xs text-primary"
+                        className={cn('h-6 px-2 text-xs text-primary', actionPhase === 'failure' && 'animate-pulse font-medium')}
                         onClick={(e) => {
                           e.stopPropagation()
                           setFailureModalDevice(d.id)
@@ -1159,7 +1158,7 @@ export function SendingTab() {
       </Card>
 
       {/* 실패 처리 모달 */}
-      <Dialog open={!!failureModalDevice} onOpenChange={() => setFailureModalDevice(null)}>
+      <Dialog open={!!failureModalDevice} onOpenChange={() => { setFailureModalDevice(null); setFailureAction('retry_next') }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>

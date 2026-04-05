@@ -157,6 +157,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
               image_path: startNotice.image_path || null,
               sort_order: sortOrder,
               status: 'pending',
+              is_notice: true,
             })
           }
         }
@@ -195,6 +196,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
               image_path: endNotice.image_path || null,
               sort_order: sortOrder,
               status: 'pending',
+              is_notice: true,
             })
           }
         }

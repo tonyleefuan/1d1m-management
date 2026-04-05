@@ -101,7 +101,7 @@ async function handleRetryNow(
 
   const sheetRows: string[][] = []
   for (const q of failedQueues) {
-    // Row 1: 알림 메시지 (텍스트만, 이미지 없음, 예약시간 없음)
+    // Row 1: 알림 메시지 (queue_id 비워서 import 시 skip)
     if (noticeContent) {
       sheetRows.push([
         q.kakao_friend_name || '',
@@ -110,7 +110,7 @@ async function handleRetryNow(
         '',  // 예약시간 없음
         '',  // 처리결과
         '',  // 처리일시
-        q.id,
+        '',  // queue_id 비움 — import 시 무시됨
       ])
     }
 
@@ -126,8 +126,18 @@ async function handleRetryNow(
     ])
   }
 
-  if (sheetRows.length > 0) {
-    await appendSheetData(device.phone_number, sheetRows)
+  // 시트 쓰기 실패 시 DB 롤백
+  try {
+    if (sheetRows.length > 0) {
+      await appendSheetData(device.phone_number, sheetRows)
+    }
+  } catch (sheetErr: any) {
+    // DB를 failed로 되돌림
+    await supabase
+      .from('send_queues')
+      .update({ status: 'failed', updated_at: now })
+      .in('id', queueIds)
+    throw new Error(`구글시트 추가 실패: ${sheetErr.message}`)
   }
 
   return NextResponse.json({ ok: true, action: 'retry_now', count: failedQueues.length })
@@ -184,21 +194,9 @@ async function handleRetryShift(failedQueues: any[], now: string) {
 
     if (subErr) throw new Error(`구독 상태 클리어 실패: ${subErr.message}`)
 
-    // 각 구독의 duration_days를 1 증가
+    // 각 구독의 duration_days를 원자적으로 1 증가
     for (const subId of subIds) {
-      const { data: sub, error: fetchErr } = await supabase
-        .from('subscriptions')
-        .select('duration_days')
-        .eq('id', subId)
-        .single()
-
-      if (fetchErr || !sub) continue
-
-      const { error: durErr } = await supabase
-        .from('subscriptions')
-        .update({ duration_days: sub.duration_days + 1, updated_at: now })
-        .eq('id', subId)
-
+      const { error: durErr } = await supabase.rpc('increment_duration_days', { sub_id: subId })
       if (durErr) throw new Error(`구독 기간 연장 실패 (${subId}): ${durErr.message}`)
     }
   }
@@ -238,7 +236,8 @@ async function handleSkip(failedQueues: any[], now: string) {
       .eq('id', subId)
       .single()
 
-    if (fetchErr || !sub) continue
+    if (fetchErr) throw new Error(`구독 조회 실패 (${subId}): ${fetchErr.message}`)
+    if (!sub) continue
 
     const currentLastSent = sub.last_sent_day ?? 0
 
@@ -266,10 +265,11 @@ async function handleSkip(failedQueues: any[], now: string) {
       if (subErr) throw new Error(`구독 last_sent_day 업데이트 실패 (${subId}): ${subErr.message}`)
     } else {
       // day가 연속이 아니더라도 failure 상태는 클리어
-      await supabase
+      const { error: clearErr } = await supabase
         .from('subscriptions')
         .update({ failure_type: null, failure_date: null, updated_at: now })
         .eq('id', subId)
+      if (clearErr) throw new Error(`구독 failure 상태 클리어 실패 (${subId}): ${clearErr.message}`)
     }
   }
 
