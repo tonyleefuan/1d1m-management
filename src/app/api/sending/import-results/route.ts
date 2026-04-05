@@ -77,38 +77,41 @@ async function streamImport(date: string) {
         const updateMap = new Map<string, { id: string; status: 'sent' | 'failed'; sent_at: string | null }>()
         let skipped = 0
 
-        // PC별로 시트 읽기 + 진행 상황 전송
-        for (let i = 0; i < devices.length; i++) {
-          const device = devices[i]
-          const deviceLabel = device.name || device.phone_number
+        // PC별로 시트 병렬 읽기 + 진행 상황 전송
+        const PARALLEL_BATCH = 5 // 동시 5개씩
+        for (let batch = 0; batch < devices.length; batch += PARALLEL_BATCH) {
+          const chunk = devices.slice(batch, batch + PARALLEL_BATCH)
 
-          send({ type: 'device_start', index: i, total: devices.length, phone: device.phone_number, name: deviceLabel })
+          // 배치 내 병렬 실행
+          const promises = chunk.map(async (device, j) => {
+            const i = batch + j
+            const deviceLabel = device.name || device.phone_number
+            send({ type: 'device_start', index: i, total: devices.length, phone: device.phone_number, name: deviceLabel })
 
-          let rows: string[][]
-          try {
-            rows = await readSheetData(device.phone_number)
-          } catch (err: any) {
-            send({ type: 'device_error', index: i, phone: device.phone_number, name: deviceLabel, error: err?.message || '시트 읽기 실패' })
-            continue
-          }
-
-          let deviceRows = 0
-          if (rows.length > 1) {
-            for (let r = 1; r < rows.length; r++) {
-              const row = rows[r]
-              if (!row || row.length < 7) continue
-              const queueId = (row[6] || '').trim()
-              const resultStr = (row[4] || '').trim()
-              const resultTimeStr = (row[5] || '').trim()
-              if (!queueId) continue
-              const status = mapResultStatus(resultStr)
-              if (!status) { skipped++; continue }
-              updateMap.set(queueId, { id: queueId, status, sent_at: parseResultTime(resultTimeStr) })
-              deviceRows++
+            try {
+              const rows = await readSheetData(device.phone_number)
+              let deviceRows = 0
+              if (rows.length > 1) {
+                for (let r = 1; r < rows.length; r++) {
+                  const row = rows[r]
+                  if (!row || row.length < 7) continue
+                  const queueId = (row[6] || '').trim()
+                  const resultStr = (row[4] || '').trim()
+                  const resultTimeStr = (row[5] || '').trim()
+                  if (!queueId) continue
+                  const status = mapResultStatus(resultStr)
+                  if (!status) { skipped++; continue }
+                  updateMap.set(queueId, { id: queueId, status, sent_at: parseResultTime(resultTimeStr) })
+                  deviceRows++
+                }
+              }
+              send({ type: 'device_done', index: i, phone: device.phone_number, name: deviceLabel, rows: deviceRows })
+            } catch (err: any) {
+              send({ type: 'device_error', index: i, phone: device.phone_number, name: deviceLabel, error: err?.message || '시트 읽기 실패' })
             }
-          }
+          })
 
-          send({ type: 'device_done', index: i, phone: device.phone_number, name: deviceLabel, rows: deviceRows })
+          await Promise.allSettled(promises)
         }
 
         // DB 업데이트
@@ -122,25 +125,21 @@ async function streamImport(date: string) {
           const sentUpdates = updates.filter(u => u.status === 'sent')
           const failedUpdates = updates.filter(u => u.status === 'failed')
 
-          for (const item of sentUpdates) {
-            const { data: updated } = await supabase
-              .from('send_queues')
-              .update({ status: 'sent', sent_at: item.sent_at })
-              .eq('id', item.id)
-              .eq('status', 'pending')
-              .select('id')
-            if (updated && updated.length > 0) sentCount++
+          // RPC 배치 업데이트 (건별 루프 대신 SQL 함수 한 번 호출)
+          const { data: rpcResult, error: rpcErr } = await supabase.rpc('batch_update_queue_results', {
+            p_sent_ids: sentUpdates.map(u => u.id),
+            p_sent_times: sentUpdates.map(u => u.sent_at),
+            p_failed_ids: failedUpdates.map(u => u.id),
+            p_failed_times: failedUpdates.map(u => u.sent_at),
+          })
+
+          if (rpcErr) throw new Error(`배치 업데이트 실패: ${rpcErr.message}`)
+          if (rpcResult && rpcResult.length > 0) {
+            sentCount = rpcResult[0].sent_count ?? 0
+            failedCount = rpcResult[0].failed_count ?? 0
           }
 
-          for (const item of failedUpdates) {
-            const { data: updated } = await supabase
-              .from('send_queues')
-              .update({ status: 'failed', sent_at: item.sent_at, error_message: '수동 발송 실패' })
-              .eq('id', item.id)
-              .eq('status', 'pending')
-              .select('id')
-            if (updated && updated.length > 0) failedCount++
-          }
+          send({ type: 'db_update_done', sent: sentCount, failed: failedCount })
 
           // 구독 상태 업데이트
           await updateSubscriptionStatuses(updates, date)
@@ -219,26 +218,17 @@ async function batchImport(date: string) {
     const sentUpdates = updates.filter(u => u.status === 'sent')
     const failedUpdates = updates.filter(u => u.status === 'failed')
 
-    for (const item of sentUpdates) {
-      const { error, data: updated } = await supabase
-        .from('send_queues')
-        .update({ status: 'sent', sent_at: item.sent_at })
-        .eq('id', item.id)
-        .eq('status', 'pending')
-        .select('id')
-      if (error) throw new Error(`대기열 업데이트 실패 (${item.id}): ${error.message}`)
-      if (updated && updated.length > 0) sentCount++
-    }
-
-    for (const item of failedUpdates) {
-      const { error, data: updated } = await supabase
-        .from('send_queues')
-        .update({ status: 'failed', sent_at: item.sent_at, error_message: '수동 발송 실패' })
-        .eq('id', item.id)
-        .eq('status', 'pending')
-        .select('id')
-      if (error) throw new Error(`대기열 업데이트 실패 (${item.id}): ${error.message}`)
-      if (updated && updated.length > 0) failedCount++
+    // RPC 배치 업데이트
+    const { data: rpcResult, error: rpcErr } = await supabase.rpc('batch_update_queue_results', {
+      p_sent_ids: sentUpdates.map(u => u.id),
+      p_sent_times: sentUpdates.map(u => u.sent_at),
+      p_failed_ids: failedUpdates.map(u => u.id),
+      p_failed_times: failedUpdates.map(u => u.sent_at),
+    })
+    if (rpcErr) throw new Error(`배치 업데이트 실패: ${rpcErr.message}`)
+    if (rpcResult && rpcResult.length > 0) {
+      sentCount = rpcResult[0].sent_count ?? 0
+      failedCount = rpcResult[0].failed_count ?? 0
     }
 
     await updateSubscriptionStatuses(updates, date)
