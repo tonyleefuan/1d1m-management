@@ -4,6 +4,8 @@ import { todayKST, computeSubscription } from '@/lib/day'
 import { generateQueueForDevice } from '@/lib/queue-generator'
 import { notifyQueueGenerated } from '@/lib/slack'
 
+export const maxDuration = 120
+
 export async function POST(req: Request) {
   // Vercel Cron or admin auth
   const cronSecret = req.headers.get('authorization')
@@ -119,15 +121,22 @@ export async function POST(req: Request) {
   if (candidates?.length) {
     const candidateIds = candidates.map(c => c.id)
 
-    // 모든 후보의 최근 send_queue 기록 한 번에 조회
-    const { data: recentQueues } = await supabase
-      .from('send_queues')
-      .select('subscription_id, send_date, status, is_notice')
-      .in('subscription_id', candidateIds)
-      .eq('is_notice', false)
-      .order('send_date', { ascending: false })
+    // 모든 후보의 최근 3일 send_queue 기록 조회 (배치 500개씩)
+    const threeDaysAgo = (() => { const d = new Date(); d.setDate(d.getDate() - 4); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
+    const recentQueues: any[] = []
+    for (let i = 0; i < candidateIds.length; i += 500) {
+      const batch = candidateIds.slice(i, i + 500)
+      const { data } = await supabase
+        .from('send_queues')
+        .select('subscription_id, send_date, status, is_notice')
+        .in('subscription_id', batch)
+        .eq('is_notice', false)
+        .gte('send_date', threeDaysAgo)
+        .order('send_date', { ascending: false })
+      if (data) recentQueues.push(...data)
+    }
 
-    if (recentQueues?.length) {
+    if (recentQueues.length > 0) {
       // 구독별로 그룹화
       const subQueues = new Map<string, Map<string, string[]>>()
       for (const q of recentQueues) {
