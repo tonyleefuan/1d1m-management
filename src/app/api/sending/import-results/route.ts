@@ -33,11 +33,145 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  try {
-    const body = await req.json().catch(() => ({}))
-    const date = body.date || todayKST()
+  const body = await req.json().catch(() => ({}))
+  const date = body.date || todayKST()
 
-    // --- 활성 디바이스 조회 ---
+  // SSE 스트리밍 여부
+  const useStream = body.stream === true
+
+  if (useStream) {
+    return streamImport(date)
+  }
+
+  // 기존 방식 (하위 호환)
+  return batchImport(date)
+}
+
+// ─── SSE 스트리밍 방식 ─────────────────────────────────────
+
+async function streamImport(date: string) {
+  const encoder = new TextEncoder()
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: any) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+      }
+
+      try {
+        // 활성 디바이스 조회
+        const { data: devices, error: devErr } = await supabase
+          .from('send_devices')
+          .select('id, phone_number, name, is_active')
+          .eq('is_active', true)
+
+        if (devErr) throw new Error(`디바이스 조회 실패: ${devErr.message}`)
+        if (!devices?.length) {
+          send({ type: 'complete', processed: 0, sent: 0, failed: 0, skipped: 0, message: '활성 디바이스가 없습니다' })
+          controller.close()
+          return
+        }
+
+        send({ type: 'start', totalDevices: devices.length })
+
+        const updateMap = new Map<string, { id: string; status: 'sent' | 'failed'; sent_at: string | null }>()
+        let skipped = 0
+
+        // PC별로 시트 읽기 + 진행 상황 전송
+        for (let i = 0; i < devices.length; i++) {
+          const device = devices[i]
+          const deviceLabel = device.name || device.phone_number
+
+          send({ type: 'device_start', index: i, total: devices.length, phone: device.phone_number, name: deviceLabel })
+
+          let rows: string[][]
+          try {
+            rows = await readSheetData(device.phone_number)
+          } catch (err: any) {
+            send({ type: 'device_error', index: i, phone: device.phone_number, name: deviceLabel, error: err?.message || '시트 읽기 실패' })
+            continue
+          }
+
+          let deviceRows = 0
+          if (rows.length > 1) {
+            for (let r = 1; r < rows.length; r++) {
+              const row = rows[r]
+              if (!row || row.length < 7) continue
+              const queueId = (row[6] || '').trim()
+              const resultStr = (row[4] || '').trim()
+              const resultTimeStr = (row[5] || '').trim()
+              if (!queueId) continue
+              const status = mapResultStatus(resultStr)
+              if (!status) { skipped++; continue }
+              updateMap.set(queueId, { id: queueId, status, sent_at: parseResultTime(resultTimeStr) })
+              deviceRows++
+            }
+          }
+
+          send({ type: 'device_done', index: i, phone: device.phone_number, name: deviceLabel, rows: deviceRows })
+        }
+
+        // DB 업데이트
+        const updates = [...updateMap.values()]
+        send({ type: 'db_update_start', total: updates.length })
+
+        let sentCount = 0
+        let failedCount = 0
+
+        if (updates.length > 0) {
+          const sentUpdates = updates.filter(u => u.status === 'sent')
+          const failedUpdates = updates.filter(u => u.status === 'failed')
+
+          for (const item of sentUpdates) {
+            const { data: updated } = await supabase
+              .from('send_queues')
+              .update({ status: 'sent', sent_at: item.sent_at })
+              .eq('id', item.id)
+              .eq('status', 'pending')
+              .select('id')
+            if (updated && updated.length > 0) sentCount++
+          }
+
+          for (const item of failedUpdates) {
+            const { data: updated } = await supabase
+              .from('send_queues')
+              .update({ status: 'failed', sent_at: item.sent_at, error_message: '수동 발송 실패' })
+              .eq('id', item.id)
+              .eq('status', 'pending')
+              .select('id')
+            if (updated && updated.length > 0) failedCount++
+          }
+
+          // 구독 상태 업데이트
+          await updateSubscriptionStatuses(updates, date)
+        }
+
+        // app_settings 업데이트
+        const now = new Date().toISOString()
+        await supabase.from('app_settings').upsert({ key: 'last_sheet_import_at', value: JSON.stringify(now), updated_at: now })
+
+        send({ type: 'complete', processed: sentCount + failedCount, sent: sentCount, failed: failedCount, skipped })
+      } catch (err: any) {
+        send({ type: 'error', message: err.message || '결과 가져오기 중 오류가 발생했습니다' })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  })
+}
+
+// ─── 기존 배치 방식 (하위 호환) ──────────────────────────────
+
+async function batchImport(date: string) {
+  try {
     const { data: devices, error: devErr } = await supabase
       .from('send_devices')
       .select('id, phone_number, is_active')
@@ -48,11 +182,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, processed: 0, sent: 0, failed: 0, skipped: 0, message: '활성 디바이스가 없습니다' })
     }
 
-    // --- 시트에서 결과 읽기 + 중복 제거 ---
     const updateMap = new Map<string, { id: string; status: 'sent' | 'failed'; sent_at: string | null }>()
     let skipped = 0
-
     const sheetErrors: string[] = []
+
     for (const device of devices) {
       let rows: string[][]
       try {
@@ -61,26 +194,17 @@ export async function POST(req: Request) {
         sheetErrors.push(`${device.phone_number}: ${err?.message || '시트 읽기 실패'}`)
         continue
       }
-
       if (rows.length <= 1) continue
 
       for (let i = 1; i < rows.length; i++) {
         const row = rows[i]
         if (!row || row.length < 7) continue
-
         const queueId = (row[6] || '').trim()
         const resultStr = (row[4] || '').trim()
         const resultTimeStr = (row[5] || '').trim()
-
         if (!queueId) continue
-
         const status = mapResultStatus(resultStr)
-        if (!status) {
-          skipped++
-          continue
-        }
-
-        // 중복 queue_id: 마지막 것을 사용 (이어 붙이기로 같은 ID가 여러 번 나올 수 있음)
+        if (!status) { skipped++; continue }
         updateMap.set(queueId, { id: queueId, status, sent_at: parseResultTime(resultTimeStr) })
       }
     }
@@ -90,145 +214,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, processed: 0, sent: 0, failed: 0, skipped })
     }
 
-    // --- send_queues 배치 업데이트 (upsert로 N+1 방지) ---
     let sentCount = 0
     let failedCount = 0
-
-    // status별로 그룹화하여 배치 처리
     const sentUpdates = updates.filter(u => u.status === 'sent')
     const failedUpdates = updates.filter(u => u.status === 'failed')
 
-    // 성공 건: sent_at이 각각 다르므로 개별 처리하되 pending인 것만
-    for (let i = 0; i < sentUpdates.length; i += 500) {
-      const batch = sentUpdates.slice(i, i + 500)
-      for (const item of batch) {
-        const { error, data: updated } = await supabase
-          .from('send_queues')
-          .update({ status: 'sent', sent_at: item.sent_at })
-          .eq('id', item.id)
-          .eq('status', 'pending')  // 멱등성: 이미 처리된 행은 건너뜀
-          .select('id')
-
-        if (error) throw new Error(`대기열 업데이트 실패 (${item.id}): ${error.message}`)
-        if (updated && updated.length > 0) sentCount++
-      }
+    for (const item of sentUpdates) {
+      const { error, data: updated } = await supabase
+        .from('send_queues')
+        .update({ status: 'sent', sent_at: item.sent_at })
+        .eq('id', item.id)
+        .eq('status', 'pending')
+        .select('id')
+      if (error) throw new Error(`대기열 업데이트 실패 (${item.id}): ${error.message}`)
+      if (updated && updated.length > 0) sentCount++
     }
 
-    // 실패 건
-    for (let i = 0; i < failedUpdates.length; i += 500) {
-      const batch = failedUpdates.slice(i, i + 500)
-      for (const item of batch) {
-        const { error, data: updated } = await supabase
-          .from('send_queues')
-          .update({ status: 'failed', sent_at: item.sent_at, error_message: '수동 발송 실패' })
-          .eq('id', item.id)
-          .eq('status', 'pending')  // 멱등성
-          .select('id')
-
-        if (error) throw new Error(`대기열 업데이트 실패 (${item.id}): ${error.message}`)
-        if (updated && updated.length > 0) failedCount++
-      }
+    for (const item of failedUpdates) {
+      const { error, data: updated } = await supabase
+        .from('send_queues')
+        .update({ status: 'failed', sent_at: item.sent_at, error_message: '수동 발송 실패' })
+        .eq('id', item.id)
+        .eq('status', 'pending')
+        .select('id')
+      if (error) throw new Error(`대기열 업데이트 실패 (${item.id}): ${error.message}`)
+      if (updated && updated.length > 0) failedCount++
     }
 
-    // --- 구독 상태 업데이트 (N+1 방지: 한 번에 조회) ---
-    const allUpdateIds = updates.map(u => u.id)
+    await updateSubscriptionStatuses(updates, date)
 
-    // 1) 업데이트된 큐의 subscription 정보 조회 (한 번에)
-    const { data: updatedQueues, error: fetchErr } = await supabase
-      .from('send_queues')
-      .select('id, subscription_id, day_number, status, send_date')
-      .in('id', allUpdateIds)
-
-    if (fetchErr) throw new Error(`업데이트된 큐 조회 실패: ${fetchErr.message}`)
-
-    // 2) subscription_id + day_number 그룹화
-    const subDayGroups = new Map<string, { subscriptionId: string; dayNumber: number; sendDate: string }>()
-    for (const q of updatedQueues || []) {
-      if (!q.subscription_id || !q.day_number) continue
-      const key = `${q.subscription_id}:${q.day_number}`
-      if (!subDayGroups.has(key)) {
-        subDayGroups.set(key, {
-          subscriptionId: q.subscription_id,
-          dayNumber: q.day_number,
-          sendDate: q.send_date,
-        })
-      }
-    }
-
-    if (subDayGroups.size === 0) {
-      const now = new Date().toISOString()
-      await supabase.from('app_settings').upsert({ key: 'last_sheet_import_at', value: JSON.stringify(now), updated_at: now })
-      return NextResponse.json({ ok: true, processed: sentCount + failedCount, sent: sentCount, failed: failedCount, skipped })
-    }
-
-    // 3) 영향받은 subscription의 전체 큐 상태를 한 번에 조회
-    const affectedSubIds = [...new Set([...subDayGroups.values()].map(g => g.subscriptionId))]
-    const { data: allSubQueues } = await supabase
-      .from('send_queues')
-      .select('subscription_id, day_number, send_date, status')
-      .in('subscription_id', affectedSubIds)
-      .eq('send_date', date)
-
-    // 4) subscription+day별 전체 상태 맵 구성
-    const fullStatusMap = new Map<string, string[]>()
-    for (const q of allSubQueues || []) {
-      if (!q.day_number) continue
-      const key = `${q.subscription_id}:${q.day_number}`
-      const arr = fullStatusMap.get(key) || []
-      arr.push(q.status)
-      fullStatusMap.set(key, arr)
-    }
-
-    // 5) 영향받은 subscription의 last_sent_day를 한 번에 조회
-    const { data: subData } = await supabase
-      .from('subscriptions')
-      .select('id, last_sent_day')
-      .in('id', affectedSubIds)
-
-    const lastSentDayMap = new Map<string, number>()
-    for (const s of subData || []) {
-      lastSentDayMap.set(s.id, s.last_sent_day ?? 0)
-    }
-
-    // 6) 구독 상태 업데이트 (DB 조회 없이 인메모리 판단)
     const now = new Date().toISOString()
-
-    // dayNumber 오름차순 정렬 (Day 2 → Day 3 순서 보장, last_sent_day 연쇄 업데이트 위해)
-    const sortedGroups = [...subDayGroups.entries()].sort(
-      (a, b) => a[1].dayNumber - b[1].dayNumber
-    )
-
-    for (const [key, group] of sortedGroups) {
-      const allStatuses = fullStatusMap.get(key)
-      if (!allStatuses) continue
-
-      // pending이 남아있으면 판단 보류
-      if (allStatuses.includes('pending')) continue
-
-      // 하나라도 failed면 실패 처리
-      if (allStatuses.includes('failed')) {
-        await supabase
-          .from('subscriptions')
-          .update({ failure_type: 'failed', failure_date: group.sendDate, updated_at: now })
-          .eq('id', group.subscriptionId)
-        continue
-      }
-
-      // 모두 sent면 성공 처리
-      if (allStatuses.every(s => s === 'sent')) {
-        const lastSentDay = lastSentDayMap.get(group.subscriptionId) ?? 0
-        if (group.dayNumber === lastSentDay + 1) {
-          await supabase
-            .from('subscriptions')
-            .update({ last_sent_day: group.dayNumber, failure_type: null, failure_date: null, updated_at: now })
-            .eq('id', group.subscriptionId)
-          // 인메모리 맵도 업데이트 (같은 구독의 다른 Day 처리 시 필요)
-          lastSentDayMap.set(group.subscriptionId, group.dayNumber)
-        }
-      }
-    }
-
-    // --- app_settings 업데이트 ---
     await supabase.from('app_settings').upsert({ key: 'last_sheet_import_at', value: JSON.stringify(now), updated_at: now })
 
     return NextResponse.json({
@@ -241,5 +256,86 @@ export async function POST(req: Request) {
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || '결과 가져오기 중 오류가 발생했습니다' }, { status: 500 })
+  }
+}
+
+// ─── 구독 상태 업데이트 (공통) ──────────────────────────────
+
+async function updateSubscriptionStatuses(
+  updates: { id: string; status: 'sent' | 'failed'; sent_at: string | null }[],
+  date: string
+) {
+  const allUpdateIds = updates.map(u => u.id)
+
+  const { data: updatedQueues, error: fetchErr } = await supabase
+    .from('send_queues')
+    .select('id, subscription_id, day_number, status, send_date')
+    .in('id', allUpdateIds)
+
+  if (fetchErr) throw new Error(`업데이트된 큐 조회 실패: ${fetchErr.message}`)
+
+  const subDayGroups = new Map<string, { subscriptionId: string; dayNumber: number; sendDate: string }>()
+  for (const q of updatedQueues || []) {
+    if (!q.subscription_id || !q.day_number) continue
+    const key = `${q.subscription_id}:${q.day_number}`
+    if (!subDayGroups.has(key)) {
+      subDayGroups.set(key, { subscriptionId: q.subscription_id, dayNumber: q.day_number, sendDate: q.send_date })
+    }
+  }
+
+  if (subDayGroups.size === 0) return
+
+  const affectedSubIds = [...new Set([...subDayGroups.values()].map(g => g.subscriptionId))]
+  const { data: allSubQueues } = await supabase
+    .from('send_queues')
+    .select('subscription_id, day_number, send_date, status')
+    .in('subscription_id', affectedSubIds)
+    .eq('send_date', date)
+
+  const fullStatusMap = new Map<string, string[]>()
+  for (const q of allSubQueues || []) {
+    if (!q.day_number) continue
+    const key = `${q.subscription_id}:${q.day_number}`
+    const arr = fullStatusMap.get(key) || []
+    arr.push(q.status)
+    fullStatusMap.set(key, arr)
+  }
+
+  const { data: subData } = await supabase
+    .from('subscriptions')
+    .select('id, last_sent_day')
+    .in('id', affectedSubIds)
+
+  const lastSentDayMap = new Map<string, number>()
+  for (const s of subData || []) {
+    lastSentDayMap.set(s.id, s.last_sent_day ?? 0)
+  }
+
+  const now = new Date().toISOString()
+  const sortedGroups = [...subDayGroups.entries()].sort((a, b) => a[1].dayNumber - b[1].dayNumber)
+
+  for (const [key, group] of sortedGroups) {
+    const allStatuses = fullStatusMap.get(key)
+    if (!allStatuses) continue
+    if (allStatuses.includes('pending')) continue
+
+    if (allStatuses.includes('failed')) {
+      await supabase
+        .from('subscriptions')
+        .update({ failure_type: 'failed', failure_date: group.sendDate, updated_at: now })
+        .eq('id', group.subscriptionId)
+      continue
+    }
+
+    if (allStatuses.every(s => s === 'sent')) {
+      const lastSentDay = lastSentDayMap.get(group.subscriptionId) ?? 0
+      if (group.dayNumber === lastSentDay + 1) {
+        await supabase
+          .from('subscriptions')
+          .update({ last_sent_day: group.dayNumber, failure_type: null, failure_date: null, updated_at: now })
+          .eq('id', group.subscriptionId)
+        lastSentDayMap.set(group.subscriptionId, group.dayNumber)
+      }
+    }
   }
 }

@@ -131,6 +131,12 @@ export function SendingTab() {
   const [importing, setImporting] = useState(false)
   const [lastExportAt, setLastExportAt] = useState<string | null>(null)
   const [lastImportAt, setLastImportAt] = useState<string | null>(null)
+  const [importProgress, setImportProgress] = useState<{
+    totalDevices: number
+    currentIndex: number
+    currentName: string
+    results: { phone: string; name: string; rows: number; error?: string }[]
+  } | null>(null)
 
   // ─── Fetch ───
 
@@ -533,21 +539,67 @@ export function SendingTab() {
 
   const handleImportResults = async () => {
     setImporting(true)
+    setImportProgress({ totalDevices: 0, currentIndex: 0, currentName: '준비 중...', results: [] })
     try {
       const res = await fetch('/api/sending/import-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: sendDate }),
+        body: JSON.stringify({ date: sendDate, stream: true }),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || '결과 가져오기 실패')
-      showSuccess(`결과 가져오기 완료: 성공 ${json.sent}건, 실패 ${json.failed}건, 미처리 ${json.skipped}건`)
-      setLastImportAt(new Date().toISOString())
-      fetchSummary(); fetchQueue(1)
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error || '결과 가져오기 실패')
+      }
+
+      const reader = res.body?.getReader()
+      if (!reader) throw new Error('스트림 읽기 실패')
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+
+            if (event.type === 'start') {
+              setImportProgress(prev => prev ? { ...prev, totalDevices: event.totalDevices } : prev)
+            } else if (event.type === 'device_start') {
+              setImportProgress(prev => prev ? { ...prev, currentIndex: event.index, currentName: event.name || event.phone } : prev)
+            } else if (event.type === 'device_done') {
+              setImportProgress(prev => prev ? {
+                ...prev,
+                results: [...prev.results, { phone: event.phone, name: event.name, rows: event.rows }],
+              } : prev)
+            } else if (event.type === 'device_error') {
+              setImportProgress(prev => prev ? {
+                ...prev,
+                results: [...prev.results, { phone: event.phone, name: event.name, rows: 0, error: event.error }],
+              } : prev)
+            } else if (event.type === 'complete') {
+              showSuccess(`결과 가져오기 완료: 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`)
+              setLastImportAt(new Date().toISOString())
+              fetchSummary(); fetchQueue(1)
+            } else if (event.type === 'error') {
+              showError(event.message)
+            }
+          } catch { /* 파싱 실패 무시 */ }
+        }
+      }
     } catch (err) {
       showError(err instanceof Error ? err.message : '결과 가져오기에 실패했습니다')
     }
     setImporting(false)
+    setTimeout(() => setImportProgress(null), 3000) // 3초 후 진행 상황 숨기기
   }
 
   // ─── Helpers ───
@@ -737,6 +789,44 @@ export function SendingTab() {
               <span>마지막 결과 수거: {formatTime(lastImportAt)}</span>
             </div>
           </div>
+
+          {/* 결과 가져오기 진행 상황 */}
+          {importProgress && (
+            <div className="mt-3 pt-3 border-t space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium">
+                  {importing
+                    ? `시트 읽는 중... (${importProgress.currentIndex + 1}/${importProgress.totalDevices}) ${importProgress.currentName}`
+                    : '완료'}
+                </span>
+                {importProgress.totalDevices > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    {importProgress.results.length}/{importProgress.totalDevices}
+                  </span>
+                )}
+              </div>
+              {importProgress.totalDevices > 0 && (
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-foreground rounded-full transition-all duration-300"
+                    style={{ width: `${(importProgress.results.length / importProgress.totalDevices) * 100}%` }}
+                  />
+                </div>
+              )}
+              {importProgress.results.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {importProgress.results.map((r, i) => (
+                    <span
+                      key={i}
+                      className={`text-xs px-2 py-0.5 rounded ${r.error ? 'bg-destructive/10 text-destructive' : r.rows > 0 ? 'bg-muted' : 'bg-muted text-muted-foreground'}`}
+                    >
+                      {r.name || r.phone} {r.error ? '✗' : `${r.rows}건`}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
