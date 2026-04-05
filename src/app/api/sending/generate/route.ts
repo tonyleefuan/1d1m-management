@@ -85,7 +85,7 @@ export async function POST(req: Request) {
     })
 
     // 2) 구독 필터링 + pending_days 계산 (queue-generator.ts와 동일 패턴)
-    const activeSubs: (typeof subs[0] & { daysToSend: number[] })[] = []
+    const activeSubs: (typeof subs[0] & { daysToSend: number[]; currentDay: number })[] = []
 
     for (const sub of subs) {
       const computed = computeSubscription({
@@ -112,19 +112,25 @@ export async function POST(req: Request) {
         daysToSend = computed.pending_days.slice(0, 3)
       }
 
-      activeSubs.push({ ...sub, daysToSend })
+      activeSubs.push({ ...sub, daysToSend, currentDay: computed.current_day })
     }
 
     // 3) 메시지 벌크 프리페치
     const fixedKeys = new Set<string>()
-    const realtimeProductIds = new Set<string>()
+    // realtime: product_id별 필요한 날짜 수집 (밀린 Day → 해당 날짜의 콘텐츠)
+    const realtimeDateKeys = new Set<string>() // "product_id:YYYY-MM-DD"
 
     for (const sub of activeSubs) {
       const product = sub.product as any
       for (const day of sub.daysToSend) {
         if (day < 1 || day > sub.duration_days) continue
         if (product?.message_type === 'realtime') {
-          realtimeProductIds.add(sub.product_id)
+          // Day → 실제 날짜 역산: today - (currentDay - day)
+          const daysAgo = sub.currentDay - day
+          const d = new Date(date) // UTC midnight 기준으로 날짜 연산
+          d.setDate(d.getDate() - daysAgo)
+          const sendDateForDay = d.toISOString().slice(0, 10)
+          realtimeDateKeys.add(`${sub.product_id}:${sendDateForDay}`)
         } else {
           fixedKeys.add(`${sub.product_id}:${day}`)
         }
@@ -172,17 +178,20 @@ export async function POST(req: Request) {
       }
     }
 
-    // realtime 메시지 조회
-    const realtimeMsgMap = new Map<string, { content: string; image_path: string | null }>()
-    if (realtimeProductIds.size > 0) {
+    // realtime 메시지 조회 — 밀린 Day의 해당 날짜 콘텐츠도 함께 조회
+    const realtimeMsgMap = new Map<string, { content: string; image_path: string | null }>() // key: "product_id:date"
+    if (realtimeDateKeys.size > 0) {
+      const pairs = [...realtimeDateKeys].map(k => { const [pid, d] = k.split(':'); return { pid, date: d } })
+      const uniquePids = [...new Set(pairs.map(p => p.pid))]
+      const uniqueDates = [...new Set(pairs.map(p => p.date))]
       const { data, error } = await supabase
         .from('daily_messages')
-        .select('product_id, content, image_path')
-        .in('product_id', [...realtimeProductIds])
-        .eq('send_date', date)
+        .select('product_id, send_date, content, image_path')
+        .in('product_id', uniquePids)
+        .in('send_date', uniqueDates)
         .eq('status', 'approved')
       if (error) return NextResponse.json({ error: `실시간 메시지 조회 실패: ${error.message}` }, { status: 500 })
-      data?.forEach(dm => realtimeMsgMap.set(dm.product_id, { content: dm.content, image_path: dm.image_path }))
+      data?.forEach(dm => realtimeMsgMap.set(`${dm.product_id}:${dm.send_date}`, { content: dm.content, image_path: dm.image_path }))
     }
 
     // 4) 실패 재발송 알림 템플릿 프리페치
@@ -223,6 +232,8 @@ export async function POST(req: Request) {
     let skippedNoMsg = 0
     let skippedDayRange = 0
     const failedSubIds: string[] = []
+    // 알림 중복 방지: 같은 카톡이름에 대해 한 번만 발송
+    const retryNotifiedNames = new Set<string>()
 
     for (const sub of activeSubs) {
       const product = sub.product as any
@@ -234,8 +245,9 @@ export async function POST(req: Request) {
       for (const dayNum of sub.daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) { skippedDayRange++; continue }
 
-        // 실패 재발송 알림 (첫 번째 Day 앞에만)
-        if (isFailureRetry && dayNum === sub.daysToSend[0] && retryNotice) {
+        // 실패 재발송 알림 (카톡이름당 한 번만)
+        if (isFailureRetry && dayNum === sub.daysToSend[0] && retryNotice && !retryNotifiedNames.has(kakaoName)) {
+          retryNotifiedNames.add(kakaoName)
           sortOrder++
           queueRows.push({
             subscription_id: sub.id,
@@ -276,7 +288,12 @@ export async function POST(req: Request) {
         let messages: { content: string; image_path: string | null; sort_order: number }[] = []
 
         if (product?.message_type === 'realtime') {
-          const dm = realtimeMsgMap.get(sub.product_id)
+          // 밀린 Day의 실제 날짜 계산하여 해당 날짜 콘텐츠 조회
+          const daysAgo = sub.currentDay - dayNum
+          const d = new Date(date)
+          d.setDate(d.getDate() - daysAgo)
+          const sendDateForDay = d.toISOString().slice(0, 10)
+          const dm = realtimeMsgMap.get(`${sub.product_id}:${sendDateForDay}`)
           if (dm) messages = [{ content: dm.content, image_path: dm.image_path, sort_order: 1 }]
         } else {
           const key = `${sub.product_id}:${dayNum}`

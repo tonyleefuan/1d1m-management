@@ -56,17 +56,19 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
   // Message cache
   const msgCache = new Map<string, any[]>()
 
-  async function getMessages(productId: string, messageType: string, day: number) {
-    const key = `${productId}:${day}:${messageType}`
+  async function getMessages(productId: string, messageType: string, day: number, sendDateForDay?: string) {
+    const key = `${productId}:${day}:${messageType}:${sendDateForDay || t}`
     if (msgCache.has(key)) return msgCache.get(key)!
 
     let messages: any[] = []
     if (messageType === 'realtime') {
+      // 밀린 Day는 해당 날짜의 콘텐츠를 조회 (오늘만이 아닌)
+      const targetDate = sendDateForDay || t
       const { data } = await supabase
         .from('daily_messages')
         .select('content, image_path')
         .eq('product_id', productId)
-        .eq('send_date', t)
+        .eq('send_date', targetDate)
         .limit(1)
       if (data?.length) messages = [{ content: data[0].content, image_path: data[0].image_path, sort_order: 1 }]
     } else {
@@ -116,6 +118,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
   const queueRows: any[] = []
   let sortOrder = 0
   const failedSubIds: string[] = [] // 실패 → 재발송 대상 추적
+  const retryNotifiedNames = new Set<string>() // 알림 중복 방지: 카톡이름당 1번
 
   for (const [_customerId, personSubs] of personGroups) {
     for (const sub of personSubs) {
@@ -144,8 +147,9 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
       for (const dayNum of daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) continue
 
-        // 실패 재발송 알림: 실패 구독의 첫 번째 Day 앞에 알림 삽입
-        if (isFailureRetry && dayNum === daysToSend[0]) {
+        // 실패 재발송 알림 (카톡이름당 한 번만)
+        if (isFailureRetry && dayNum === daysToSend[0] && !retryNotifiedNames.has(friendName)) {
+          retryNotifiedNames.add(friendName)
           const retryNotice = await getNoticeTemplate('failure_retry_next', sub.product_id)
           if (retryNotice) {
             sortOrder++
@@ -158,6 +162,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
               message_content: retryNotice.content,
               image_path: retryNotice.image_path || null,
               sort_order: sortOrder,
+              message_seq: null,
               status: 'pending',
               is_notice: true,
             })
@@ -178,6 +183,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
               message_content: startNotice.content,
               image_path: startNotice.image_path || null,
               sort_order: sortOrder,
+              message_seq: null,
               status: 'pending',
               is_notice: true,
             })
@@ -185,7 +191,15 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
         }
 
         const product = sub.product as any
-        const messages = await getMessages(sub.product_id, product?.message_type, dayNum)
+        // 실시간 메시지: 밀린 Day의 실제 날짜 콘텐츠 조회
+        let sendDateForDay: string | undefined
+        if (product?.message_type === 'realtime') {
+          const daysAgo = computed.current_day - dayNum
+          const d = new Date(t)
+          d.setDate(d.getDate() - daysAgo)
+          sendDateForDay = d.toISOString().slice(0, 10)
+        }
+        const messages = await getMessages(sub.product_id, product?.message_type, dayNum, sendDateForDay)
         if (!messages.length) continue
 
         for (const msg of messages) {
@@ -218,6 +232,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
               message_content: endNotice.content,
               image_path: endNotice.image_path || null,
               sort_order: sortOrder,
+              message_seq: null,
               status: 'pending',
               is_notice: true,
             })
