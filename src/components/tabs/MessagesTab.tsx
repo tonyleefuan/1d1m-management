@@ -1601,7 +1601,7 @@ function RealtimeMessagesPanel({ products }: { products: Product[] }) {
 function NoticesPanel({ products }: { products: Product[] }) {
   const [notices, setNotices] = useState<NoticeTemplate[]>([])
   const [loading, setLoading] = useState(true)
-  const [editingNotice, setEditingNotice] = useState<{ notice: NoticeTemplate | null; type: 'start' | 'end'; productId: string | null } | null>(null)
+  const [editingNotice, setEditingNotice] = useState<{ notice: NoticeTemplate | null; type: string; productId: string | null } | null>(null)
   const [content, setContent] = useState('')
   const { toast, showSuccess, showError, clearToast } = useToast()
 
@@ -1639,6 +1639,9 @@ function NoticesPanel({ products }: { products: Product[] }) {
 
   const startNotice = notices.find(n => n.notice_type === 'start' && !n.product_id)
   const endNotice = notices.find(n => n.notice_type === 'end' && !n.product_id)
+  const failureRetryNow = notices.find(n => n.notice_type === 'failure_retry_now')
+  const failureRetryNext = notices.find(n => n.notice_type === 'failure_retry_next')
+  const failureRetryShift = notices.find(n => n.notice_type === 'failure_retry_shift')
   const productNotices = notices.filter(n => n.product_id)
 
   if (loading) {
@@ -1689,6 +1692,35 @@ function NoticesPanel({ products }: { products: Product[] }) {
         </CardContent>
       </Card>
 
+      {/* 실패 안내 알림 */}
+      <Card>
+        <CardContent className="p-4">
+          <SectionHeader title="발송 실패 안내 템플릿" className="mb-3" />
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { key: 'failure_retry_now', label: '즉시 재발송', notice: failureRetryNow },
+              { key: 'failure_retry_next', label: '함께 발송', notice: failureRetryNext },
+              { key: 'failure_retry_shift', label: '밀어서 발송', notice: failureRetryShift },
+            ].map(item => (
+              <div key={item.key}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-muted-foreground">{item.label}</span>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-xs"
+                    onClick={() => { setEditingNotice({ notice: item.notice || null, type: item.key, productId: null }); setContent(item.notice?.content || '') }}
+                  >
+                    수정
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground bg-muted rounded p-2 line-clamp-3">{item.notice?.content || '미설정'}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* 상품별 오버라이드 */}
       {productNotices.length > 0 && (
         <Card>
@@ -1718,7 +1750,9 @@ function NoticesPanel({ products }: { products: Product[] }) {
         <FormDialog
           open
           onClose={() => setEditingNotice(null)}
-          title={`${editingNotice.type === 'start' ? '시작' : '종료'} 알림 ${editingNotice.notice ? '수정' : '추가'}`}
+          title={`${
+            { start: '시작', end: '종료', failure_retry_now: '즉시 재발송', failure_retry_next: '함께 발송', failure_retry_shift: '밀어서 발송' }[editingNotice.type] || editingNotice.type
+          } 알림 ${editingNotice.notice ? '수정' : '추가'}`}
           submitLabel="저장"
           validate={() => {
             if (!content.trim()) return '내용을 입력해주세요'

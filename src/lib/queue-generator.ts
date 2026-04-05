@@ -33,6 +33,26 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
   if (subErr) return { error: subErr.message }
   if (!subs?.length) return { data: [], generated: true }
 
+  // Notice template cache (fetched once, keyed by notice_type)
+  const noticeCache = new Map<string, any[]>()
+
+  async function getNoticeTemplate(noticeType: string, productId: string): Promise<{ content: string; image_path: string | null } | null> {
+    if (!noticeCache.has(noticeType)) {
+      const { data } = await supabase
+        .from('notice_templates')
+        .select('product_id, content, image_path')
+        .eq('notice_type', noticeType)
+      noticeCache.set(noticeType, data || [])
+    }
+    const templates = noticeCache.get(noticeType)!
+    // Product-specific takes priority over generic (product_id IS NULL)
+    const specific = templates.find(t => t.product_id === productId)
+    if (specific) return { content: specific.content, image_path: specific.image_path }
+    const generic = templates.find(t => t.product_id === null)
+    if (generic) return { content: generic.content, image_path: generic.image_path }
+    return null
+  }
+
   // Message cache
   const msgCache = new Map<string, any[]>()
 
@@ -121,6 +141,26 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
 
       for (const dayNum of daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) continue
+
+        // Start notice: insert before Day 1 message
+        if (dayNum === 1) {
+          const startNotice = await getNoticeTemplate('start', sub.product_id)
+          if (startNotice) {
+            sortOrder++
+            queueRows.push({
+              subscription_id: sub.id,
+              device_id: deviceId,
+              send_date: t,
+              day_number: 0,
+              kakao_friend_name: friendName,
+              message_content: startNotice.content,
+              image_path: startNotice.image_path || null,
+              sort_order: sortOrder,
+              status: 'pending',
+            })
+          }
+        }
+
         const product = sub.product as any
         const messages = await getMessages(sub.product_id, product?.message_type, dayNum)
         if (!messages.length) continue
@@ -138,6 +178,25 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
             sort_order: sortOrder,
             status: 'pending',
           })
+        }
+
+        // End notice: insert after last day message
+        if (dayNum === sub.duration_days) {
+          const endNotice = await getNoticeTemplate('end', sub.product_id)
+          if (endNotice) {
+            sortOrder++
+            queueRows.push({
+              subscription_id: sub.id,
+              device_id: deviceId,
+              send_date: t,
+              day_number: sub.duration_days + 1,
+              kakao_friend_name: friendName,
+              message_content: endNotice.content,
+              image_path: endNotice.image_path || null,
+              sort_order: sortOrder,
+              status: 'pending',
+            })
+          }
         }
       }
     }

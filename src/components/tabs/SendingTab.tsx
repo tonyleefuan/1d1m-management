@@ -15,13 +15,16 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog'
 import { FilterBar } from '@/components/ui/filter-bar'
 import { Spinner } from '@/components/ui/spinner'
 import { SkeletonTable } from '@/components/ui/skeleton'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/lib/use-toast'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Radio, RefreshCw, Upload, Download, Search } from 'lucide-react'
+import { Radio, RefreshCw, Upload, Download, Search, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────
@@ -137,6 +140,11 @@ export function SendingTab() {
     currentName: string
     results: { phone: string; name: string; rows: number; error?: string }[]
   } | null>(null)
+
+  // 실패 처리
+  const [failureModalDevice, setFailureModalDevice] = useState<string | null>(null)
+  const [failureAction, setFailureAction] = useState<'retry_now' | 'retry_next' | 'retry_shift' | 'skip'>('retry_next')
+  const [failureSubmitting, setFailureSubmitting] = useState(false)
 
   // ─── Fetch ───
 
@@ -602,6 +610,39 @@ export function SendingTab() {
     setTimeout(() => setImportProgress(null), 3000) // 3초 후 진행 상황 숨기기
   }
 
+  const handleFailureAction = async () => {
+    if (!failureModalDevice) return
+    setFailureSubmitting(true)
+    try {
+      const res = await fetch('/api/sending/handle-failures', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: failureModalDevice, sendDate, action: failureAction }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || '처리 실패')
+      showSuccess(`실패 건 처리 완료: ${json.count}건`)
+      setFailureModalDevice(null)
+      fetchSummary(); fetchQueue(1)
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '실패 건 처리에 실패했습니다')
+    }
+    setFailureSubmitting(false)
+  }
+
+  // ─── 버튼 상태 가이드 ───
+  const getActionPhase = () => {
+    if (totalSummary.total === 0) return 'generate' // 대기열 생성 필요
+    if (!lastExportAt) return 'export' // 내보내기 필요
+    // 내보내기 후 결과 수거 안 했으면
+    const exportTime = new Date(lastExportAt).getTime()
+    const importTime = lastImportAt ? new Date(lastImportAt).getTime() : 0
+    if (exportTime > importTime) return 'import' // 결과 가져오기 필요
+    if (totalSummary.failed > 0) return 'failure' // 실패 처리 필요
+    return 'done'
+  }
+  const actionPhase = getActionPhase()
+
   // ─── Helpers ───
 
   const getDeviceName = (id: string) => {
@@ -725,7 +766,12 @@ export function SendingTab() {
               {generating && generatingProgress && (
                 <span className="text-sm font-medium text-primary animate-pulse">{generatingProgress}</span>
               )}
-              <Button size="sm" onClick={generateQueue} disabled={generating} className="h-8">
+              <Button
+                size="sm"
+                onClick={generateQueue}
+                disabled={generating}
+                className={cn('h-8', actionPhase === 'generate' && 'bg-primary text-primary-foreground animate-pulse')}
+              >
                 {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
                 대기열 생성
               </Button>
@@ -743,9 +789,12 @@ export function SendingTab() {
           <div className="flex flex-wrap items-center gap-4">
             <Button
               size="sm"
-              onClick={handleExportSheet}
-              disabled={exporting || totalSummary.total === 0}
-              className="h-8"
+              onClick={() => {
+                if (totalSummary.total === 0) { showError('먼저 대기열을 생성해 주세요.'); return }
+                handleExportSheet()
+              }}
+              disabled={exporting}
+              className={cn('h-8', actionPhase === 'export' && 'bg-primary text-primary-foreground animate-pulse')}
             >
               {exporting ? <Spinner size="xs" className="mr-1" /> : <Upload className="mr-1 h-3 w-3" />}
               구글시트 내보내기
@@ -768,9 +817,13 @@ export function SendingTab() {
             <Button
               size="sm"
               variant="outline"
-              onClick={handleImportResults}
-              disabled={importing || totalSummary.total === 0}
-              className="h-8"
+              onClick={() => {
+                if (totalSummary.total === 0) { showError('먼저 대기열을 생성해 주세요.'); return }
+                if (!lastExportAt) { showError('먼저 구글시트 내보내기를 해주세요.'); return }
+                handleImportResults()
+              }}
+              disabled={importing}
+              className={cn('h-8', actionPhase === 'import' && 'bg-primary text-primary-foreground animate-pulse')}
             >
               {importing ? <Spinner size="xs" className="mr-1" /> : <Download className="mr-1 h-3 w-3" />}
               결과 가져오기
@@ -869,26 +922,47 @@ export function SendingTab() {
 
       {/* PC별 요약 카드 */}
       {devices.filter(d => d.is_active).length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {devices.filter(d => d.is_active).map((d) => {
             const s = summary[d.id] || { total: 0, pending: 0, sent: 0, failed: 0 }
             return (
               <Card key={d.id} className="cursor-pointer hover:border-foreground/30 transition-colors border-l-4" style={{ borderLeftColor: d.color || undefined }} onClick={() => { setSelectedDevice(d.id); setCurrentPage(1) }}>
-                <CardContent className="p-3">
-                  <div className="text-xs text-muted-foreground mb-1 flex items-center justify-between">
-                    <span>{d.phone_number}</span>
+                <CardContent className="p-4">
+                  <div className="text-sm text-muted-foreground mb-2 flex items-center justify-between">
+                    <span className="font-medium">{d.phone_number}</span>
+                    {d.name && <span className="text-xs">{d.name}</span>}
                   </div>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-xs">대기 <span className="font-semibold">{s.pending}</span></span>
-                    <span className="text-xs"><StatusBadge status="success" size="xs" variant="dot">성공 {s.sent}{s.total > 0 && ` (${Math.round((s.sent / s.total) * 100)}%)`}</StatusBadge></span>
-                    <span className="text-xs"><StatusBadge status="error" size="xs" variant="dot">실패 {s.failed}{s.total > 0 && ` (${Math.round((s.failed / s.total) * 100)}%)`}</StatusBadge></span>
+                  <div className="flex items-baseline gap-3 mb-2">
+                    <span className="text-sm">대기 <span className="font-bold text-base">{s.pending}</span></span>
+                    <span className="text-sm"><StatusBadge status="success" size="xs" variant="dot">성공 {s.sent}{s.total > 0 && ` (${Math.round((s.sent / s.total) * 100)}%)`}</StatusBadge></span>
+                    <span className="text-sm"><StatusBadge status="error" size="xs" variant="dot">실패 {s.failed}{s.total > 0 && ` (${Math.round((s.failed / s.total) * 100)}%)`}</StatusBadge></span>
                   </div>
                   {s.total > 0 && (
-                    <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary transition-all duration-500"
                         style={{ width: `${Math.round((s.sent / s.total) * 100)}%` }}
                       />
+                    </div>
+                  )}
+                  {s.failed > 0 && (
+                    <div className="mt-3 pt-3 border-t flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Info className="h-3 w-3" />
+                        다음 발송 시 자동 재발송
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-primary"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setFailureModalDevice(d.id)
+                          setFailureAction('retry_next')
+                        }}
+                      >
+                        변경
+                      </Button>
                     </div>
                   )}
                 </CardContent>
@@ -1083,6 +1157,79 @@ export function SendingTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* 실패 처리 모달 */}
+      <Dialog open={!!failureModalDevice} onOpenChange={() => setFailureModalDevice(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              실패 건 처리 — {devices.find(d => d.id === failureModalDevice)?.phone_number}
+              {(() => {
+                const s = failureModalDevice ? summary[failureModalDevice] : null
+                return s ? ` (${s.failed}건)` : ''
+              })()}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {[
+              {
+                value: 'retry_now' as const,
+                label: '지금 다시 보내기',
+                desc: '실패한 메시지를 구글시트에 다시 추가합니다. 수동으로 발송 후 결과 가져오기를 다시 눌러주세요.',
+              },
+              {
+                value: 'retry_next' as const,
+                label: '다음 발송 시 함께 보내기',
+                desc: '실패한 메시지를 내일 발송 시 내일 메시지와 함께 보냅니다. 내일은 2일치 메시지가 발송됩니다.',
+                isDefault: true,
+              },
+              {
+                value: 'retry_shift' as const,
+                label: '밀어서 보내기',
+                desc: '실패한 메시지를 내일 발송합니다. 내일 보낼 예정이던 메시지는 모레로 밀리며, 구독 종료일이 하루 연장됩니다.',
+              },
+              {
+                value: 'skip' as const,
+                label: '무시하기',
+                desc: '실패한 메시지를 보내지 않고 넘어갑니다. 해당 고객은 이 Day의 메시지를 받지 못합니다.',
+              },
+            ].map(opt => (
+              <label
+                key={opt.value}
+                className={cn(
+                  'flex gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                  failureAction === opt.value ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+                )}
+                onClick={() => setFailureAction(opt.value)}
+              >
+                <div className="pt-0.5">
+                  <div className={cn(
+                    'w-4 h-4 rounded-full border-2 flex items-center justify-center',
+                    failureAction === opt.value ? 'border-primary' : 'border-muted-foreground/40'
+                  )}>
+                    {failureAction === opt.value && <div className="w-2 h-2 rounded-full bg-primary" />}
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">
+                    {opt.label}
+                    {opt.isDefault && <span className="ml-1.5 text-xs text-muted-foreground font-normal">(기본)</span>}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFailureModalDevice(null)} disabled={failureSubmitting}>
+              취소
+            </Button>
+            <Button onClick={handleFailureAction} disabled={failureSubmitting}>
+              {failureSubmitting ? '처리 중...' : '적용'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {ConfirmDialogElement}
     </div>
