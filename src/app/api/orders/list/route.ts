@@ -19,7 +19,7 @@ export async function GET(req: Request) {
       order:orders!inner(imweb_order_no, total_amount, ordered_at, customer:customers(name, phone, phone_last4)),
       product:products(sku_code, title)
     `, { count: 'exact' })
-    .order('ordered_at', { referencedTable: 'orders', ascending: false })
+    .order('created_at', { ascending: false })
     .range((page - 1) * limit, page * limit - 1)
 
   if (search) {
@@ -56,5 +56,12 @@ export async function GET(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ data, total: count, page, limit })
+  // ordered_at(주문일) 기준 최신순 정렬 (Supabase에서 조인 컬럼 정렬 불가하므로 서버에서 정렬)
+  const sorted = (data || []).sort((a: any, b: any) => {
+    const dateA = a.order?.ordered_at || ''
+    const dateB = b.order?.ordered_at || ''
+    return dateB.localeCompare(dateA)
+  })
+
+  return NextResponse.json({ data: sorted, total: count, page, limit })
 }

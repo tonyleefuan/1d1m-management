@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { appendSheetData, ensureSheetTab } from '@/lib/google-sheets'
 
+export const maxDuration = 60
+
 type Action = 'retry_now' | 'retry_next' | 'retry_shift' | 'skip'
 
 interface RequestBody {
