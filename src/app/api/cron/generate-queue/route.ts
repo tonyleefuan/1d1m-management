@@ -4,6 +4,8 @@ import { todayKST, computeSubscription } from '@/lib/day'
 import { generateQueueForDevice } from '@/lib/queue-generator'
 import { notifyQueueGenerated } from '@/lib/slack'
 
+export const maxDuration = 120
+
 export async function POST(req: Request) {
   // Vercel Cron or admin auth
   const cronSecret = req.headers.get('authorization')
@@ -98,36 +100,84 @@ export async function POST(req: Request) {
     }
   }
 
-  // 4. 3일 연속 미발송 → failure_type='failed' + 일시정지
-  const { data: allActiveSubs } = await supabase
+  // 4. 3일 연속 실패 자동 중지 + 일시정지
+  // 후보: 활성, recovery_mode 없음, 아직 auto-stop 안 된 구독
+  const { data: candidates } = await supabase
     .from('subscriptions')
-    .select('id, start_date, duration_days, last_sent_day, paused_days, paused_at, is_cancelled, failure_type, recovery_mode')
+    .select('id')
     .eq('is_cancelled', false)
     .is('paused_at', null)
+    .is('recovery_mode', null)
     .is('failure_type', null)
 
-  if (allActiveSubs?.length) {
-    for (const sub of allActiveSubs) {
-      if (sub.recovery_mode) continue // recovery 중이면 스킵
-      const computed = computeSubscription({
-        start_date: sub.start_date,
-        duration_days: sub.duration_days,
-        last_sent_day: sub.last_sent_day ?? 0,
-        paused_days: sub.paused_days ?? 0,
-        paused_at: sub.paused_at,
-        is_cancelled: sub.is_cancelled ?? false,
-      }, today)
-      if (computed.pending_days.length >= 4) {
-        // 3일 연속 미발송 → 발송 오류 + 일시정지
-        await supabase.from('subscriptions').update({
-          failure_type: 'failed',
-          failure_date: today,
-          paused_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }).eq('id', sub.id)
+  if (candidates?.length) {
+    const candidateIds = candidates.map(c => c.id)
+
+    // 모든 후보의 최근 3일 send_queue 기록 조회 (배치 500개씩)
+    const threeDaysAgo = (() => { const d = new Date(); d.setDate(d.getDate() - 4); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
+    const recentQueues: any[] = []
+    for (let i = 0; i < candidateIds.length; i += 500) {
+      const batch = candidateIds.slice(i, i + 500)
+      const { data } = await supabase
+        .from('send_queues')
+        .select('subscription_id, send_date, status, is_notice')
+        .in('subscription_id', batch)
+        .eq('is_notice', false)
+        .gte('send_date', threeDaysAgo)
+        .order('send_date', { ascending: false })
+      if (data) recentQueues.push(...data)
+    }
+
+    if (recentQueues.length > 0) {
+      // 구독별로 그룹화
+      const subQueues = new Map<string, Map<string, string[]>>()
+      for (const q of recentQueues) {
+        if (!subQueues.has(q.subscription_id)) subQueues.set(q.subscription_id, new Map())
+        const dateMap = subQueues.get(q.subscription_id)!
+        if (!dateMap.has(q.send_date)) dateMap.set(q.send_date, [])
+        dateMap.get(q.send_date)!.push(q.status)
+      }
+
+      const now = new Date().toISOString()
+      for (const [subId, dateMap] of subQueues) {
+        // 최근 3개 날짜만 확인
+        const dates = [...dateMap.keys()].sort().reverse().slice(0, 3)
+        if (dates.length < 3) continue
+
+        let consecutiveFailures = 0
+        for (const date of dates) {
+          const statuses = dateMap.get(date)!
+          if (statuses.includes('pending')) break // 판단 보류
+          if (statuses.includes('failed')) {
+            consecutiveFailures++
+          } else {
+            break // 전부 성공 — 연속 끊김
+          }
+        }
+
+        if (consecutiveFailures >= 3) {
+          // 3일 연속 실패 → 발송 오류 + 일시정지
+          await supabase.from('subscriptions').update({
+            failure_type: 'failed',
+            failure_date: today,
+            paused_at: now,
+            updated_at: now,
+          }).eq('id', subId)
+        }
       }
     }
   }
+
+  // 5. 7일 이전 send_queues 정리
+  const sevenDaysAgo = (() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d)
+  })()
+  await supabase
+    .from('send_queues')
+    .delete()
+    .lt('send_date', sevenDaysAgo)
 
   // === 대기열 생성 ===
 
