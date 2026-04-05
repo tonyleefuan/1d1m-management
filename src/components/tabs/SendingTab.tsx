@@ -809,10 +809,7 @@ export function SendingTab() {
             {/* STEP 2: 시트 내보내기 */}
             <Button
               size="sm"
-              onClick={() => {
-                if (totalSummary.total === 0) { showError('먼저 대기열을 생성해 주세요.'); return }
-                handleExportSheet()
-              }}
+              onClick={handleExportSheet}
               disabled={exporting}
               variant={actionPhase === 'export' ? 'default' : 'outline'}
               className="h-9"
@@ -826,11 +823,7 @@ export function SendingTab() {
             {/* STEP 3: 결과 가져오기 */}
             <Button
               size="sm"
-              onClick={() => {
-                if (totalSummary.total === 0) { showError('먼저 대기열을 생성해 주세요.'); return }
-                if (!lastExportAt) { showError('먼저 시트 내보내기를 해주세요.'); return }
-                handleImportResults()
-              }}
+              onClick={handleImportResults}
               disabled={importing}
               variant={actionPhase === 'import' ? 'default' : 'outline'}
               className="h-9"
