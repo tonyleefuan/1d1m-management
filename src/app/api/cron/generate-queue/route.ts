@@ -165,6 +165,17 @@ export async function POST(req: Request) {
     }
   }
 
+  // 5. 7일 이전 send_queues 정리
+  const sevenDaysAgo = (() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d)
+  })()
+  await supabase
+    .from('send_queues')
+    .delete()
+    .lt('send_date', sevenDaysAgo)
+
   // === 대기열 생성 ===
 
   const { data: devices } = await supabase
