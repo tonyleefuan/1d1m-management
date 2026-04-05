@@ -4,6 +4,8 @@ import { getSession } from '@/lib/auth'
 import { todayKST } from '@/lib/day'
 import { readSheetData } from '@/lib/google-sheets'
 
+export const maxDuration = 120
+
 /**
  * 처리일시 파싱: "26.04.02 04:00:01" → "2026-04-02T04:00:01+09:00"
  */
