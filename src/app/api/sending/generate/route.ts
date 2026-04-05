@@ -128,7 +128,7 @@ export async function POST(req: Request) {
           // Day → 실제 날짜 역산: today - (currentDay - day)
           const daysAgo = sub.currentDay - day
           const d = new Date(date) // UTC midnight 기준으로 날짜 연산
-          d.setDate(d.getDate() - daysAgo)
+          d.setUTCDate(d.getUTCDate() - daysAgo)
           const sendDateForDay = d.toISOString().slice(0, 10)
           realtimeDateKeys.add(`${sub.product_id}:${sendDateForDay}`)
         } else {
@@ -242,11 +242,13 @@ export async function POST(req: Request) {
       const isFailureRetry = sub.failure_type === 'failed'
       if (isFailureRetry) failedSubIds.push(sub.id)
 
+      let retryNoticePushed = false
       for (const dayNum of sub.daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) { skippedDayRange++; continue }
 
-        // 실패 재발송 알림 (카톡이름당 한 번만)
-        if (isFailureRetry && dayNum === sub.daysToSend[0] && retryNotice && !retryNotifiedNames.has(kakaoName)) {
+        // 실패 재발송 알림 (카톡이름당 한 번만, 첫 유효 Day 앞에)
+        if (isFailureRetry && !retryNoticePushed && retryNotice && !retryNotifiedNames.has(kakaoName)) {
+          retryNoticePushed = true
           retryNotifiedNames.add(kakaoName)
           sortOrder++
           queueRows.push({
@@ -291,7 +293,7 @@ export async function POST(req: Request) {
           // 밀린 Day의 실제 날짜 계산하여 해당 날짜 콘텐츠 조회
           const daysAgo = sub.currentDay - dayNum
           const d = new Date(date)
-          d.setDate(d.getDate() - daysAgo)
+          d.setUTCDate(d.getUTCDate() - daysAgo)
           const sendDateForDay = d.toISOString().slice(0, 10)
           const dm = realtimeMsgMap.get(`${sub.product_id}:${sendDateForDay}`)
           if (dm) messages = [{ content: dm.content, image_path: dm.image_path, sort_order: 1 }]

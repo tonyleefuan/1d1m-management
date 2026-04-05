@@ -144,11 +144,13 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
         daysToSend = computed.pending_days.slice(0, 2)
       }
 
+      let retryNoticePushed = false
       for (const dayNum of daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) continue
 
-        // 실패 재발송 알림 (카톡이름당 한 번만)
-        if (isFailureRetry && dayNum === daysToSend[0] && !retryNotifiedNames.has(friendName)) {
+        // 실패 재발송 알림 (카톡이름당 한 번만, 첫 유효 Day 앞에)
+        if (isFailureRetry && !retryNoticePushed && !retryNotifiedNames.has(friendName)) {
+          retryNoticePushed = true
           retryNotifiedNames.add(friendName)
           const retryNotice = await getNoticeTemplate('failure_retry_next', sub.product_id)
           if (retryNotice) {
@@ -196,7 +198,7 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
         if (product?.message_type === 'realtime') {
           const daysAgo = computed.current_day - dayNum
           const d = new Date(t)
-          d.setDate(d.getDate() - daysAgo)
+          d.setUTCDate(d.getUTCDate() - daysAgo)
           sendDateForDay = d.toISOString().slice(0, 10)
         }
         const messages = await getMessages(sub.product_id, product?.message_type, dayNum, sendDateForDay)
