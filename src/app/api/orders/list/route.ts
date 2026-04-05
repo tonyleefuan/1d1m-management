@@ -19,7 +19,7 @@ export async function GET(req: Request) {
       order:orders!inner(imweb_order_no, total_amount, ordered_at, customer:customers(name, phone, phone_last4)),
       product:products(sku_code, title)
     `, { count: 'exact' })
-    .order('ordered_at', { referencedTable: 'orders', ascending: false })
+    .order('created_at', { ascending: false })
     .range((page - 1) * limit, page * limit - 1)
 
   if (search) {
