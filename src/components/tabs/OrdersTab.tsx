@@ -192,8 +192,7 @@ function UploadPreview({
       const d = await res.json()
       showSuccess(`저장 완료! 주문 ${d.saved_orders}건, 품목 ${d.saved_items}건, 구독 ${d.saved_subscriptions}건 생성`)
 
-      // 연락처 동기화: Google Drive에 CSV 업로드 → Apps Script가 연락처 등록
-      syncContactsToDrive(result.items, showSuccess, showError)
+      // 연락처 동기화는 confirm API에서 자동 처리됨 (CSV → Google Drive 업로드)
 
       onConfirm()
     } catch {
