@@ -852,7 +852,7 @@ export function SendingTab() {
             {/* STEP 3: 결과 가져오기 */}
             <Button
               size="sm"
-              onClick={handleImportResults}
+              onClick={() => handleImportResults()}
               disabled={importing}
               variant={actionPhase === 'import' ? 'default' : 'outline'}
               className="h-9"
