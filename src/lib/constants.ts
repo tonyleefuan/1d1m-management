@@ -28,7 +28,7 @@ export const STATUS_LABELS: Record<SubscriptionStatus, string> = {
   live: '발송중',
   pending: '대기',
   pause: '일시정지',
-  archive: '만료',
+  archive: '종료',
   cancel: '취소',
 }
 

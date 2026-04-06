@@ -99,7 +99,7 @@ export async function PATCH(req: Request) {
     // 변경 전 상태 조회 (로그용 + 검증용)
     const { data: prevSubs } = await supabase
       .from('subscriptions')
-      .select('id, status, device_id, start_date, end_date, last_sent_day, duration_days, memo, customer_id, paused_at')
+      .select('id, status, device_id, start_date, end_date, last_sent_day, duration_days, memo, customer_id, paused_at, failure_type')
       .in('id', targetIds)
     const prevMap = new Map(prevSubs?.map(s => [s.id, s]) || [])
 
@@ -129,6 +129,12 @@ export async function PATCH(req: Request) {
           if (!prev.start_date || prev.start_date > today) {
             return NextResponse.json(
               { error: `시작일(${prev.start_date || '미설정'})이 아직 도래하지 않아 발송중으로 변경할 수 없습니다` },
+              { status: 400 }
+            )
+          }
+          if (prev.failure_type) {
+            return NextResponse.json(
+              { error: '발송 오류 상태에서는 발송중으로 변경할 수 없습니다. 먼저 오류를 해소해주세요.' },
               { status: 400 }
             )
           }
