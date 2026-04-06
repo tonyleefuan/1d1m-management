@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { uploadContactsCsv } from '@/lib/google-drive'
 
 export async function POST(req: Request) {
   const session = await getSession()
@@ -245,6 +246,28 @@ export async function POST(req: Request) {
         if (subErr) {
           return NextResponse.json({ error: `구독 생성 실패: ${subErr.message}` }, { status: 500 })
         }
+      }
+    }
+
+    // 구독 생성 완료 후, phone 삭제 전에 CSV 생성 → 구글 드라이브 업로드
+    // (phone이 삭제되면 전화번호를 알 수 없으므로 반드시 먼저 실행)
+    const contactRows: string[] = ['이름,전화번호']
+    for (const [phone, item] of phoneToItem) {
+      if (!phone) continue
+      const kakaoName = item.customer_name + '/' + phone.slice(-4)
+      contactRows.push(`${kakaoName},${phone}`)
+    }
+
+    if (contactRows.length > 1) {
+      try {
+        const now = new Date()
+        const fileName = `contacts_${now.toISOString().slice(0, 10)}_${now.getTime()}.csv`
+        // BOM 추가 (Excel에서 한글 깨짐 방지)
+        const csvContent = '\uFEFF' + contactRows.join('\n')
+        await uploadContactsCsv(fileName, csvContent)
+      } catch (err: any) {
+        // 드라이브 업로드 실패해도 주문 처리는 계속 진행 (로그만 남김)
+        console.error('[orders/confirm] 구글 드라이브 CSV 업로드 실패:', err.message)
       }
     }
 

@@ -4,6 +4,8 @@ import { getSession } from '@/lib/auth'
 import { todayKST } from '@/lib/day'
 import { ensureSheetTab, writeSheetData, appendSheetData } from '@/lib/google-sheets'
 
+export const maxDuration = 120
+
 // 날짜를 YYMMDD 형식으로 변환
 function toYYMMDD(dateStr: string): string {
   const [y, m, d] = dateStr.split('-')
@@ -13,7 +15,6 @@ function toYYMMDD(dateStr: string): string {
 export async function POST(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const body = await req.json()
@@ -101,25 +102,36 @@ export async function POST(req: Request) {
     const [startH, startM] = startTime.split(':').map(Number)
     const baseSeconds = startH * 3600 + startM * 60
 
-    // --- 대기열 조회 ---
-    let query = supabase
-      .from('send_queues')
-      .select('*')
-      .eq('send_date', date)
-      .order('device_id')
-      .order('sort_order', { ascending: true })
+    // --- 대기열 조회 (페이지네이션으로 전체 fetch) ---
+    const PAGE_SIZE = 5000
+    const queueData: any[] = []
+    let from = 0
 
-    if (queueIds && queueIds.length > 0) {
-      // 선택 내보내기: 지정된 ID만
-      query = query.in('id', queueIds)
-    } else {
-      // 전체 내보내기: pending만
-      query = query.eq('status', 'pending')
+    while (true) {
+      let query = supabase
+        .from('send_queues')
+        .select('*')
+        .eq('send_date', date)
+        .order('device_id')
+        .order('sort_order', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1)
+
+      if (queueIds && queueIds.length > 0) {
+        query = query.in('id', queueIds)
+      } else {
+        query = query.eq('status', 'pending')
+      }
+
+      const { data: page, error: queueErr } = await query
+      if (queueErr) throw new Error(`대기열 조회 실패: ${queueErr.message}`)
+      if (!page?.length) break
+
+      queueData.push(...page)
+      if (page.length < PAGE_SIZE) break
+      from += PAGE_SIZE
     }
 
-    const { data: queueData, error: queueErr } = await query
-    if (queueErr) throw new Error(`대기열 조회 실패: ${queueErr.message}`)
-    if (!queueData?.length) {
+    if (!queueData.length) {
       return NextResponse.json({ ok: true, devices: 0, total: 0, date, message: '내보낼 대기열이 없습니다' })
     }
 

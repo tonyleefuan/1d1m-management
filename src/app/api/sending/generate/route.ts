@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-import { todayKST } from '@/lib/day'
+import { todayKST, computeSubscription } from '@/lib/day'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 /**
  * POST /api/sending/generate
@@ -14,7 +14,6 @@ export const maxDuration = 120
 export async function POST(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const body = await req.json().catch(() => ({}))
@@ -22,8 +21,6 @@ export async function POST(req: Request) {
     const deviceId = body.device_id || null
 
     // ── device_id 없으면: PC 목록 반환 ──
-    // per-device 가드가 각 PC별로 중복을 체크하므로 global 가드는 제거
-    // (부분 실행 후 재시도 가능하도록)
     if (!deviceId) {
       const { data: devices } = await supabase
         .from('send_devices')
@@ -49,7 +46,7 @@ export async function POST(req: Request) {
       })
     }
 
-    // 1) 구독 조회 (페이지네이션)
+    // 1) 구독 조회 (페이지네이션) — computeSubscription에 필요한 필드 포함
     const PAGE_SIZE = 1000
     const subs: any[] = []
     let from = 0
@@ -57,7 +54,9 @@ export async function POST(req: Request) {
       const { data: page, error: subErr } = await supabase
         .from('subscriptions')
         .select(`
-          id, customer_id, product_id, device_id, last_sent_day, duration_days, send_priority,
+          id, customer_id, product_id, device_id,
+          start_date, duration_days, last_sent_day, paused_days, paused_at,
+          is_cancelled, failure_type, recovery_mode, send_priority,
           customer:customers(kakao_friend_name),
           product:products(sku_code, message_type),
           order_item:order_items(order:orders(ordered_at))
@@ -84,22 +83,60 @@ export async function POST(req: Request) {
       return aDate.localeCompare(bDate)
     })
 
-    // 2) 메시지 벌크 프리페치 — 개별 쿼리 수천 회 → 2회로 최적화
-    const fixedKeys = new Set<string>()
-    const realtimeProductIds = new Set<string>()
+    // 2) 구독 필터링 + pending_days 계산 (queue-generator.ts와 동일 패턴)
+    const activeSubs: (typeof subs[0] & { daysToSend: number[]; currentDay: number })[] = []
 
     for (const sub of subs) {
-      const product = sub.product as any
-      const currentDay = (sub.last_sent_day ?? 0) + 1
-      if (currentDay < 1 || currentDay > sub.duration_days) continue
-      if (product?.message_type === 'realtime') {
-        realtimeProductIds.add(sub.product_id)
+      const computed = computeSubscription({
+        start_date: sub.start_date,
+        duration_days: sub.duration_days,
+        last_sent_day: sub.last_sent_day ?? 0,
+        paused_days: sub.paused_days ?? 0,
+        paused_at: sub.paused_at,
+        is_cancelled: sub.is_cancelled ?? false,
+      }, date)
+
+      if (computed.computed_status !== 'active') continue
+      if (computed.pending_days.length === 0) continue
+      // 4일 이상 밀린 건 recovery_mode 없으면 스킵 (관리자 확인 필요)
+      if (sub.recovery_mode === null && computed.pending_days.length >= 4) continue
+
+      let daysToSend: number[]
+      if (sub.recovery_mode === 'bulk') {
+        daysToSend = computed.pending_days
+      } else if (sub.recovery_mode === 'sequential') {
+        daysToSend = [(sub.last_sent_day ?? 0) + 1]
       } else {
-        fixedKeys.add(`${sub.product_id}:${currentDay}`)
+        // 기본: 최대 3일치 (실패 재발송 포함)
+        daysToSend = computed.pending_days.slice(0, 3)
+      }
+
+      activeSubs.push({ ...sub, daysToSend, currentDay: computed.current_day })
+    }
+
+    // 3) 메시지 벌크 프리페치
+    const fixedKeys = new Set<string>()
+    // realtime: product_id별 필요한 날짜 수집 (밀린 Day → 해당 날짜의 콘텐츠)
+    const realtimeDateKeys = new Set<string>() // "product_id:YYYY-MM-DD"
+
+    for (const sub of activeSubs) {
+      const product = sub.product as any
+      for (const day of sub.daysToSend) {
+        if (day < 1 || day > sub.duration_days) continue
+        if (product?.message_type === 'realtime') {
+          // Day → 실제 날짜 역산: today - (currentDay - day)
+          const daysAgo = sub.currentDay - day
+          const d = new Date(date) // UTC midnight 기준으로 날짜 연산
+          d.setUTCDate(d.getUTCDate() - daysAgo)
+          const sendDateForDay = d.toISOString().slice(0, 10)
+          realtimeDateKeys.add(`${sub.product_id}:${sendDateForDay}`)
+        } else {
+          fixedKeys.add(`${sub.product_id}:${day}`)
+        }
       }
     }
 
-    // fixed 메시지 한 번에 조회 (페이지네이션으로 1000행 제한 우회)
+    // fixed 메시지 조회
     const fixedMsgMap = new Map<string, { content: string; image_path: string | null; sort_order: number }[]>()
     if (fixedKeys.size > 0) {
       const productDayPairs = [...fixedKeys].map(k => {
@@ -107,9 +144,11 @@ export async function POST(req: Request) {
         return { pid, day: Number(day) }
       })
       const uniqueProductIds = [...new Set(productDayPairs.map(p => p.pid))]
-      const uniqueDays = [...new Set(productDayPairs.map(p => p.day))]
+      const allDays = productDayPairs.map(p => p.day)
+      const minDay = Math.min(...allDays)
+      const maxDay = Math.max(...allDays)
 
-      // 상품 배치 × 페이지네이션으로 전체 조회
+      // IN(day_number, ...) 대신 range 쿼리로 최적화 (수천 개 IN 값 → 범위 2개)
       for (let i = 0; i < uniqueProductIds.length; i += 20) {
         const pidBatch = uniqueProductIds.slice(i, i + 20)
         let offset = 0
@@ -119,13 +158,16 @@ export async function POST(req: Request) {
             .from('messages')
             .select('product_id, day_number, content, image_path, sort_order')
             .in('product_id', pidBatch)
-            .in('day_number', uniqueDays)
+            .gte('day_number', minDay)
+            .lte('day_number', maxDay)
             .order('sort_order', { ascending: true })
             .range(offset, offset + BATCH_SIZE - 1)
           if (error) return NextResponse.json({ error: `고정 메시지 조회 실패: ${error.message}` }, { status: 500 })
           if (!data?.length) break
           for (const msg of data) {
             const key = `${msg.product_id}:${msg.day_number}`
+            // fixedKeys에 있는 조합만 저장 (range 쿼리로 여분 조회된 것 필터링)
+            if (!fixedKeys.has(key)) continue
             if (!fixedMsgMap.has(key)) fixedMsgMap.set(key, [])
             fixedMsgMap.get(key)!.push({ content: msg.content, image_path: msg.image_path, sort_order: msg.sort_order })
           }
@@ -135,78 +177,191 @@ export async function POST(req: Request) {
       }
     }
 
-    // realtime 메시지 한 번에 조회
-    const realtimeMsgMap = new Map<string, { content: string; image_path: string | null }>()
-    if (realtimeProductIds.size > 0) {
+    // realtime 메시지 조회 — 밀린 Day의 해당 날짜 콘텐츠도 함께 조회
+    const realtimeMsgMap = new Map<string, { content: string; image_path: string | null }>() // key: "product_id:date"
+    if (realtimeDateKeys.size > 0) {
+      const pairs = [...realtimeDateKeys].map(k => { const [pid, d] = k.split(':'); return { pid, date: d } })
+      const uniquePids = [...new Set(pairs.map(p => p.pid))]
+      const uniqueDates = [...new Set(pairs.map(p => p.date))]
       const { data, error } = await supabase
         .from('daily_messages')
-        .select('product_id, content, image_path')
-        .in('product_id', [...realtimeProductIds])
-        .eq('send_date', date)
+        .select('product_id, send_date, content, image_path')
+        .in('product_id', uniquePids)
+        .in('send_date', uniqueDates)
         .eq('status', 'approved')
       if (error) return NextResponse.json({ error: `실시간 메시지 조회 실패: ${error.message}` }, { status: 500 })
-      data?.forEach(dm => realtimeMsgMap.set(dm.product_id, { content: dm.content, image_path: dm.image_path }))
+      data?.forEach(dm => realtimeMsgMap.set(`${dm.product_id}:${dm.send_date}`, { content: dm.content, image_path: dm.image_path }))
     }
 
-    // 3) 대기열 레코드 생성 (순수 인메모리 — DB 쿼리 없음)
+    // 4) 실패 재발송 알림 템플릿 프리페치
+    let retryNotice: { content: string; image_path: string | null } | null = null
+    const hasFailedSubs = activeSubs.some(s => s.failure_type === 'failed')
+    if (hasFailedSubs) {
+      const { data: noticeData } = await supabase
+        .from('notice_templates')
+        .select('content, image_path')
+        .eq('notice_type', 'failure_retry_next')
+        .is('product_id', null)
+        .limit(1)
+        .maybeSingle()
+      if (noticeData) {
+        retryNotice = { content: noticeData.content, image_path: noticeData.image_path || null }
+      }
+    }
+
+    // start/end 알림 템플릿 프리페치
+    const noticeCache = new Map<string, { content: string; image_path: string | null } | null>()
+    async function getNotice(type: string): Promise<{ content: string; image_path: string | null } | null> {
+      if (noticeCache.has(type)) return noticeCache.get(type)!
+      const { data } = await supabase
+        .from('notice_templates')
+        .select('content, image_path')
+        .eq('notice_type', type)
+        .is('product_id', null)
+        .limit(1)
+        .maybeSingle()
+      const result = data ? { content: data.content, image_path: data.image_path || null } : null
+      noticeCache.set(type, result)
+      return result
+    }
+
+    // 5) 대기열 레코드 생성
     const queueRows: any[] = []
     let sortOrder = 0
     let skippedNoMsg = 0
     let skippedDayRange = 0
+    const failedSubIds: string[] = []
+    // 알림 중복 방지: 같은 카톡이름에 대해 한 번만 발송
+    const retryNotifiedNames = new Set<string>()
 
-    for (const sub of subs) {
+    for (const sub of activeSubs) {
       const product = sub.product as any
       const customer = sub.customer as any
       const kakaoName = customer?.kakao_friend_name || '알 수 없음'
-      const currentDay = (sub.last_sent_day ?? 0) + 1
+      const isFailureRetry = sub.failure_type === 'failed'
+      if (isFailureRetry) failedSubIds.push(sub.id)
+      // 밀린 Day가 있으면 (pending_days > 1 = 어제 미발송) 알림 대상
+      const hasMissedDays = sub.daysToSend.some((d: number) => d < sub.currentDay)
 
-      if (currentDay < 1 || currentDay > sub.duration_days) { skippedDayRange++; continue }
+      let retryNoticePushed = false
+      for (const dayNum of sub.daysToSend) {
+        if (dayNum < 1 || dayNum > sub.duration_days) { skippedDayRange++; continue }
 
-      let messages: { content: string; image_path: string | null; sort_order: number }[] = []
+        // 미발송 알림 (카톡이름당 한 번만, 첫 유효 Day 앞에)
+        if (hasMissedDays && !retryNoticePushed && retryNotice && !retryNotifiedNames.has(kakaoName)) {
+          retryNoticePushed = true
+          retryNotifiedNames.add(kakaoName)
+          sortOrder++
+          queueRows.push({
+            subscription_id: sub.id,
+            device_id: deviceId,
+            send_date: date,
+            day_number: dayNum,
+            kakao_friend_name: kakaoName,
+            message_content: retryNotice.content || '',
+            image_path: retryNotice.image_path,
+            sort_order: sortOrder,
+            message_seq: null,
+            status: 'pending',
+            is_notice: true,
+          })
+        }
 
-      if (product?.message_type === 'realtime') {
-        const dm = realtimeMsgMap.get(sub.product_id)
-        if (dm) messages = [{ content: dm.content, image_path: dm.image_path, sort_order: 1 }]
-      } else {
-        const key = `${sub.product_id}:${currentDay}`
-        messages = fixedMsgMap.get(key) || []
-      }
+        // 시작 알림 (Day 1 앞)
+        if (dayNum === 1) {
+          const startNotice = await getNotice('start')
+          if (startNotice) {
+            sortOrder++
+            queueRows.push({
+              subscription_id: sub.id,
+              device_id: deviceId,
+              send_date: date,
+              day_number: 0,
+              kakao_friend_name: kakaoName,
+              message_content: startNotice.content || '',
+              image_path: startNotice.image_path,
+              sort_order: sortOrder,
+              message_seq: null,
+              status: 'pending',
+              is_notice: true,
+            })
+          }
+        }
 
-      if (!messages.length) { skippedNoMsg++; continue }
+        let messages: { content: string; image_path: string | null; sort_order: number }[] = []
 
-      const totalItems = messages.reduce((n: number, m) => n + 1 + (m.image_path ? 1 : 0), 0)
-      let seqNum = 0
+        if (product?.message_type === 'realtime') {
+          // 밀린 Day의 실제 날짜 계산하여 해당 날짜 콘텐츠 조회
+          const daysAgo = sub.currentDay - dayNum
+          const d = new Date(date)
+          d.setUTCDate(d.getUTCDate() - daysAgo)
+          const sendDateForDay = d.toISOString().slice(0, 10)
+          const dm = realtimeMsgMap.get(`${sub.product_id}:${sendDateForDay}`)
+          if (dm) messages = [{ content: dm.content, image_path: dm.image_path, sort_order: 1 }]
+        } else {
+          const key = `${sub.product_id}:${dayNum}`
+          messages = fixedMsgMap.get(key) || []
+        }
 
-      for (const msg of messages) {
-        sortOrder++
-        seqNum++
-        queueRows.push({
-          subscription_id: sub.id,
-          device_id: deviceId,
-          send_date: date,
-          day_number: currentDay,
-          kakao_friend_name: kakaoName,
-          message_content: msg.content,
-          image_path: null,
-          sort_order: sortOrder,
-          message_seq: `${seqNum}/${totalItems}`,
-          status: 'pending',
-        })
-        if (msg.image_path) {
+        if (!messages.length) { skippedNoMsg++; continue }
+
+        const totalItems = messages.reduce((n: number, m) => n + 1 + (m.image_path ? 1 : 0), 0)
+        let seqNum = 0
+
+        for (const msg of messages) {
           sortOrder++
           seqNum++
           queueRows.push({
             subscription_id: sub.id,
             device_id: deviceId,
             send_date: date,
-            day_number: currentDay,
+            day_number: dayNum,
             kakao_friend_name: kakaoName,
-            message_content: '',
-            image_path: msg.image_path,
+            message_content: msg.content || '',
+            image_path: null,
             sort_order: sortOrder,
             message_seq: `${seqNum}/${totalItems}`,
             status: 'pending',
+            is_notice: false,
           })
+          if (msg.image_path) {
+            sortOrder++
+            seqNum++
+            queueRows.push({
+              subscription_id: sub.id,
+              device_id: deviceId,
+              send_date: date,
+              day_number: dayNum,
+              kakao_friend_name: kakaoName,
+              message_content: '',
+              image_path: msg.image_path,
+              sort_order: sortOrder,
+              message_seq: `${seqNum}/${totalItems}`,
+              status: 'pending',
+              is_notice: false,
+            })
+          }
+        }
+
+        // 종료 알림 (마지막 Day 뒤)
+        if (dayNum === sub.duration_days) {
+          const endNotice = await getNotice('end')
+          if (endNotice) {
+            sortOrder++
+            queueRows.push({
+              subscription_id: sub.id,
+              device_id: deviceId,
+              send_date: date,
+              day_number: sub.duration_days + 1,
+              kakao_friend_name: kakaoName,
+              message_content: endNotice.content || '',
+              image_path: endNotice.image_path,
+              sort_order: sortOrder,
+              message_seq: null,
+              status: 'pending',
+              is_notice: true,
+            })
+          }
         }
       }
     }
@@ -219,24 +374,39 @@ export async function POST(req: Request) {
       })
     }
 
-    // 4) 배치 삽입 (500개씩)
+    // 6) 배치 삽입 (500개씩)
     let inserted = 0
     for (let i = 0; i < queueRows.length; i += 500) {
       const batch = queueRows.slice(i, i + 500)
       const { error } = await supabase.from('send_queues').insert(batch)
-      if (error) return NextResponse.json({ error: `대기열 삽입 실패: ${error.message}` }, { status: 500 })
+      if (error) {
+        console.error(`[generate] batch ${i} insert error:`, error.message)
+        return NextResponse.json({ error: `대기열 삽입 실패: ${error.message}` }, { status: 500 })
+      }
       inserted += batch.length
+    }
+
+    // 7) 실패 구독 failure flags 클리어 (500개씩)
+    for (let i = 0; i < failedSubIds.length; i += 500) {
+      const batch = failedSubIds.slice(i, i + 500)
+      await supabase.from('subscriptions').update({
+        failure_type: null,
+        failure_date: null,
+        updated_at: new Date().toISOString(),
+      }).in('id', batch)
     }
 
     return NextResponse.json({
       ok: true,
       generated: inserted,
       device_id: deviceId,
-      subscriptions: subs.length,
+      subscriptions: activeSubs.length,
       skippedNoMsg, skippedDayRange,
+      failureRetried: failedSubIds.length,
       date,
     })
   } catch (err: any) {
+    console.error('[generate] error:', err.message)
     return NextResponse.json({ error: err.message || '대기열 생성 중 오류가 발생했습니다' }, { status: 500 })
   }
 }

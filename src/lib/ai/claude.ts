@@ -10,7 +10,7 @@ const SYSTEM_RULES = `
 [규칙]
 - Plain Text만 출력. 볼드/이탤릭/마크다운 금지.
 - 영어 3인칭 단수 동사 일치에 주의.
-- 글자수 제한 준수. "N자 내외" = N의 ±10%.
+- 글자수 제한 엄수. "N자 내외" = N의 ±10%. 초과 절대 금지. 넘으면 핵심만 남기고 반드시 줄여라.
 - URL: 축약 매핑 제공 시 해당 bit.ly만 사용. 제3자 축약 URL 생성 금지. 매핑 없으면 원본 URL. URL 추측/생성 금지.`
 
 function logTokenUsage(label: string, usage: any) {
@@ -34,14 +34,17 @@ function buildCachedSystem(prompt: string): Anthropic.Messages.TextBlockParam[] 
  * 프롬프트에서 글자수 규칙을 추출
  * 예: "영어 헤드라인 (70자 내외)" → { headline: 70, summary: 150 }
  */
-function extractCharLimits(prompt: string): { headline?: number; summary?: number } {
-  const limits: { headline?: number; summary?: number } = {}
+function extractCharLimits(prompt: string): { headline?: number; summary?: number; total?: number } {
+  const limits: { headline?: number; summary?: number; total?: number } = {}
 
   const headlineMatch = prompt.match(/헤드라인[^(]*\((\d+)자/)
   if (headlineMatch) limits.headline = parseInt(headlineMatch[1])
 
   const summaryMatch = prompt.match(/요약[^(]*\((\d+)자/)
   if (summaryMatch) limits.summary = parseInt(summaryMatch[1])
+
+  const totalMatch = prompt.match(/전체\s*글자수[:\s]*(\d[,\d]*)자/)
+  if (totalMatch) limits.total = parseInt(totalMatch[1].replace(/,/g, ''))
 
   return limits
 }
@@ -111,7 +114,7 @@ async function fixCharViolations(
 ): Promise<string> {
   const instructions = violations.map(v => {
     const fieldName = v.field === 'headline' ? '헤드라인' : '요약'
-    return `- ${v.index}번 ${fieldName}: ${v.actual}자→${v.limit}자 이내로 축약`
+    return `- ${v.index}번 ${fieldName}: 현재 ${v.actual}자 → 반드시 ${v.limit}자 이내로 축약`
   }).join('\n')
 
   const response = await anthropic.messages.create({
@@ -119,7 +122,16 @@ async function fixCharViolations(
     max_tokens: 4096,
     system: buildCachedSystem(generationPrompt),
     messages: [
-      { role: 'user', content: `아래 메시지에서 글자수 위반 항목만 수정하고 나머지는 그대로 유지하세요. URL/한글/단어 변경 금지.\n\n${instructions}\n\n원본 메시지:\n${message}` },
+      { role: 'user', content: `아래 메시지에서 글자수 위반 항목을 수정하세요.
+규칙:
+- 영어 축약 시, 바로 아래 한글 번역도 축약된 영어에 맞게 함께 수정
+- URL, 단어 목록은 변경 금지
+- 나머지 항목은 그대로 유지
+
+${instructions}
+
+원본 메시지:
+${message}` },
     ],
   })
   logTokenUsage('fix-char', response.usage)
@@ -209,11 +221,27 @@ export async function generateMessage(
     .map(block => block.text)
     .join('\n')
 
-  // 글자수 검증 + 1회 재생성
+  // 글자수 검증 + 최대 2회 재생성
   const charLimits = extractCharLimits(generationPrompt)
-  const violations = findCharViolations(result, charLimits)
-  if (violations.length > 0) {
-    console.log(`[AI] 글자수 위반 ${violations.length}건, 수정 요청:`, violations.map(v => `${v.index}번 ${v.field} ${v.actual}→${v.limit}자`))
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const violations = findCharViolations(result, charLimits)
+
+    // 전체 글자수 검증
+    if (charLimits.total && result.length > charLimits.total) {
+      violations.push({
+        index: 0,
+        field: 'summary',
+        text: `전체 ${result.length}자`,
+        actual: result.length,
+        limit: charLimits.total,
+      })
+    }
+
+    if (violations.length === 0) break
+
+    console.log(`[AI] 글자수 위반 ${violations.length}건 (시도 ${attempt + 1}/2):`, violations.map(v =>
+      v.index === 0 ? `전체 ${v.actual}→${v.limit}자` : `${v.index}번 ${v.field} ${v.actual}→${v.limit}자`
+    ))
     result = await fixCharViolations(result, violations, generationPrompt)
   }
 

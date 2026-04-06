@@ -262,6 +262,7 @@ export function SubscriptionsTab() {
 
     try {
       const res = await fetch(`/api/subscriptions/list?${params}`)
+      if (!res.ok) throw new Error('API 오류')
       const data = await res.json()
       setSubs(data.data || [])
       setTotal(data.total || 0)
@@ -324,16 +325,6 @@ export function SubscriptionsTab() {
 
   // ─── Inline update handlers ──────────────────────────
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleStatusChange = async (id: string, status: string) => {
-    const ok = await optimisticUpdate(
-      id,
-      { status: status as SubscriptionStatus },
-      { status },
-      `상태가 ${STATUS_MAP[status]?.label ?? status}(으)로 변경되었습니다`,
-    )
-  }
-
   const handleDeviceChange = async (id: string, deviceId: string) => {
     const device = deviceId ? devices.find((d) => d.id === deviceId) || null : null
     await optimisticUpdate(
@@ -341,17 +332,6 @@ export function SubscriptionsTab() {
       { device_id: deviceId || null, device: device as SubRow['device'] },
       { device_id: deviceId || null },
       'PC가 변경되었습니다',
-    )
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleStartDateChange = async (id: string, startDate: string) => {
-    if (!startDate || startDate.length !== 10) return
-    const ok = await optimisticUpdate(
-      id,
-      { start_date: startDate },
-      { start_date: startDate },
-      '시작일이 변경되었습니다',
     )
   }
 
@@ -390,24 +370,6 @@ export function SubscriptionsTab() {
       '메모가 저장되었습니다',
     )
     setDetailSub((prev) => (prev ? { ...prev, memo: memoValue } : null))
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleClearFailure = async (sub: SubRow) => {
-    const ok = await confirm({
-      title: '발송 실패 해소',
-      description: `발송 실패를 해소하시겠습니까?\n(실패일: ${sub.failure_date || '알 수 없음'})`,
-      variant: 'warning',
-      confirmLabel: '해소',
-    })
-    if (!ok) return
-    const result = await updateSubscription(sub.id, { failure_type: null, failure_date: null })
-    if (result.ok) {
-      showSuccess('발송 실패가 해소되었습니다')
-      fetchSubs()
-    } else {
-      showError(result.error || '해소에 실패했습니다')
-    }
   }
 
   // ─── Failure resolution ─────────────────────────────

@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { appendSheetData, ensureSheetTab } from '@/lib/google-sheets'
 
+export const maxDuration = 60
+
 type Action = 'retry_now' | 'retry_next' | 'retry_shift' | 'skip'
 
 interface RequestBody {
@@ -14,7 +16,6 @@ interface RequestBody {
 export async function POST(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const body: RequestBody = await req.json()
