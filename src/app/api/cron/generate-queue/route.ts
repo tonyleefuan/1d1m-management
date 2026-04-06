@@ -37,7 +37,9 @@ export async function POST(req: Request) {
 
   // === 사전 처리 ===
 
-  // 1. not_sent 감지: 어제 send_queues에서 status='pending' 건
+  // 1. not_sent 감지: 어제 send_queues에서 status='pending' → 큐 항목만 실패 처리
+  //    구독 자체는 건드리지 않음 → pending_days가 쌓이면서 자연스럽게 다음날 함께 발송됨
+  //    3일 연속 미발송 시 아래 step 4에서 failure_type='failed' 마킹
   const { data: unreportedQueues } = await supabase
     .from('send_queues')
     .select('subscription_id')
@@ -45,15 +47,6 @@ export async function POST(req: Request) {
     .eq('status', 'pending')
 
   if (unreportedQueues?.length) {
-    const unreportedSubIds = [...new Set(unreportedQueues.map(q => q.subscription_id))]
-    for (const subId of unreportedSubIds) {
-      if (!subId) continue
-      await supabase.from('subscriptions').update({
-        failure_type: 'failed',
-        failure_date: yesterday,
-        updated_at: new Date().toISOString(),
-      }).eq('id', subId).is('failure_type', null)
-    }
     await supabase.from('send_queues')
       .update({ status: 'failed', error_message: 'not_sent' })
       .eq('send_date', yesterday)
@@ -106,17 +99,16 @@ export async function POST(req: Request) {
     }
   }
 
-  // 4. 2일 연속 미발송 구독 명시적 마킹
+  // 4. 3일 연속 미발송 구독 → 관리자 확인 필요 마킹
   const { data: allActiveSubs } = await supabase
     .from('subscriptions')
     .select('id, start_date, duration_days, last_sent_day, paused_days, paused_at, is_cancelled, failure_type, recovery_mode')
     .eq('is_cancelled', false)
     .is('paused_at', null)
-    .eq('failure_type', 'failed')
+    .is('failure_type', null)
 
   if (allActiveSubs?.length) {
     for (const sub of allActiveSubs) {
-      if (sub.recovery_mode) continue // recovery 중이면 스킵
       const computed = computeSubscription({
         start_date: sub.start_date,
         duration_days: sub.duration_days,
@@ -126,7 +118,7 @@ export async function POST(req: Request) {
         is_cancelled: sub.is_cancelled ?? false,
       }, today)
       if (computed.pending_days.length >= 3) {
-        // 2일 이상 연속 미발송 → 관리자 확인 필요
+        // 3일 연속 미발송 → 관리자 확인 필요
         await supabase.from('subscriptions').update({
           failure_type: 'failed',
           failure_date: today,

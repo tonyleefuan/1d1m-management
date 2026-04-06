@@ -84,7 +84,8 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
 
   // Filter and compute
   const activeSubs = subs.filter(sub => {
-    if (sub.failure_type === 'failed') return false
+    // failed + recovery_mode 미선택 → 관리자 복구 대기 중 (큐 생성 차단)
+    if (sub.failure_type === 'failed' && !sub.recovery_mode) return false
 
     const computed = computeSubscription({
       start_date: sub.start_date,
@@ -99,7 +100,8 @@ export async function generateQueueForDevice(deviceId: string, today?: string) {
 
     const pendingCount = computed.pending_days.length
     if (pendingCount === 0) return false
-    if (sub.recovery_mode === null && pendingCount >= 3) return false
+    // 3일 이상 밀렸는데 recovery_mode 없으면 → 자동 발송 차단
+    if (!sub.recovery_mode && pendingCount >= 3) return false
 
     return true
   })

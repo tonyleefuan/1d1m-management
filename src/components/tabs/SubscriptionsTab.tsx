@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils'
 import { PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Timeline } from '@/components/ui/timeline'
-import { Send, Pause, FileText, RefreshCw, Upload } from 'lucide-react'
+import { Send, Pause, FileText, RefreshCw, Upload, AlertTriangle } from 'lucide-react'
 import { FloatingChatButton } from '@/components/ui/floating-chat'
 // CSV import removed — use scripts/import-subscriptions.ts for bulk import
 
@@ -180,6 +180,7 @@ export function SubscriptionsTab() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [refreshing, setRefreshing] = useState(false) // 리프레시 (Skeleton 미표시)
   const [total, setTotal] = useState(0)
+  const [failedCount, setFailedCount] = useState(0)
   const isFirstLoad = useRef(true)
   const [devices, setDevices] = useState<DeviceOption[]>([])
   const [products, setProducts] = useState<ProductOption[]>([])
@@ -188,6 +189,7 @@ export function SubscriptionsTab() {
   // Filter state
   const [filters, setFilters] = useState({
     status: '',
+    failure_type: '' as '' | 'failed',
     device_id: '',
     product_id: '',
     search: '',
@@ -254,6 +256,7 @@ export function SubscriptionsTab() {
     params.set('page', String(filters.page))
     params.set('limit', String(filters.pageSize))
     if (filters.status) params.set('status', filters.status)
+    if (filters.failure_type) params.set('failure_type', filters.failure_type)
     if (filters.device_id) params.set('device_id', filters.device_id)
     if (filters.product_id) params.set('product_id', filters.product_id)
     if (filters.search) params.set('search', filters.search)
@@ -265,6 +268,7 @@ export function SubscriptionsTab() {
       const data = await res.json()
       setSubs(data.data || [])
       setTotal(data.total || 0)
+      setFailedCount(data.failedCount ?? 0)
     } catch {
       showError('구독 목록을 불러오는데 실패했습니다')
     } finally {
@@ -436,6 +440,24 @@ export function SubscriptionsTab() {
 
   // ─── Bulk actions ────────────────────────────────────
 
+  const handleBulkRecover = async () => {
+    if (selectedIds.size === 0) return
+    const ok = await confirm({
+      title: '일괄 복구',
+      description: `선택한 ${selectedIds.size}건의 발송 오류를 해소하시겠습니까?\n오류가 해소되면 다음 발송 시 밀린 메시지와 함께 자동 발송됩니다.`,
+      variant: 'warning',
+      confirmLabel: '복구',
+    })
+    if (!ok) return
+    if (await bulkUpdateSubscriptions(Array.from(selectedIds), { failure_type: null })) {
+      showSuccess(`${selectedIds.size}건의 발송 오류가 해소되었습니다`)
+      setSelectedIds(new Set())
+      fetchSubs()
+    } else {
+      showError('일괄 복구에 실패했습니다')
+    }
+  }
+
   const handleBulkStatus = async (status: string) => {
     if (selectedIds.size === 0) return
     if (await bulkUpdateSubscriptions(Array.from(selectedIds), { status })) {
@@ -557,12 +579,18 @@ export function SubscriptionsTab() {
   // ─── Quick filter tabs ───────────────────────────────
 
   const quickFilters = [
-    { label: '전체', active: filters.status === '', onClick: () => setFilters((f) => ({ ...f, status: '', page: 1 })) },
-    { label: '발송중', active: filters.status === 'live', onClick: () => setFilters((f) => ({ ...f, status: 'live', page: 1 })) },
-    { label: '대기', active: filters.status === 'pending', onClick: () => setFilters((f) => ({ ...f, status: 'pending', page: 1 })) },
-    { label: '일시정지', active: filters.status === 'pause', onClick: () => setFilters((f) => ({ ...f, status: 'pause', page: 1 })) },
-    { label: '종료', active: filters.status === 'archive', onClick: () => setFilters((f) => ({ ...f, status: 'archive', page: 1 })) },
-    { label: '취소', active: filters.status === 'cancel', onClick: () => setFilters((f) => ({ ...f, status: 'cancel', page: 1 })) },
+    { label: '전체', active: filters.status === '' && !filters.failure_type, onClick: () => setFilters((f) => ({ ...f, status: '', failure_type: '', page: 1 })) },
+    { label: '발송중', active: filters.status === 'live' && !filters.failure_type, onClick: () => setFilters((f) => ({ ...f, status: 'live', failure_type: '', page: 1 })) },
+    ...(failedCount > 0 ? [{
+      label: `발송 오류 : 복구 필요 (${failedCount}건)`,
+      active: filters.failure_type === 'failed',
+      onClick: () => setFilters((f) => ({ ...f, status: '', failure_type: 'failed' as const, page: 1 })),
+      variant: 'destructive' as const,
+    }] : []),
+    { label: '대기', active: filters.status === 'pending' && !filters.failure_type, onClick: () => setFilters((f) => ({ ...f, status: 'pending', failure_type: '', page: 1 })) },
+    { label: '일시정지', active: filters.status === 'pause' && !filters.failure_type, onClick: () => setFilters((f) => ({ ...f, status: 'pause', failure_type: '', page: 1 })) },
+    { label: '종료', active: filters.status === 'archive' && !filters.failure_type, onClick: () => setFilters((f) => ({ ...f, status: 'archive', failure_type: '', page: 1 })) },
+    { label: '취소', active: filters.status === 'cancel' && !filters.failure_type, onClick: () => setFilters((f) => ({ ...f, status: 'cancel', failure_type: '', page: 1 })) },
   ]
 
   // ─── Render ──────────────────────────────────────────
@@ -689,6 +717,12 @@ export function SubscriptionsTab() {
           <Badge variant="secondary" className="text-xs">
             {selectedIds.size}건 선택
           </Badge>
+          {filters.failure_type === 'failed' && (
+            <Button size="sm" variant="destructive" onClick={handleBulkRecover}>
+              <AlertTriangle className="mr-1 h-3 w-3" />
+              일괄 복구
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => handleBulkStatus('live')}>
             <Send className="mr-1 h-3 w-3" />
             발송 시작

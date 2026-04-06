@@ -41,6 +41,12 @@ export async function GET(req: Request) {
     .order(sortField, { ascending, nullsFirst: !ascending })
     .range((page - 1) * limit, page * limit - 1)
 
+  // failure_type 필터: 'failed' → failure_type='failed'인 것만
+  const failureFilter = searchParams.get('failure_type') || ''
+  if (failureFilter === 'failed') {
+    query = query.eq('failure_type', 'failed')
+  }
+
   if (status) query = query.eq('status', status)
   if (deviceId) query = query.eq('device_id', deviceId)
   if (productId) query = query.eq('product_id', productId)
@@ -121,5 +127,12 @@ export async function GET(req: Request) {
     }
   })
 
-  return NextResponse.json({ data: enriched, total: count, page, limit })
+  // 발송 오류 건수 (필터와 무관하게 항상 반환)
+  const { count: failedCount } = await supabase
+    .from('subscriptions')
+    .select('id', { count: 'exact', head: true })
+    .eq('failure_type', 'failed')
+    .eq('is_cancelled', false)
+
+  return NextResponse.json({ data: enriched, total: count, page, limit, failedCount: failedCount ?? 0 })
 }
