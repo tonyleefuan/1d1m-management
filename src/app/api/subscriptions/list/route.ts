@@ -123,5 +123,12 @@ export async function GET(req: Request) {
     }
   })
 
-  return NextResponse.json({ data: enriched, total: count, page, limit })
+  // 발송 오류 건수 (필터와 무관하게 항상 반환)
+  const { count: failedCount } = await supabase
+    .from('subscriptions')
+    .select('id', { count: 'exact', head: true })
+    .eq('failure_type', 'failed')
+    .eq('is_cancelled', false)
+
+  return NextResponse.json({ data: enriched, total: count, page, limit, failedCount: failedCount ?? 0 })
 }

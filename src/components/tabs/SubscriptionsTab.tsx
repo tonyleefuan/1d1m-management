@@ -181,6 +181,7 @@ export function SubscriptionsTab() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [refreshing, setRefreshing] = useState(false) // 리프레시 (Skeleton 미표시)
   const [total, setTotal] = useState(0)
+  const [failedCount, setFailedCount] = useState(0)
   const isFirstLoad = useRef(true)
   const [devices, setDevices] = useState<DeviceOption[]>([])
   const [products, setProducts] = useState<ProductOption[]>([])
@@ -275,6 +276,7 @@ export function SubscriptionsTab() {
       const data = await res.json()
       setSubs(data.data || [])
       setTotal(data.total || 0)
+      setFailedCount(data.failedCount ?? 0)
     } catch {
       showError('구독 목록을 불러오는데 실패했습니다')
     } finally {

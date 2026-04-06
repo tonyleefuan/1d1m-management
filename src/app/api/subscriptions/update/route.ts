@@ -195,6 +195,12 @@ export async function PATCH(req: Request) {
     if (updates.product_id !== undefined) updateData.product_id = updates.product_id
     if (updates.memo !== undefined) updateData.memo = updates.memo
     if (updates.send_priority !== undefined) updateData.send_priority = updates.send_priority
+    // 일괄 복구: failure_type을 null로 리셋
+    if (updates.failure_type === null) {
+      updateData.failure_type = null
+      updateData.failure_date = null
+      updateData.recovery_mode = null
+    }
     if (updates.resume_date !== undefined) {
       updateData.resume_date = updates.resume_date
     }
