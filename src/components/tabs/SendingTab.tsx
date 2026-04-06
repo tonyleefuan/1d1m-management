@@ -130,6 +130,10 @@ export function SendingTab() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // 어제 결과 수거
+  const [yesterdayPendingCount, setYesterdayPendingCount] = useState(0)
+  const [yesterdayDate, setYesterdayDate] = useState('')
+
   // 구글시트 연동
   const [exporting, setExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState('')
@@ -178,6 +182,8 @@ export function SendingTab() {
       setFileDelay(Number(s.send_file_delay) || 6)
       setLastExportAt(s.last_sheet_export_at || null)
       setLastImportAt(s.last_sheet_import_at || null)
+      setYesterdayPendingCount(json.yesterdayPendingCount ?? 0)
+      setYesterdayDate(json.yesterdayDate ?? '')
     } catch (err) {
       showError(err instanceof Error ? err.message : '요약을 불러오는데 실패했습니다')
     }
@@ -547,14 +553,15 @@ export function SendingTab() {
     setExporting(false)
   }
 
-  const handleImportResults = async () => {
+  const handleImportResults = async (targetDate?: string) => {
+    const date = targetDate || sendDate
     setImporting(true)
     setImportProgress({ totalDevices: 0, currentIndex: 0, currentName: '준비 중...', results: [] })
     try {
       const res = await fetch('/api/sending/import-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: sendDate, stream: true }),
+        body: JSON.stringify({ date, stream: true }),
       })
 
       if (!res.ok) {
@@ -596,8 +603,13 @@ export function SendingTab() {
                 results: [...prev.results, { phone: event.phone, name: event.name, rows: 0, error: event.error }],
               } : prev)
             } else if (event.type === 'complete') {
-              showSuccess(`결과 가져오기 완료: 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`)
-              setLastImportAt(new Date().toISOString())
+              const label = date !== sendDate ? `어제 결과 수거` : '결과 가져오기'
+              showSuccess(`${label} 완료: 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`)
+              if (date !== sendDate) {
+                setYesterdayPendingCount(0)
+              } else {
+                setLastImportAt(new Date().toISOString())
+              }
               fetchSummary(); fetchQueue(1)
             } else if (event.type === 'error') {
               showError(event.message)
@@ -792,6 +804,23 @@ export function SendingTab() {
 
           {/* 현재 스텝 액션 영역 */}
           <div className="flex flex-wrap items-center gap-3 pt-3 border-t">
+            {/* STEP 0: 어제 결과 수거 (pending 있을 때만) */}
+            {yesterdayPendingCount > 0 && (
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => handleImportResults(yesterdayDate)}
+                  disabled={importing}
+                  variant="default"
+                  className="h-9"
+                >
+                  {importing ? <Spinner size="xs" className="mr-1.5" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
+                  어제 결과 수거 ({yesterdayPendingCount}건)
+                </Button>
+                <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
+              </>
+            )}
+
             {/* STEP 1: 대기열 생성 */}
             <Button
               size="sm"
@@ -1046,10 +1075,7 @@ export function SendingTab() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className={cn(
-                          'w-full h-8 text-xs justify-between',
-                          actionPhase === 'failure' && 'border-primary text-primary',
-                        )}
+                        className="w-full h-8 text-xs justify-between"
                         onClick={(e) => {
                           e.stopPropagation()
                           setFailureModalDevice(d.id)
