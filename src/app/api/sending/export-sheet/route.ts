@@ -4,6 +4,8 @@ import { getSession } from '@/lib/auth'
 import { todayKST } from '@/lib/day'
 import { ensureSheetTab, writeSheetData, appendSheetData } from '@/lib/google-sheets'
 
+export const maxDuration = 120
+
 // 날짜를 YYMMDD 형식으로 변환
 function toYYMMDD(dateStr: string): string {
   const [y, m, d] = dateStr.split('-')
@@ -13,7 +15,6 @@ function toYYMMDD(dateStr: string): string {
 export async function POST(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const body = await req.json()

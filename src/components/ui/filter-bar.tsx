@@ -31,8 +31,8 @@ interface QuickFilter {
   label: string
   active?: boolean
   count?: number
-  variant?: 'default' | 'destructive'
   onClick: () => void
+  className?: string
 }
 
 interface SearchConfig {
@@ -123,10 +123,8 @@ function QuickFilters({ items }: { items: QuickFilter[] }) {
           onClick={f.onClick}
           className={cn(
             'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-            f.variant === 'destructive'
-              ? f.active
-                ? 'bg-destructive text-destructive-foreground'
-                : 'bg-destructive/10 text-destructive hover:bg-destructive/20'
+            f.className
+              ? f.className
               : f.active
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:bg-muted',

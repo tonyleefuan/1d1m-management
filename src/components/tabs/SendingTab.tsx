@@ -1,9 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { PageHeader } from '@/components/ui/page-header'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,7 +23,10 @@ import { SkeletonTable } from '@/components/ui/skeleton'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/lib/use-toast'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Radio, RefreshCw, Upload, Download, Search, Info } from 'lucide-react'
+import { CollapsibleCard } from '@/components/ui/collapsible'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { Progress } from '@/components/ui/progress'
+import { Radio, RefreshCw, Upload, Download, Search, Info, ChevronRight, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────
@@ -686,177 +688,193 @@ export function SendingTab() {
     } catch { return '-' }
   }
 
+  // ─── Render helpers ───
+
+  const kstToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+  const kstYesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
+  const kstTomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
+  const formatShort = (d: string) => { const [, m, day] = d.split('-'); return `${Number(m)}/${Number(day)}` }
+
+  // 스텝 정의
+  const STEPS = [
+    { id: 'generate' as const, num: 1, label: '대기열 생성', desc: '구독자별 발송 메시지 목록을 만듭니다' },
+    { id: 'export' as const,   num: 2, label: '시트 내보내기', desc: '생성된 대기열을 구글시트로 전송합니다' },
+    { id: 'import' as const,   num: 3, label: '결과 수거', desc: '발송 완료 후 성공/실패 결과를 가져옵니다' },
+  ] as const
+
+  const stepIndex = actionPhase === 'generate' ? 0
+    : actionPhase === 'export' ? 1
+    : actionPhase === 'import' ? 2
+    : actionPhase === 'failure' ? 2 // 실패 처리는 3단계 이후
+    : 3 // done
+
   // ─── Render ───
 
   return (
-    <div className="space-y-4">
-      {/* 발송 현황 타이틀 + 날짜 탭 */}
-      {(() => {
-        const kstToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-        const kstYesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
-        const kstTomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
-        const dateLabel = sendDate === kstToday ? '오늘' : sendDate === kstTomorrow ? '내일' : sendDate === kstYesterday ? '어제' : sendDate
-        const formatShort = (d: string) => {
-          const [, m, day] = d.split('-')
-          return `${Number(m)}/${Number(day)}`
-        }
-        return (
-          <div>
-            <h2 className="text-2xl font-bold">{sendDate} 발송 현황</h2>
-            <p className="text-sm text-muted-foreground mt-1">PC별 발송 현황과 성공률을 모니터링합니다</p>
-            <div className="flex gap-1 mt-3">
-              {[
-                { date: kstYesterday, label: `어제 (${formatShort(kstYesterday)})` },
-                { date: kstToday, label: `오늘 (${formatShort(kstToday)})` },
-                { date: kstTomorrow, label: `내일 (${formatShort(kstTomorrow)})` },
-              ].map(tab => (
-                <Button
-                  key={tab.date}
-                  size="sm"
-                  variant={sendDate === tab.date ? 'default' : 'outline'}
-                  onClick={() => setSendDate(tab.date)}
-                  className="h-8 text-xs"
-                >
-                  {tab.label}
-                </Button>
-              ))}
-              <Input
-                type="date"
-                value={sendDate}
-                onChange={(e) => setSendDate(e.target.value)}
-                className="w-[140px] h-8 text-xs ml-2"
-              />
-            </div>
-          </div>
-        )
-      })()}
+    <TooltipProvider>
+    <div className="space-y-6">
+      {/* ── 헤더: 날짜 선택 ── */}
+      <div>
+        <h2 className="text-2xl font-bold">{sendDate} 발송 현황</h2>
+        <p className="text-sm text-muted-foreground mt-1">PC별 발송 현황과 성공률을 모니터링합니다</p>
+        <div className="flex gap-1 mt-3">
+          {[
+            { date: kstYesterday, label: `어제 (${formatShort(kstYesterday)})` },
+            { date: kstToday, label: `오늘 (${formatShort(kstToday)})` },
+            { date: kstTomorrow, label: `내일 (${formatShort(kstTomorrow)})` },
+          ].map(tab => (
+            <Button
+              key={tab.date}
+              size="sm"
+              variant={sendDate === tab.date ? 'default' : 'outline'}
+              onClick={() => setSendDate(tab.date)}
+              className="h-8 text-xs"
+            >
+              {tab.label}
+            </Button>
+          ))}
+          <Input
+            type="date"
+            value={sendDate}
+            onChange={(e) => setSendDate(e.target.value)}
+            className="w-[140px] h-8 text-xs ml-2"
+          />
+        </div>
+      </div>
 
-      {/* 발송 설정 */}
+      {/* ── 워크플로우 스텝퍼 ── */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">발송 설정</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">시작 시각</Label>
-              <Input
-                type="time"
-                value={startTime}
-                onChange={(e) => { setStartTime(e.target.value); setSettingsDirty(true) }}
-                className="w-[120px] h-8 text-xs"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">메시지 간격 (초)</Label>
-              <Input
-                type="number"
-                min={1}
-                max={30}
-                value={msgDelay}
-                onChange={(e) => { setMsgDelay(Number(e.target.value)); setSettingsDirty(true) }}
-                className="w-[80px] h-8 text-xs"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">파일 간격 (초)</Label>
-              <Input
-                type="number"
-                min={1}
-                max={30}
-                value={fileDelay}
-                onChange={(e) => { setFileDelay(Number(e.target.value)); setSettingsDirty(true) }}
-                className="w-[80px] h-8 text-xs"
-              />
-            </div>
-            {settingsDirty && (
-              <Button size="sm" onClick={saveSettings} disabled={savingSettings} className="h-8">
-                {savingSettings ? <Spinner size="xs" /> : '저장'}
-              </Button>
+        <CardContent className="p-4">
+          {/* 스텝 인디케이터 */}
+          <div className="flex items-center gap-1 mb-4">
+            {STEPS.map((step, i) => {
+              const isDone = i < stepIndex
+              const isCurrent = i === stepIndex
+              return (
+                <React.Fragment key={step.id}>
+                  {i > 0 && (
+                    <div className={cn('flex-1 h-px mx-1', isDone ? 'bg-foreground' : 'bg-border')} />
+                  )}
+                  <div className="flex items-center gap-2">
+                    <div className={cn(
+                      'flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold transition-colors',
+                      isDone && 'bg-foreground text-background',
+                      isCurrent && 'bg-primary text-primary-foreground ring-2 ring-primary/30',
+                      !isDone && !isCurrent && 'bg-muted text-muted-foreground',
+                    )}>
+                      {isDone ? <CheckCircle2 className="h-4 w-4" /> : step.num}
+                    </div>
+                    <div>
+                      <p className={cn('text-sm font-medium leading-none', isCurrent && 'text-primary', !isDone && !isCurrent && 'text-muted-foreground')}>
+                        {step.label}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 hidden sm:block">
+                        {step.desc}
+                      </p>
+                    </div>
+                  </div>
+                </React.Fragment>
+              )
+            })}
+            {/* 완료 상태 */}
+            {stepIndex >= 3 && (
+              <>
+                <div className="flex-1 h-px mx-1 bg-foreground" />
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center w-7 h-7 rounded-full bg-emerald-600 text-white">
+                    <CheckCircle2 className="h-4 w-4" />
+                  </div>
+                  <p className="text-sm font-medium text-emerald-600">완료</p>
+                </div>
+              </>
             )}
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              {totalCount > 0 && (
-                <Button size="sm" variant="outline" onClick={() => clearQueue()} className="h-8 text-destructive hover:text-destructive">
-                  {selectedDevice ? '이 PC 대기열 삭제' : '전체 대기열 삭제'}
-                </Button>
-              )}
-              {generating && generatingProgress && (
-                <span className="text-sm font-medium text-primary animate-pulse">{generatingProgress}</span>
-              )}
-              <Button
-                size="sm"
-                onClick={generateQueue}
-                disabled={generating}
-                className={cn('h-8', actionPhase === 'generate' && 'bg-primary text-primary-foreground animate-pulse')}
-              >
-                {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
-                대기열 생성
-              </Button>
-            </div>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* 구글시트 연동 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">구글시트 연동</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap items-center gap-4">
+          {/* 현재 스텝 액션 영역 */}
+          <div className="flex flex-wrap items-center gap-3 pt-3 border-t">
+            {/* STEP 1: 대기열 생성 */}
             <Button
               size="sm"
-              onClick={() => {
-                if (totalSummary.total === 0) { showError('먼저 대기열을 생성해 주세요.'); return }
-                handleExportSheet()
-              }}
-              disabled={exporting}
-              className={cn('h-8', actionPhase === 'export' && 'bg-primary text-primary-foreground animate-pulse')}
+              onClick={generateQueue}
+              disabled={generating}
+              variant={actionPhase === 'generate' ? 'default' : 'outline'}
+              className="h-9"
             >
-              {exporting ? <Spinner size="xs" className="mr-1" /> : <Upload className="mr-1 h-3 w-3" />}
-              구글시트 내보내기
+              {generating ? <Spinner size="xs" className="mr-1.5" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+              대기열 생성
             </Button>
+
+            <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
+
+            {/* STEP 2: 시트 내보내기 */}
+            <Button
+              size="sm"
+              onClick={handleExportSheet}
+              disabled={exporting}
+              variant={actionPhase === 'export' ? 'default' : 'outline'}
+              className="h-9"
+            >
+              {exporting ? <Spinner size="xs" className="mr-1.5" /> : <Upload className="mr-1.5 h-3.5 w-3.5" />}
+              시트 내보내기
+            </Button>
+
+            <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
+
+            {/* STEP 3: 결과 가져오기 */}
+            <Button
+              size="sm"
+              onClick={handleImportResults}
+              disabled={importing}
+              variant={actionPhase === 'import' ? 'default' : 'outline'}
+              className="h-9"
+            >
+              {importing ? <Spinner size="xs" className="mr-1.5" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
+              결과 가져오기
+            </Button>
+
+            {/* 진행 상황 텍스트 */}
+            {generating && generatingProgress && (
+              <span className="text-sm font-medium text-primary animate-pulse">{generatingProgress}</span>
+            )}
             {exportProgress && (
               <span className="text-xs text-muted-foreground animate-pulse">{exportProgress}</span>
             )}
-            {selectedIds.size > 0 && (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={handleExportSelected}
-                disabled={exporting}
-                className="h-8"
-              >
-                {exporting ? <Spinner size="xs" className="mr-1" /> : <Upload className="mr-1 h-3 w-3" />}
-                선택 내보내기 ({selectedIds.size}건)
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                if (totalSummary.total === 0) { showError('먼저 대기열을 생성해 주세요.'); return }
-                if (!lastExportAt) { showError('먼저 구글시트 내보내기를 해주세요.'); return }
-                handleImportResults()
-              }}
-              disabled={importing}
-              className={cn('h-8', actionPhase === 'import' && 'bg-primary text-primary-foreground animate-pulse')}
-            >
-              {importing ? <Spinner size="xs" className="mr-1" /> : <Download className="mr-1 h-3 w-3" />}
-              결과 가져오기
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleClearSheet}
-              disabled={exporting}
-              className="h-8 text-destructive hover:text-destructive"
-            >
-              시트 초기화
-            </Button>
-            <div className="ml-auto flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+
+            {/* 우측 부가 버튼 */}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              {selectedIds.size > 0 && (
+                <Button size="sm" variant="secondary" onClick={handleExportSelected} disabled={exporting} className="h-8">
+                  <Upload className="mr-1 h-3 w-3" />
+                  선택 내보내기 ({selectedIds.size}건)
+                </Button>
+              )}
+              {totalCount > 0 && totalSummary.sent === 0 && totalSummary.failed === 0 && (
+                <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={generating} className="h-8 text-xs">
+                  {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+                  재생성
+                </Button>
+              )}
+              {totalCount > 0 && (
+                <Button size="sm" variant="outline" onClick={() => clearQueue()} className="h-8 text-destructive hover:text-destructive text-xs">
+                  대기열 삭제
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* 내보내기/수거 타임스탬프 + 시트 초기화 */}
+          <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>마지막 내보내기: {formatTime(lastExportAt)}</span>
               <span>마지막 결과 수거: {formatTime(lastImportAt)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={handleClearSheet} disabled={exporting} className="h-7 text-xs text-destructive hover:text-destructive">
+                시트 초기화
+              </Button>
+              {(totalSummary.sent > 0 || totalSummary.failed > 0) && (
+                <span className="text-xs text-muted-foreground">결과가 있어 재생성 불가</span>
+              )}
             </div>
           </div>
 
@@ -876,19 +894,14 @@ export function SendingTab() {
                 )}
               </div>
               {importProgress.totalDevices > 0 && (
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-foreground rounded-full transition-all duration-300"
-                    style={{ width: `${(importProgress.results.length / importProgress.totalDevices) * 100}%` }}
-                  />
-                </div>
+                <Progress value={(importProgress.results.length / importProgress.totalDevices) * 100} className="h-1.5" />
               )}
               {importProgress.results.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {importProgress.results.map((r, i) => (
                     <span
                       key={i}
-                      className={`text-xs px-2 py-0.5 rounded ${r.error ? 'bg-destructive/10 text-destructive' : r.rows > 0 ? 'bg-muted' : 'bg-muted text-muted-foreground'}`}
+                      className={cn('text-xs px-2 py-0.5 rounded', r.error ? 'bg-destructive/10 text-destructive' : r.rows > 0 ? 'bg-muted' : 'bg-muted text-muted-foreground')}
                     >
                       {r.name || r.phone} {r.error ? '✗' : `${r.rows}건`}
                     </span>
@@ -900,85 +913,154 @@ export function SendingTab() {
         </CardContent>
       </Card>
 
-      {/* 대기열 상태 */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-muted/30 rounded-lg">
-        <div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium">
-              {totalSummary.total > 0 ? (
-                <>대기열: <StatusBadge status="success" size="xs">생성 완료 ({totalSummary.total}건)</StatusBadge></>
-              ) : (
-                <>대기열: <span className="text-muted-foreground">없음</span></>
-              )}
-            </span>
-            {sendDate && (
-              <span className="text-xs text-muted-foreground">({sendDate})</span>
-            )}
+      {/* ── 발송 설정 (접을 수 있는 영역) ── */}
+      <CollapsibleCard
+        title="발송 설정"
+        description={`시작 ${startTime} · 메시지 ${msgDelay}초 · 파일 ${fileDelay}초`}
+        action={settingsDirty ? (
+          <Button size="sm" onClick={saveSettings} disabled={savingSettings} className="h-7 text-xs">
+            {savingSettings ? <Spinner size="xs" /> : '저장'}
+          </Button>
+        ) : undefined}
+      >
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">시작 시각</Label>
+            <Input
+              type="time"
+              value={startTime}
+              onChange={(e) => { setStartTime(e.target.value); setSettingsDirty(true) }}
+              className="w-[120px] h-8 text-xs"
+            />
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            위 발송 날짜의 대기열을 표시합니다. 다른 날짜를 보려면 발송 날짜를 변경해 주세요.
-          </p>
-          {totalSummary.total > 0 && totalSummary.pending === totalSummary.total && lastExportAt && (
-            <p className="text-xs text-foreground mt-1 font-medium">
-              💡 발송 완료 후 &quot;결과 가져오기&quot; 버튼을 눌러야 발송 결과가 반영됩니다.
-            </p>
-          )}
-        </div>
-        <div className="flex gap-2">
-          {totalSummary.total > 0 && totalSummary.sent === 0 && totalSummary.failed === 0 && (
-            <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={generating} className="h-7 text-xs">
-              {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
-              재생성
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">메시지 간격 (초)</Label>
+            <Input
+              type="number"
+              min={1}
+              max={30}
+              value={msgDelay}
+              onChange={(e) => { setMsgDelay(Number(e.target.value)); setSettingsDirty(true) }}
+              className="w-[80px] h-8 text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">파일 간격 (초)</Label>
+            <Input
+              type="number"
+              min={1}
+              max={30}
+              value={fileDelay}
+              onChange={(e) => { setFileDelay(Number(e.target.value)); setSettingsDirty(true) }}
+              className="w-[80px] h-8 text-xs"
+            />
+          </div>
+          {settingsDirty && (
+            <Button size="sm" onClick={saveSettings} disabled={savingSettings} className="h-8">
+              {savingSettings ? <Spinner size="xs" /> : '저장'}
             </Button>
           )}
-          {(totalSummary.sent > 0 || totalSummary.failed > 0) && (
-            <span className="text-xs text-muted-foreground py-1">결과가 있어 재생성 불가</span>
-          )}
         </div>
+      </CollapsibleCard>
+
+      {/* ── 대기열 상태 배너 ── */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-muted/30 rounded-lg">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium">
+            {totalSummary.total > 0 ? (
+              <>대기열: <StatusBadge status="success" size="xs">생성 완료 ({totalSummary.total.toLocaleString()}건)</StatusBadge></>
+            ) : (
+              <>대기열: <span className="text-muted-foreground">없음</span></>
+            )}
+          </span>
+          {sendDate && <span className="text-xs text-muted-foreground">({sendDate})</span>}
+        </div>
+        {totalSummary.total > 0 && totalSummary.pending === totalSummary.total && lastExportAt && (
+          <p className="text-xs text-foreground font-medium flex items-center gap-1">
+            <Info className="h-3 w-3" />
+            발송 완료 후 &quot;결과 가져오기&quot;를 눌러야 결과가 반영됩니다
+          </p>
+        )}
       </div>
 
-      {/* PC별 요약 카드 */}
+      {/* ── PC별 요약 카드 ── */}
       {devices.filter(d => d.is_active).length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {devices.filter(d => d.is_active).map((d) => {
             const s = summary[d.id] || { total: 0, pending: 0, sent: 0, failed: 0 }
+            const successRate = s.total > 0 ? Math.round((s.sent / s.total) * 100) : 0
+            const failRate = s.total > 0 ? Math.round((s.failed / s.total) * 100) : 0
+            const isSelected = selectedDevice === d.id
             return (
-              <Card key={d.id} className="cursor-pointer hover:border-foreground/30 transition-colors border-l-4" style={{ borderLeftColor: d.color || undefined }} onClick={() => { setSelectedDevice(d.id); setCurrentPage(1) }}>
+              <Card
+                key={d.id}
+                className={cn(
+                  'cursor-pointer transition-all border-l-4',
+                  isSelected ? 'ring-2 ring-primary/40 shadow-md' : 'hover:border-foreground/30 hover:shadow-sm',
+                )}
+                style={{ borderLeftColor: d.color || undefined }}
+                onClick={() => { setSelectedDevice(isSelected ? '' : d.id); setCurrentPage(1) }}
+              >
                 <CardContent className="p-4">
-                  <div className="text-sm text-muted-foreground mb-2 flex items-center justify-between">
-                    <span className="font-medium">{d.phone_number}</span>
-                    {d.name && <span className="text-xs">{d.name}</span>}
+                  {/* PC 이름 */}
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-semibold text-sm">{d.phone_number}</span>
+                    <span className="text-xs text-muted-foreground">{d.name || ''}</span>
                   </div>
-                  <div className="flex items-baseline gap-3 mb-2">
-                    <span className="text-sm">대기 <span className="font-bold text-base">{s.pending}</span></span>
-                    <span className="text-sm"><StatusBadge status="success" size="xs" variant="dot">성공 {s.sent}{s.total > 0 && ` (${Math.round((s.sent / s.total) * 100)}%)`}</StatusBadge></span>
-                    <span className="text-sm"><StatusBadge status="error" size="xs" variant="dot">실패 {s.failed}{s.total > 0 && ` (${Math.round((s.failed / s.total) * 100)}%)`}</StatusBadge></span>
+
+                  {/* 핵심 지표: 3열 그리드 */}
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="text-center">
+                      <p className="text-xl font-bold tabular-nums">{s.pending}</p>
+                      <p className="text-[10px] text-muted-foreground">대기</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-emerald-600 tabular-nums">{s.sent.toLocaleString()}</p>
+                      <p className="text-[10px] text-muted-foreground">성공 ({successRate}%)</p>
+                    </div>
+                    <div className="text-center">
+                      <p className={cn('text-xl font-bold tabular-nums', s.failed > 0 ? 'text-destructive' : 'text-muted-foreground')}>{s.failed}</p>
+                      <p className="text-[10px] text-muted-foreground">실패{s.total > 0 ? ` (${failRate}%)` : ''}</p>
+                    </div>
                   </div>
+
+                  {/* 프로그레스 바: 성공(초록) + 실패(빨강) */}
                   {s.total > 0 && (
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div className="h-2 bg-muted rounded-full overflow-hidden flex">
                       <div
-                        className="h-full bg-primary transition-all duration-500"
-                        style={{ width: `${Math.round((s.sent / s.total) * 100)}%` }}
+                        className="h-full bg-emerald-500 transition-all duration-500"
+                        style={{ width: `${successRate}%` }}
                       />
+                      {s.failed > 0 && (
+                        <div
+                          className="h-full bg-destructive transition-all duration-500"
+                          style={{ width: `${failRate}%` }}
+                        />
+                      )}
                     </div>
                   )}
+
+                  {/* 실패 처리 옵션 */}
                   {s.failed > 0 && (
-                    <div className="mt-3 pt-3 border-t flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Info className="h-3 w-3" />
-                        다음 발송 시 자동 재발송
-                      </span>
+                    <div className="mt-3 pt-3 border-t">
                       <Button
                         size="sm"
-                        variant="ghost"
-                        className={cn('h-6 px-2 text-xs text-primary', actionPhase === 'failure' && 'animate-pulse font-medium')}
+                        variant="outline"
+                        className={cn(
+                          'w-full h-8 text-xs justify-between',
+                          actionPhase === 'failure' && 'border-primary text-primary',
+                        )}
                         onClick={(e) => {
                           e.stopPropagation()
                           setFailureModalDevice(d.id)
                           setFailureAction('retry_next')
                         }}
                       >
-                        변경
+                        <span className="flex items-center gap-1.5">
+                          <AlertTriangle className="h-3 w-3" />
+                          실패 {s.failed}건 처리
+                        </span>
+                        <span className="text-muted-foreground">다음 발송 시 재발송 ›</span>
                       </Button>
                     </div>
                   )}
@@ -1250,5 +1332,6 @@ export function SendingTab() {
 
       {ConfirmDialogElement}
     </div>
+    </TooltipProvider>
   )
 }
