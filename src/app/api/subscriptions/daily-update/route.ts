@@ -25,9 +25,10 @@ async function handleDailyUpdate(req: Request) {
     if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // KST (UTC+9) 기준 오늘 날짜
-  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)
-  const yesterday = new Date(new Date(today + 'T00:00:00').getTime() - 86400000).toISOString().slice(0, 10)
+  // KST 기준 날짜 (Intl API 사용 — todayKST()와 동일 방식)
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+  const yesterdayDate = new Date(); yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+  const yesterday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(yesterdayDate)
   const now = new Date().toISOString()
   const results = {
     pending_to_live: 0,
@@ -41,15 +42,26 @@ async function handleDailyUpdate(req: Request) {
 
   // === 구독 상태 전환 ===
 
-  // 1. pending -> live: start_date <= today AND failure_type IS NULL
+  // 1. pending -> live: start_date <= today AND failure_type IS NULL AND device_id 있음
+  // status만 전환하고, last_sent_day는 null인 경우에만 0으로 설정 (기존 값 보호)
   const { data: pendingToLive, error: e1 } = await supabase
     .from('subscriptions')
-    .update({ status: 'live', last_sent_day: 0, updated_at: now })
+    .update({ status: 'live', updated_at: now })
     .eq('status', 'pending')
     .lte('start_date', today)
     .is('failure_type', null)
-    .select('id')
-  if (!e1) results.pending_to_live = pendingToLive?.length || 0
+    .not('device_id', 'is', null)
+    .select('id, last_sent_day')
+  if (!e1 && pendingToLive?.length) {
+    // last_sent_day가 null인 신규 구독만 0으로 초기화
+    const needInit = pendingToLive.filter(s => s.last_sent_day == null).map(s => s.id)
+    if (needInit.length > 0) {
+      await supabase.from('subscriptions')
+        .update({ last_sent_day: 0 })
+        .in('id', needInit)
+    }
+    results.pending_to_live = pendingToLive.length
+  }
 
   // 2. live -> archive: last_sent_day >= duration_days
   const { data: archiveSubs } = await supabase
@@ -71,10 +83,10 @@ async function handleDailyUpdate(req: Request) {
     }
   }
 
-  // 3. pause -> live: resume_date <= today (end_date를 pause 일수만큼 연장)
+  // 3. pause -> live: resume_date <= today (end_date 연장 + paused_days 누적)
   const { data: pauseSubs } = await supabase
     .from('subscriptions')
-    .select('id, paused_at, end_date')
+    .select('id, paused_at, end_date, paused_days')
     .eq('status', 'pause')
     .lte('resume_date', today)
 
@@ -86,14 +98,17 @@ async function handleDailyUpdate(req: Request) {
         resume_date: null,
         updated_at: now,
       }
-      if (sub.paused_at && sub.end_date) {
+      if (sub.paused_at) {
+        // KST 자정 기준 일수 계산 (Math.floor — update/route.ts와 통일)
         const pausedAt = new Date(sub.paused_at)
-        pausedAt.setHours(0, 0, 0, 0)
-        const todayDate = new Date(today)
-        const pauseDays = Math.max(0, Math.floor((todayDate.getTime() - pausedAt.getTime()) / (1000 * 60 * 60 * 24)))
-        if (pauseDays > 0) {
-          const newEnd = new Date(sub.end_date)
-          newEnd.setDate(newEnd.getDate() + pauseDays)
+        const pauseStart = new Date(pausedAt.toISOString().slice(0, 10) + 'T00:00:00Z')
+        const todayMidnight = new Date(today + 'T00:00:00Z')
+        const pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
+        // #6: paused_days 누적 (기존 값 + 이번 정지 일수)
+        updateFields.paused_days = (sub.paused_days ?? 0) + pauseDays
+        if (pauseDays > 0 && sub.end_date) {
+          const newEnd = new Date(sub.end_date + 'T00:00:00Z')
+          newEnd.setUTCDate(newEnd.getUTCDate() + pauseDays)
           updateFields.end_date = newEnd.toISOString().slice(0, 10)
         }
       }
@@ -182,6 +197,12 @@ async function handleDailyUpdate(req: Request) {
       for (const [subId, dateMap] of subQueues) {
         const dates = [...dateMap.keys()].sort().reverse().slice(0, 3)
         if (dates.length < 3) continue
+
+        // #23: 달력 기준 연속 3일인지 확인 (간격 있으면 스킵)
+        const d0 = new Date(dates[0] + 'T00:00:00Z')
+        const d2 = new Date(dates[2] + 'T00:00:00Z')
+        const daySpan = Math.round((d0.getTime() - d2.getTime()) / 86400000)
+        if (daySpan !== 2) continue // 3개 날짜가 연속 2일 간격이 아니면 스킵
 
         let consecutiveFailures = 0
         for (const date of dates) {

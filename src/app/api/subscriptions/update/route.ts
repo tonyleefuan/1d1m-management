@@ -100,7 +100,7 @@ export async function PATCH(req: Request) {
     // 변경 전 상태 조회 (로그용 + 검증용)
     const { data: prevSubs } = await supabase
       .from('subscriptions')
-      .select('id, status, device_id, start_date, end_date, last_sent_day, duration_days, memo, customer_id, paused_at, failure_type')
+      .select('id, status, device_id, start_date, end_date, last_sent_day, duration_days, memo, customer_id, paused_at, paused_days, failure_type')
       .in('id', targetIds)
     const prevMap = new Map(prevSubs?.map(s => [s.id, s]) || [])
 
@@ -176,6 +176,7 @@ export async function PATCH(req: Request) {
       if (updates.status === 'cancel') {
         updateData.cancelled_at = new Date().toISOString()
         updateData.cancel_reason = updates.cancel_reason || null
+        updateData.is_cancelled = true  // #7: computeSubscription에서 cancelled 판단 가능하도록
       }
       if (updates.status === 'live') {
         updateData.paused_at = null
@@ -253,21 +254,26 @@ export async function PATCH(req: Request) {
       .update(updateData)
       .in('id', targetIds)
 
-    // Fix end_date individually for pause→live transitions
+    // Fix end_date + paused_days individually for pause→live transitions
     if (updates.status === 'live') {
+      const todayKST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
       for (const subId of targetIds) {
         const prev = prevMap.get(subId)
-        if (prev?.status === 'pause' && prev.paused_at && prev.end_date) {
-          const pausedAt = new Date(prev.paused_at)
-          const endDate = new Date(prev.end_date)
-          const now = new Date()
-          const pauseDays = Math.ceil((now.getTime() - pausedAt.getTime()) / (1000 * 60 * 60 * 24))
-          const newEnd = new Date(endDate)
-          newEnd.setDate(newEnd.getDate() + pauseDays)
-          await supabase
-            .from('subscriptions')
-            .update({ end_date: newEnd.toISOString().slice(0, 10) })
-            .eq('id', subId)
+        if (prev?.status === 'pause' && prev.paused_at) {
+          // #11: KST 자정 기준 일수 계산 (daily-update와 통일, Math.floor)
+          const pauseStart = new Date(new Date(prev.paused_at).toISOString().slice(0, 10) + 'T00:00:00Z')
+          const todayMidnight = new Date(todayKST + 'T00:00:00Z')
+          const pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
+          const updateFields: Record<string, unknown> = {
+            // #6: paused_days 누적
+            paused_days: (prev.paused_days ?? 0) + pauseDays,
+          }
+          if (pauseDays > 0 && prev.end_date) {
+            const newEnd = new Date(prev.end_date + 'T00:00:00Z')
+            newEnd.setUTCDate(newEnd.getUTCDate() + pauseDays)
+            updateFields.end_date = newEnd.toISOString().slice(0, 10)
+          }
+          await supabase.from('subscriptions').update(updateFields).eq('id', subId)
         }
       }
     }

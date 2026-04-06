@@ -64,6 +64,7 @@ export async function POST(req: Request) {
         `)
         .eq('status', 'live')
         .eq('device_id', deviceId)
+        .order('id', { ascending: true })
         .range(from, from + PAGE_SIZE - 1)
 
       if (subErr) return NextResponse.json({ error: subErr.message }, { status: 500 })
@@ -375,21 +376,28 @@ export async function POST(req: Request) {
       })
     }
 
-    // 6) 배치 삽입 (500개씩)
+    // 6) 배치 삽입 (500개씩) — 부분 실패 시 이미 삽입된 행 정리
     let inserted = 0
     for (let i = 0; i < queueRows.length; i += 500) {
       const batch = queueRows.slice(i, i + 500)
       const { error } = await supabase.from('send_queues').insert(batch)
       if (error) {
         console.error(`[generate] batch ${i} insert error:`, error.message)
+        // 부분 삽입된 행 정리 — 재시도 가능하도록
+        if (inserted > 0) {
+          await supabase.from('send_queues').delete()
+            .eq('send_date', date).eq('device_id', deviceId)
+        }
         return NextResponse.json({ error: `대기열 삽입 실패: ${error.message}` }, { status: 500 })
       }
       inserted += batch.length
     }
 
-    // 7) 실패 구독 failure flags 클리어 (500개씩)
-    for (let i = 0; i < failedSubIds.length; i += 500) {
-      const batch = failedSubIds.slice(i, i + 500)
+    // 7) 실패 구독 failure flags 클리어 — 실제 큐가 생성된 구독만
+    const generatedSubIds = new Set(queueRows.filter(r => !r.is_notice).map(r => r.subscription_id))
+    const safeFailedSubIds = failedSubIds.filter(id => generatedSubIds.has(id))
+    for (let i = 0; i < safeFailedSubIds.length; i += 500) {
+      const batch = safeFailedSubIds.slice(i, i + 500)
       await supabase.from('subscriptions').update({
         failure_type: null,
         failure_date: null,

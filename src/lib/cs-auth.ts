@@ -2,12 +2,12 @@ import 'server-only'
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 
-// CS와 admin은 반드시 다른 시크릿을 사용해야 함 (JWT 교차 검증 방지)
+// #17: CS와 admin은 반드시 다른 시크릿 사용 (JWT 교차 검증 방지)
 const CS_SECRET = process.env.CS_AUTH_SECRET
-if (!CS_SECRET) {
-  console.warn('[CS Auth] CS_AUTH_SECRET 미설정 — AUTH_SECRET 폴백 사용. 프로덕션에서는 반드시 별도 설정하세요.')
+if (!CS_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('CS_AUTH_SECRET must be set in production. Do not share with AUTH_SECRET.')
 }
-const SECRET = new TextEncoder().encode(CS_SECRET || process.env.AUTH_SECRET!)
+const SECRET = new TextEncoder().encode(CS_SECRET || process.env.AUTH_SECRET || 'dev-fallback')
 const SESSION_COOKIE = '1d1m-cs-session'
 const SESSION_EXPIRY = '1h'
 

@@ -196,10 +196,19 @@ async function handleRetryShift(failedQueues: any[], now: string) {
 
     if (subErr) throw new Error(`구독 상태 클리어 실패: ${subErr.message}`)
 
-    // 각 구독의 duration_days를 원자적으로 1 증가
+    // #9: 각 구독의 duration_days를 실패한 Day 수만큼 증가 (1일이 아닌 실패 일수)
+    const subDaySet = new Map<string, Set<number>>()
+    for (const q of failedQueues) {
+      if (!q.subscription_id || !q.day_number || q.is_notice) continue
+      if (!subDaySet.has(q.subscription_id)) subDaySet.set(q.subscription_id, new Set())
+      subDaySet.get(q.subscription_id)!.add(q.day_number)
+    }
     for (const subId of subIds) {
-      const { error: durErr } = await supabase.rpc('increment_duration_days', { sub_id: subId })
-      if (durErr) throw new Error(`구독 기간 연장 실패 (${subId}): ${durErr.message}`)
+      const failedDayCount = subDaySet.get(subId)?.size || 1
+      for (let d = 0; d < failedDayCount; d++) {
+        const { error: durErr } = await supabase.rpc('increment_duration_days', { sub_id: subId })
+        if (durErr) throw new Error(`구독 기간 연장 실패 (${subId}): ${durErr.message}`)
+      }
     }
   }
 

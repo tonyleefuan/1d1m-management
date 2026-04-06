@@ -78,8 +78,8 @@ export async function POST(req: Request) {
           : String(lastExportSetting.value))
       : null
 
-    // 같은 날짜 + 선택 내보내기 = 이어 붙이기, force 전체 재내보내기 = 초기화
-    const isAppend = lastExportDate === date && (!!queueIds || !force)
+    // #14: 선택 내보내기(queueIds)는 항상 이어 붙이기, force 전체 재내보내기 = 초기화
+    const isAppend = !!queueIds || (lastExportDate === date && !force)
 
     // --- 발송 설정 조회 ---
     const { data: settingsData } = await supabase
@@ -193,13 +193,13 @@ export async function POST(req: Request) {
             await ensureSheetTab(phoneNumber)
 
             const dataRows: string[][] = []
-            let deviceCounter = 0
+            let cumulativeSeconds = 0
 
             for (const item of items) {
               const isImage = !!item.image_path && !item.message_content
               const delay = isImage ? fileDelay : msgDelay
-              const elapsedSeconds = deviceCounter > 0 ? deviceCounter * delay : 0
-              const estimatedSeconds = baseSeconds + elapsedSeconds
+              // #15: 누적 방식 — 텍스트/이미지 혼합 시에도 정확한 시간
+              const estimatedSeconds = baseSeconds + cumulativeSeconds
               const h = Math.floor(estimatedSeconds / 3600) % 24
               const m = Math.floor((estimatedSeconds % 3600) / 60)
               const estimatedTime = `${datePrefix} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
@@ -214,7 +214,7 @@ export async function POST(req: Request) {
                 item.id, // queue_id
               ])
 
-              deviceCounter++
+              cumulativeSeconds += delay
             }
 
             // 초기화 단계에서 이미 헤더를 넣었으므로 항상 append

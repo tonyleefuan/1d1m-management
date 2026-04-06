@@ -92,15 +92,14 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleGenerateDaily(request: NextRequest) {
-  // Dual auth
-  const authHeader = request.headers.get('authorization')
+  // #18: Cron 또는 admin 인증 (다른 cron 핸들러와 동일 패턴)
+  const cronSecret = request.headers.get('authorization')
   const envSecret = process.env.CRON_SECRET
-  const cronSecret = authHeader?.replace('Bearer ', '')
-  const isValidCron = !!envSecret && cronSecret === envSecret
+  const isValidCron = !!envSecret && cronSecret === `Bearer ${envSecret}`
 
   if (!isValidCron) {
     const session = await getSession()
-    if (!session) {
+    if (!session || session.role !== 'admin') {
       return NextResponse.json({ error: '인증 필요' }, { status: 401 })
     }
   }

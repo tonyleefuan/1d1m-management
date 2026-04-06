@@ -352,6 +352,7 @@ export function SendingTab() {
       })
       if (!res.ok) throw new Error('대기열 삭제 실패')
       showSuccess(`${label} 대기열 삭제 완료`)
+      setSelectedIds(new Set())
       fetchSummary(); fetchQueue(1)
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 삭제에 실패했습니다')
@@ -417,7 +418,11 @@ export function SendingTab() {
       if (failedDevices.length > 0) {
         showError(`재생성 중 ${failedDevices.length}개 PC 실패:\n${failedDevices.join('\n')}`)
       }
-      showSuccess(`대기열 재생성 완료: ${totalGenerated}건 (${deviceList.length}개 PC${failedDevices.length > 0 ? `, ${failedDevices.length}개 실패` : ''})`)
+      if (totalGenerated > 0) {
+        showSuccess(`대기열 재생성 완료: ${totalGenerated}건 (${deviceList.length}개 PC${failedDevices.length > 0 ? `, ${failedDevices.length}개 실패` : ''})`)
+      } else if (failedDevices.length === 0) {
+        showSuccess('재생성 완료 (발송 대상 없음)')
+      }
       fetchSummary(); fetchQueue(1)
     } catch (err) {
       showError(err instanceof Error ? err.message : '대기열 재생성 실패')
@@ -536,14 +541,39 @@ export function SendingTab() {
     if (selectedIds.size === 0) return
     setExporting(true)
     try {
+      // #8: export-sheet는 SSE 스트림 응답 — JSON이 아님
       const res = await fetch('/api/sending/export-sheet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: sendDate, queue_ids: Array.from(selectedIds), force: true }),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || '선택 내보내기 실패')
-      showSuccess(`선택 내보내기 완료: ${json.total}건 (${json.devices}개 PC)${json.appended ? ' — 시트에 추가됨' : ''}`)
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        throw new Error(json.error || '선택 내보내기 실패')
+      }
+      // SSE 스트림에서 complete 이벤트 대기
+      const reader = res.body?.getReader()
+      if (reader) {
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let lastResult: any = {}
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.type === 'complete') lastResult = data
+              else if (data.type === 'error') throw new Error(data.error)
+            } catch (e) { if (e instanceof Error && e.message !== 'error') throw e }
+          }
+        }
+        showSuccess(`선택 내보내기 완료: ${lastResult.total ?? 0}건 (${lastResult.devices ?? 0}개 PC)`)
+      }
       setLastExportAt(new Date().toISOString())
       setSelectedIds(new Set())
       fetchSummary(); fetchQueue(1)
@@ -739,7 +769,7 @@ export function SendingTab() {
               key={tab.date}
               size="sm"
               variant={sendDate === tab.date ? 'default' : 'outline'}
-              onClick={() => setSendDate(tab.date)}
+              onClick={() => { setSendDate(tab.date); setCurrentPage(1) }}
               className="h-8 text-xs"
             >
               {tab.label}
@@ -748,7 +778,7 @@ export function SendingTab() {
           <Input
             type="date"
             value={sendDate}
-            onChange={(e) => setSendDate(e.target.value)}
+            onChange={(e) => { setSendDate(e.target.value); setCurrentPage(1) }}
             className="w-[140px] h-8 text-xs ml-2"
           />
         </div>

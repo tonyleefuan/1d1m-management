@@ -303,52 +303,62 @@ async function updateSubscriptionStatuses(
 
   if (subDayGroups.size === 0) return
 
-  // 영향 받는 구독의 last_sent_day 조회 (배치)
+  // 영향 받는 구독의 last_sent_day, recovery_mode 조회 (배치)
   const affectedSubIds = [...new Set([...subDayGroups.values()].map(g => g.subscriptionId))]
   const lastSentDayMap = new Map<string, number>()
+  const recoveryModeMap = new Map<string, string | null>()
   for (let i = 0; i < affectedSubIds.length; i += 500) {
     const batch = affectedSubIds.slice(i, i + 500)
-    const { data } = await supabase.from('subscriptions').select('id, last_sent_day').in('id', batch)
-    for (const s of data || []) lastSentDayMap.set(s.id, s.last_sent_day ?? 0)
+    const { data } = await supabase.from('subscriptions').select('id, last_sent_day, recovery_mode').in('id', batch)
+    for (const s of data || []) {
+      lastSentDayMap.set(s.id, s.last_sent_day ?? 0)
+      recoveryModeMap.set(s.id, s.recovery_mode ?? null)
+    }
   }
 
   // 구독 업데이트 분류
   const now = new Date().toISOString()
   const sortedGroups = [...subDayGroups.values()].sort((a, b) => a.dayNumber - b.dayNumber)
 
-  const failureUpdates: string[] = []  // failure_type = 'failed' 설정 대상
-  const successUpdates: { id: string; day: number }[] = []  // last_sent_day 업데이트 대상
+  const failureSubIds = new Set<string>()
+  // #4: 구독별 최대 연속 성공 Day만 추적 (multi-day bulk 시 하나의 UPDATE로 통합)
+  const subMaxSuccessDay = new Map<string, number>()
 
   for (const group of sortedGroups) {
+    // pending 남아있으면 성공/실패 판단 보류
     if (group.statuses.includes('pending')) continue
 
     if (group.statuses.includes('failed')) {
-      failureUpdates.push(group.subscriptionId)
+      failureSubIds.add(group.subscriptionId)
       continue
     }
 
     if (group.statuses.every(s => s === 'sent')) {
       const lastSentDay = lastSentDayMap.get(group.subscriptionId) ?? 0
       if (group.dayNumber === lastSentDay + 1) {
-        successUpdates.push({ id: group.subscriptionId, day: group.dayNumber })
         lastSentDayMap.set(group.subscriptionId, group.dayNumber)
+        subMaxSuccessDay.set(group.subscriptionId, group.dayNumber)
       }
     }
   }
 
-  onProgress?.(`구독 반영 중... (성공 ${successUpdates.length}건, 실패 ${failureUpdates.length}건)`)
+  const successUpdates = [...subMaxSuccessDay.entries()].map(([id, day]) => ({ id, day }))
+  onProgress?.(`구독 반영 중... (성공 ${successUpdates.length}건, 실패 ${failureSubIds.size}건)`)
 
   // 배치 업데이트: 실패 구독 (500개씩)
-  for (let i = 0; i < failureUpdates.length; i += 500) {
-    const batch = failureUpdates.slice(i, i + 500)
+  const failureList = [...failureSubIds]
+  for (let i = 0; i < failureList.length; i += 500) {
+    const batch = failureList.slice(i, i + 500)
     await supabase.from('subscriptions')
       .update({ failure_type: 'failed', failure_date: date, updated_at: now })
       .in('id', batch)
   }
 
-  // 배치 업데이트: 성공 구독 — day별로 그룹화해서 배치
+  // 배치 업데이트: 성공 구독 — #5: 같은 런에서 failure도 발생한 구독은 성공에서 제외
+  const safeSuccessUpdates = successUpdates.filter(u => !failureSubIds.has(u.id))
+  // 구독별 하나의 day만 있으므로 (subMaxSuccessDay) day별 그룹화 후 단일 UPDATE
   const dayGroups = new Map<number, string[]>()
-  for (const u of successUpdates) {
+  for (const u of safeSuccessUpdates) {
     const arr = dayGroups.get(u.day) || []
     arr.push(u.id)
     dayGroups.set(u.day, arr)
@@ -358,6 +368,19 @@ async function updateSubscriptionStatuses(
       const batch = ids.slice(i, i + 500)
       await supabase.from('subscriptions')
         .update({ last_sent_day: day, failure_type: null, failure_date: null, updated_at: now })
+        .in('id', batch)
+    }
+  }
+
+  // #12: recovery_mode 자동 해제 — 성공적으로 업데이트된 구독 중 recovery_mode가 설정된 것
+  const recoveryResetIds = safeSuccessUpdates
+    .filter(u => recoveryModeMap.get(u.id) != null)
+    .map(u => u.id)
+  if (recoveryResetIds.length > 0) {
+    for (let i = 0; i < recoveryResetIds.length; i += 500) {
+      const batch = recoveryResetIds.slice(i, i + 500)
+      await supabase.from('subscriptions')
+        .update({ recovery_mode: null, updated_at: now })
         .in('id', batch)
     }
   }

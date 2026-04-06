@@ -3,8 +3,12 @@ import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 import { createHash } from 'crypto'
 
+// #17: CS 시크릿 분리 필수
 const CS_SECRET = process.env.CS_AUTH_SECRET
-const SECRET = new TextEncoder().encode(CS_SECRET || process.env.AUTH_SECRET!)
+if (!CS_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('CS_AUTH_SECRET must be set in production.')
+}
+const SECRET = new TextEncoder().encode(CS_SECRET || process.env.AUTH_SECRET || 'dev-fallback')
 const SESSION_COOKIE = '1d1m-general-session'
 const SESSION_EXPIRY = '1h'
 
