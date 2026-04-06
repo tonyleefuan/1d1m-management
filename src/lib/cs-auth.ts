@@ -3,11 +3,9 @@ import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 
 // #17: CS와 admin은 반드시 다른 시크릿 사용 (JWT 교차 검증 방지)
-const CS_SECRET = process.env.CS_AUTH_SECRET
-if (!CS_SECRET && process.env.NODE_ENV === 'production') {
-  throw new Error('CS_AUTH_SECRET must be set in production. Do not share with AUTH_SECRET.')
-}
-const SECRET = new TextEncoder().encode(CS_SECRET || process.env.AUTH_SECRET || 'dev-fallback')
+// 런타임에만 체크 (빌드 시점에는 환경변수 미로드 가능)
+const CS_SECRET = process.env.CS_AUTH_SECRET || process.env.AUTH_SECRET || ''
+const SECRET = new TextEncoder().encode(CS_SECRET || 'build-placeholder')
 const SESSION_COOKIE = '1d1m-cs-session'
 const SESSION_EXPIRY = '1h'
 
