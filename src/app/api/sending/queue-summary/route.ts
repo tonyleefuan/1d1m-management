@@ -68,7 +68,15 @@ export async function GET(req: Request) {
       totalCount++
     })
 
-    return NextResponse.json({ summary, settings, date, totalCount })
+    // 어제 큐 중 pending 건수
+    const yesterday = new Date(new Date(date + 'T00:00:00+09:00').getTime() - 86400000).toISOString().slice(0, 10)
+    const { count: yesterdayPendingCount } = await supabase
+      .from('send_queues')
+      .select('id', { count: 'exact', head: true })
+      .eq('send_date', yesterday)
+      .eq('status', 'pending')
+
+    return NextResponse.json({ summary, settings, date, totalCount, yesterdayPendingCount: yesterdayPendingCount ?? 0, yesterdayDate: yesterday })
   }
 
   // RPC 결과를 summary 형태로 변환
@@ -83,5 +91,13 @@ export async function GET(req: Request) {
     totalCount += row.cnt
   })
 
-  return NextResponse.json({ summary, settings, date, totalCount })
+  // 어제 큐 중 pending 건수 (어제 결과 수거 필요 여부 판단용)
+  const yesterday = new Date(new Date(date + 'T00:00:00+09:00').getTime() - 86400000).toISOString().slice(0, 10)
+  const { count: yesterdayPendingCount } = await supabase
+    .from('send_queues')
+    .select('id', { count: 'exact', head: true })
+    .eq('send_date', yesterday)
+    .eq('status', 'pending')
+
+  return NextResponse.json({ summary, settings, date, totalCount, yesterdayPendingCount: yesterdayPendingCount ?? 0, yesterdayDate: yesterday })
 }

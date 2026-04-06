@@ -128,6 +128,10 @@ export function SendingTab() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // 어제 결과 수거
+  const [yesterdayPendingCount, setYesterdayPendingCount] = useState(0)
+  const [yesterdayDate, setYesterdayDate] = useState('')
+
   // 구글시트 연동
   const [exporting, setExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState('')
@@ -176,6 +180,8 @@ export function SendingTab() {
       setFileDelay(Number(s.send_file_delay) || 6)
       setLastExportAt(s.last_sheet_export_at || null)
       setLastImportAt(s.last_sheet_import_at || null)
+      setYesterdayPendingCount(json.yesterdayPendingCount ?? 0)
+      setYesterdayDate(json.yesterdayDate ?? '')
     } catch (err) {
       showError(err instanceof Error ? err.message : '요약을 불러오는데 실패했습니다')
     }
@@ -545,14 +551,15 @@ export function SendingTab() {
     setExporting(false)
   }
 
-  const handleImportResults = async () => {
+  const handleImportResults = async (targetDate?: string) => {
+    const date = targetDate || sendDate
     setImporting(true)
     setImportProgress({ totalDevices: 0, currentIndex: 0, currentName: '준비 중...', results: [] })
     try {
       const res = await fetch('/api/sending/import-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: sendDate, stream: true }),
+        body: JSON.stringify({ date, stream: true }),
       })
 
       if (!res.ok) {
@@ -594,8 +601,13 @@ export function SendingTab() {
                 results: [...prev.results, { phone: event.phone, name: event.name, rows: 0, error: event.error }],
               } : prev)
             } else if (event.type === 'complete') {
-              showSuccess(`결과 가져오기 완료: 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`)
-              setLastImportAt(new Date().toISOString())
+              const label = date !== sendDate ? `어제 결과 수거` : '결과 가져오기'
+              showSuccess(`${label} 완료: 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`)
+              if (date !== sendDate) {
+                setYesterdayPendingCount(0)
+              } else {
+                setLastImportAt(new Date().toISOString())
+              }
               fetchSummary(); fetchQueue(1)
             } else if (event.type === 'error') {
               showError(event.message)
@@ -780,6 +792,18 @@ export function SendingTab() {
                   {selectedDevice ? '이 PC 대기열 삭제' : '전체 대기열 삭제'}
                 </Button>
               )}
+              {yesterdayPendingCount > 0 && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleImportResults(yesterdayDate)}
+                  disabled={importing}
+                  className="h-8"
+                >
+                  {importing ? <Spinner size="xs" className="mr-1" /> : <Download className="mr-1 h-3 w-3" />}
+                  어제 결과 수거 ({yesterdayPendingCount}건)
+                </Button>
+              )}
               {generating && generatingProgress && (
                 <span className="text-sm font-medium text-primary animate-pulse">{generatingProgress}</span>
               )}
@@ -787,7 +811,7 @@ export function SendingTab() {
                 size="sm"
                 onClick={generateQueue}
                 disabled={generating}
-                className={cn('h-8', actionPhase === 'generate' && 'bg-primary text-primary-foreground animate-pulse')}
+                className="h-8"
               >
                 {generating ? <Spinner size="xs" className="mr-1" /> : <RefreshCw className="mr-1 h-3 w-3" />}
                 대기열 생성
@@ -811,7 +835,7 @@ export function SendingTab() {
                 handleExportSheet()
               }}
               disabled={exporting}
-              className={cn('h-8', actionPhase === 'export' && 'bg-primary text-primary-foreground animate-pulse')}
+              className="h-8"
             >
               {exporting ? <Spinner size="xs" className="mr-1" /> : <Upload className="mr-1 h-3 w-3" />}
               구글시트 내보내기
@@ -840,7 +864,7 @@ export function SendingTab() {
                 handleImportResults()
               }}
               disabled={importing}
-              className={cn('h-8', actionPhase === 'import' && 'bg-primary text-primary-foreground animate-pulse')}
+              className="h-8"
             >
               {importing ? <Spinner size="xs" className="mr-1" /> : <Download className="mr-1 h-3 w-3" />}
               결과 가져오기
@@ -971,7 +995,7 @@ export function SendingTab() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className={cn('h-6 px-2 text-xs text-primary', actionPhase === 'failure' && 'animate-pulse font-medium')}
+                        className="h-6 px-2 text-xs text-primary font-medium"
                         onClick={(e) => {
                           e.stopPropagation()
                           setFailureModalDevice(d.id)
