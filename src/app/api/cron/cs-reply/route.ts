@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { handleCsInquiry, handleCsReply } from '@/lib/ai/cs-engine'
