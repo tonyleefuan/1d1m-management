@@ -23,8 +23,7 @@ import { cn } from '@/lib/utils'
 import { PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Timeline } from '@/components/ui/timeline'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Send, Pause, FileText, RefreshCw, Upload, AlertTriangle, ChevronDown, CheckCircle2 } from 'lucide-react'
+import { Send, Pause, FileText, RefreshCw, Upload } from 'lucide-react'
 import { FloatingChatButton } from '@/components/ui/floating-chat'
 // CSV import removed — use scripts/import-subscriptions.ts for bulk import
 
@@ -181,7 +180,6 @@ export function SubscriptionsTab() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [refreshing, setRefreshing] = useState(false) // 리프레시 (Skeleton 미표시)
   const [total, setTotal] = useState(0)
-  const [failedCount, setFailedCount] = useState(0)
   const isFirstLoad = useRef(true)
   const [devices, setDevices] = useState<DeviceOption[]>([])
   const [products, setProducts] = useState<ProductOption[]>([])
@@ -197,15 +195,7 @@ export function SubscriptionsTab() {
     pageSize: 50 as number,
     sort: 'start_date',
     order: 'desc' as 'asc' | 'desc',
-    failureOnly: false,
   })
-
-  // Failed count for quick filter badge
-  const [failedCount, setFailedCount] = useState(0)
-
-  // Bulk recovery dialog
-  const [bulkRecoveryOpen, setBulkRecoveryOpen] = useState(false)
-  const [bulkRecoveryAction, setBulkRecoveryAction] = useState<'bulk' | 'sequential'>('bulk')
 
   // CSV Import state
   const [importOpen, setImportOpen] = useState(false)
@@ -263,20 +253,18 @@ export function SubscriptionsTab() {
     const params = new URLSearchParams()
     params.set('page', String(filters.page))
     params.set('limit', String(filters.pageSize))
-    if (filters.failureOnly) params.set('failure_only', 'true')
     if (filters.status) params.set('status', filters.status)
     if (filters.device_id) params.set('device_id', filters.device_id)
     if (filters.product_id) params.set('product_id', filters.product_id)
     if (filters.search) params.set('search', filters.search)
-    params.set('sort', filters.failureOnly ? 'day' : filters.sort)
-    params.set('order', filters.failureOnly ? 'desc' : filters.order)
+    params.set('sort', filters.sort)
+    params.set('order', filters.order)
 
     try {
       const res = await fetch(`/api/subscriptions/list?${params}`)
       const data = await res.json()
       setSubs(data.data || [])
       setTotal(data.total || 0)
-      setFailedCount(data.failedCount ?? 0)
     } catch {
       showError('구독 목록을 불러오는데 실패했습니다')
     } finally {
@@ -289,19 +277,6 @@ export function SubscriptionsTab() {
   useEffect(() => {
     fetchSubs()
   }, [fetchSubs])
-
-  // Fetch failed count independently for badge display
-  const fetchFailedCount = useCallback(async () => {
-    try {
-      const res = await fetch('/api/subscriptions/list?failure_only=true&limit=1&page=1')
-      const data = await res.json()
-      setFailedCount(data.total || 0)
-    } catch { /* silent */ }
-  }, [])
-
-  useEffect(() => {
-    fetchFailedCount()
-  }, [fetchFailedCount])
 
   // searchTimer cleanup on unmount
   useEffect(() => {
@@ -454,36 +429,9 @@ export function SubscriptionsTab() {
       setResolveDialogOpen(false)
       setResolvingSub(null)
       fetchSubs()
-      fetchFailedCount()
     } else {
       showError('실패 해제 중 오류가 발생했습니다')
     }
-  }
-
-  // ─── Bulk recovery ──────────────────────────────────
-
-  const handleBulkRecovery = async (action: 'bulk' | 'sequential') => {
-    if (selectedIds.size === 0) return
-    let successCount = 0
-    let failCount = 0
-    for (const id of selectedIds) {
-      const res = await fetch('/api/subscriptions/update', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, resolve_failure: { action } }),
-      })
-      if (res.ok) successCount++
-      else failCount++
-    }
-    if (failCount === 0) {
-      showSuccess(`${successCount}건 일괄 복구 완료 (${action === 'bulk' ? '몰아서' : '하루씩'})`)
-    } else {
-      showError(`${successCount}건 성공, ${failCount}건 실패`)
-    }
-    setSelectedIds(new Set())
-    setBulkRecoveryOpen(false)
-    fetchSubs()
-    fetchFailedCount()
   }
 
   // ─── Bulk actions ────────────────────────────────────
@@ -609,20 +557,12 @@ export function SubscriptionsTab() {
   // ─── Quick filter tabs ───────────────────────────────
 
   const quickFilters = [
-    { label: '전체', active: !filters.failureOnly && filters.status === '', onClick: () => setFilters((f) => ({ ...f, status: '', failureOnly: false, page: 1 })) },
-    { label: '발송중', active: !filters.failureOnly && filters.status === 'live', onClick: () => setFilters((f) => ({ ...f, status: 'live', failureOnly: false, page: 1 })) },
-    ...(failedCount > 0 ? [{
-      label: `발송 오류 : 복구 필요 (${failedCount}건)`,
-      active: filters.failureOnly,
-      onClick: () => setFilters((f) => ({ ...f, failureOnly: true, status: '', page: 1 })),
-      className: filters.failureOnly
-        ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-        : 'text-destructive border-destructive/30 hover:bg-destructive/10',
-    }] : []),
-    { label: '대기', active: !filters.failureOnly && filters.status === 'pending', onClick: () => setFilters((f) => ({ ...f, status: 'pending', failureOnly: false, page: 1 })) },
-    { label: '일시정지', active: !filters.failureOnly && filters.status === 'pause', onClick: () => setFilters((f) => ({ ...f, status: 'pause', failureOnly: false, page: 1 })) },
-    { label: '종료', active: !filters.failureOnly && filters.status === 'archive', onClick: () => setFilters((f) => ({ ...f, status: 'archive', failureOnly: false, page: 1 })) },
-    { label: '취소', active: !filters.failureOnly && filters.status === 'cancel', onClick: () => setFilters((f) => ({ ...f, status: 'cancel', failureOnly: false, page: 1 })) },
+    { label: '전체', active: filters.status === '', onClick: () => setFilters((f) => ({ ...f, status: '', page: 1 })) },
+    { label: '발송중', active: filters.status === 'live', onClick: () => setFilters((f) => ({ ...f, status: 'live', page: 1 })) },
+    { label: '대기', active: filters.status === 'pending', onClick: () => setFilters((f) => ({ ...f, status: 'pending', page: 1 })) },
+    { label: '일시정지', active: filters.status === 'pause', onClick: () => setFilters((f) => ({ ...f, status: 'pause', page: 1 })) },
+    { label: '종료', active: filters.status === 'archive', onClick: () => setFilters((f) => ({ ...f, status: 'archive', page: 1 })) },
+    { label: '취소', active: filters.status === 'cancel', onClick: () => setFilters((f) => ({ ...f, status: 'cancel', page: 1 })) },
   ]
 
   // ─── Render ──────────────────────────────────────────
@@ -749,47 +689,36 @@ export function SubscriptionsTab() {
           <Badge variant="secondary" className="text-xs">
             {selectedIds.size}건 선택
           </Badge>
-          {filters.failureOnly ? (
-            /* 발송 오류 모드: 일괄 복구 버튼만 */
-            <Button size="sm" variant="destructive" onClick={() => { setBulkRecoveryAction('bulk'); setBulkRecoveryOpen(true) }}>
-              <AlertTriangle className="mr-1 h-3 w-3" />
-              일괄 복구
-            </Button>
-          ) : (
-            /* 일반 모드 */
-            <>
-              <Button size="sm" variant="outline" onClick={() => handleBulkStatus('live')}>
-                <Send className="mr-1 h-3 w-3" />
-                발송 시작
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleBulkStatus('pause')}>
-                <Pause className="mr-1 h-3 w-3" />
-                일시정지
-              </Button>
-              <Select onValueChange={(v) => handleBulkDevice(v === '__none__' ? '' : v)}>
-                <SelectTrigger className="h-8 w-[160px] text-xs">
-                  <SelectValue placeholder="PC 일괄 배정" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">미배정</SelectItem>
-                  {devices.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: getDeviceColor(d, devices) }}
-                        />
-                        {d.phone_number}{d.name ? ` (${d.name})` : ''}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button size="sm" variant="destructive" onClick={() => handleBulkStatus('cancel')}>
-                취소
-              </Button>
-            </>
-          )}
+          <Button size="sm" variant="outline" onClick={() => handleBulkStatus('live')}>
+            <Send className="mr-1 h-3 w-3" />
+            발송 시작
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => handleBulkStatus('pause')}>
+            <Pause className="mr-1 h-3 w-3" />
+            일시정지
+          </Button>
+          <Select onValueChange={(v) => handleBulkDevice(v === '__none__' ? '' : v)}>
+            <SelectTrigger className="h-8 w-[160px] text-xs">
+              <SelectValue placeholder="PC 일괄 배정" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">미배정</SelectItem>
+              {devices.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: getDeviceColor(d, devices) }}
+                    />
+                    {d.phone_number}{d.name ? ` (${d.name})` : ''}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button size="sm" variant="destructive" onClick={() => handleBulkStatus('cancel')}>
+            취소
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())} className="ml-auto">
             선택 해제
           </Button>
@@ -800,18 +729,11 @@ export function SubscriptionsTab() {
       {loading ? (
         <SkeletonTable rows={10} cols={14} />
       ) : subs.length === 0 ? (
-        filters.failureOnly ? (
-          <EmptyState
-            title="모든 구독이 정상 발송 중입니다 ✅"
-            description="발송 오류가 없습니다"
-          />
-        ) : (
-          <EmptyState
-            icon={FileText}
-            title="구독 내역이 없습니다"
-            description="주문을 업로드하면 구독이 자동 생성됩니다"
-          />
-        )
+        <EmptyState
+          icon={FileText}
+          title="구독 내역이 없습니다"
+          description="주문을 업로드하면 구독이 자동 생성됩니다"
+        />
       ) : (
         <>
           <div className="text-xs text-muted-foreground">
@@ -827,51 +749,35 @@ export function SubscriptionsTab() {
                       onCheckedChange={toggleSelectAll}
                     />
                   </TableHead>
-                  {filters.failureOnly ? (
-                    <>
-                      <TableHead className="min-w-[80px]">고객명</TableHead>
-                      <TableHead className="min-w-[80px]">카톡이름</TableHead>
-                      <TableHead className="w-[90px]">상품</TableHead>
-                      <TableHead className="w-[80px] text-center">미발송</TableHead>
-                      <TableHead className="w-[90px]">오류 발생일</TableHead>
-                      <TableHead className="w-[80px] text-center">마지막 Day</TableHead>
-                      <TableHead className="w-[90px]">복구 방식</TableHead>
-                      <TableHead className="w-[110px]">PC</TableHead>
-                      <TableHead className="w-[80px]">복구</TableHead>
-                    </>
-                  ) : (
-                    <>
-                      <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('created_at')}>
-                        주문일 <SortIcon field="created_at" />
-                      </TableHead>
-                      <TableHead className="w-[130px]">주문번호</TableHead>
-                      <TableHead className="w-[80px]">상태</TableHead>
-                      <TableHead className="w-[90px]">발송상태</TableHead>
-                      <TableHead className="w-[110px]">PC</TableHead>
-                      <TableHead className="min-w-[80px]">고객명</TableHead>
-                      <TableHead className="min-w-[80px]">카톡이름</TableHead>
-                      <TableHead
-                        className="w-[50px] text-center cursor-pointer select-none"
-                        onClick={() => toggleSort('day')}
-                        title="가장 최근 발송 Day (발송 모니터링의 Day는 다음 발송할 Day)"
-                      >
-                        최근 발송 <SortIcon field="day" />
-                      </TableHead>
-                      <TableHead className="w-[90px]">상품</TableHead>
-                      <TableHead className="min-w-[120px]">상품명</TableHead>
-                      <TableHead className="w-[60px] text-center">기간</TableHead>
-                      <TableHead className="w-[110px] cursor-pointer select-none" onClick={() => toggleSort('start_date')}>
-                        시작일 <SortIcon field="start_date" />
-                      </TableHead>
-                      <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('end_date')}>
-                        종료일 <SortIcon field="end_date" />
-                      </TableHead>
-                      <TableHead className="w-[60px] text-center">D-Day</TableHead>
-                      <TableHead className="w-[100px]">정지/재개</TableHead>
-                      <TableHead className="w-[80px] text-center">발송순서</TableHead>
-                      <TableHead className="min-w-[100px]">메모</TableHead>
-                    </>
-                  )}
+                  <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('created_at')}>
+                    주문일 <SortIcon field="created_at" />
+                  </TableHead>
+                  <TableHead className="w-[130px]">주문번호</TableHead>
+                  <TableHead className="w-[80px]">상태</TableHead>
+                  <TableHead className="w-[90px]">발송상태</TableHead>
+                  <TableHead className="w-[110px]">PC</TableHead>
+                  <TableHead className="min-w-[80px]">고객명</TableHead>
+                  <TableHead className="min-w-[80px]">카톡이름</TableHead>
+                  <TableHead
+                    className="w-[50px] text-center cursor-pointer select-none"
+                    onClick={() => toggleSort('day')}
+                    title="가장 최근 발송 Day (발송 모니터링의 Day는 다음 발송할 Day)"
+                  >
+                    최근 발송 <SortIcon field="day" />
+                  </TableHead>
+                  <TableHead className="w-[90px]">상품</TableHead>
+                  <TableHead className="min-w-[120px]">상품명</TableHead>
+                  <TableHead className="w-[60px] text-center">기간</TableHead>
+                  <TableHead className="w-[110px] cursor-pointer select-none" onClick={() => toggleSort('start_date')}>
+                    시작일 <SortIcon field="start_date" />
+                  </TableHead>
+                  <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => toggleSort('end_date')}>
+                    종료일 <SortIcon field="end_date" />
+                  </TableHead>
+                  <TableHead className="w-[60px] text-center">D-Day</TableHead>
+                  <TableHead className="w-[100px]">정지/재개</TableHead>
+                  <TableHead className="w-[80px] text-center">발송순서</TableHead>
+                  <TableHead className="min-w-[100px]">메모</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -892,60 +798,6 @@ export function SubscriptionsTab() {
                           className="pointer-events-none"
                         />
                       </TableCell>
-
-                      {filters.failureOnly ? (
-                        <>
-                          {/* 고객명 */}
-                          <TableCell className="py-1 text-xs font-medium" onClick={() => openDetail(sub)}>
-                            {sub.customer?.name || '-'}
-                          </TableCell>
-                          {/* 카톡이름 */}
-                          <TableCell className="py-1 text-xs">{sub.customer?.kakao_friend_name || '-'}</TableCell>
-                          {/* 상품 */}
-                          <TableCell className="py-1 text-xs font-mono">{sub.product?.sku_code || '-'}</TableCell>
-                          {/* 미발송 */}
-                          <TableCell className="py-1 text-center">
-                            <span className="text-sm font-bold text-destructive">{sub.missed_days || 0}일</span>
-                          </TableCell>
-                          {/* 오류 발생일 */}
-                          <TableCell className="py-1 text-xs tabular-nums text-muted-foreground">
-                            {sub.failure_date?.slice(5) || '-'}
-                          </TableCell>
-                          {/* 마지막 Day */}
-                          <TableCell className="py-1 text-center text-xs tabular-nums">
-                            Day {sub.last_sent_day ?? 0}
-                          </TableCell>
-                          {/* 복구 방식 */}
-                          <TableCell className="py-1">
-                            {sub.recovery_mode ? (
-                              <StatusBadge status="warning" size="xs">
-                                ⏳ {sub.recovery_mode === 'bulk' ? '몰아서' : '하루씩'}
-                              </StatusBadge>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          {/* PC */}
-                          <TableCell className="py-1 text-xs">
-                            {devices.find(d => d.id === sub.device_id)?.phone_number || '미배정'}
-                          </TableCell>
-                          {/* 복구 버튼 */}
-                          <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-6 px-2 text-xs"
-                              onClick={() => {
-                                setResolvingSub(sub)
-                                setResolveDialogOpen(true)
-                              }}
-                            >
-                              복구
-                            </Button>
-                          </TableCell>
-                        </>
-                      ) : (
-                        <>
 
                       {/* 주문일 */}
                       <TableCell className="py-1 text-xs tabular-nums text-muted-foreground">
@@ -1293,9 +1145,6 @@ export function SubscriptionsTab() {
                       >
                         {sub.memo ? sub.memo.slice(0, 20) + (sub.memo.length > 20 ? '...' : '') : '-'}
                       </TableCell>
-
-                        </>
-                      )}
                     </TableRow>
                   )
                 })}
