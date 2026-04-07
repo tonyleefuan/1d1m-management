@@ -1074,12 +1074,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
     return { short: d.slice(5), day }
   }
 
-  const getDateLabel = (d: string) => {
-    if (d === today) return '오늘'
-    const diff = (new Date(d).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24)
-    if (diff === 1) return '내일'
-    return null
-  }
+  const getDateLabel = (_d: string) => null  // 상대 표현("오늘"/"내일") 제거 → 절대 날짜만 표시
 
   // 편집 가능: 오늘 + 미래
   const isEditable = (d: string) => d >= today
@@ -1136,8 +1131,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
-        <span className="text-sm font-medium">오늘의 메시지</span>
-        <span className="text-xs text-muted-foreground font-mono">{today}</span>
+        <span className="text-sm font-medium">{today.slice(5)} 메시지</span>
         <StatusBadge
           status={doneCount === rtProducts.length ? 'success' : 'error'}
           size="xs"
@@ -1156,7 +1150,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
           ) : (
             <Sparkles className="h-3.5 w-3.5 mr-1.5" />
           )}
-          내일 메시지 자동 생성
+          {tomorrowDate.slice(5)} 메시지 자동 생성
         </Button>
       </div>
 
@@ -1196,7 +1190,7 @@ function TodayMessagesPanel({ products }: { products: Product[] }) {
         <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/30">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium">내일 ({tomorrowDate.slice(5)}) 메시지 소스 입력</span>
+            <span className="text-sm font-medium">{tomorrowDate.slice(5)} 메시지 소스 입력</span>
           </div>
           <Button
             size="sm"
@@ -1967,6 +1961,7 @@ function PromptManagementPanel() {
 // --- 메인 탭 ---
 export function MessagesTab() {
   const [products, setProducts] = useState<Product[]>([])
+  const todayShort = (() => { const d = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()); return d.slice(5) })()
 
   useEffect(() => {
     fetch('/api/products/list').then(r => r.json()).then(d => setProducts(d || [])).catch((err) => { console.error('Failed to load products:', err) })
@@ -1980,7 +1975,7 @@ export function MessagesTab() {
         <TabsList>
           <TabsTrigger value="today">
             <CalendarCheck className="h-3.5 w-3.5 mr-1.5" />
-            오늘 메시지
+            {todayShort} 메시지
           </TabsTrigger>
           <TabsTrigger value="realtime">
             <Zap className="h-3.5 w-3.5 mr-1.5" />

@@ -172,6 +172,12 @@ async function bulkUpdateSubscriptions(ids: string[], updates: Record<string, un
 
 // ─── Main Component ──────────────────────────────────────
 
+const kstDateShort = (offsetDays: number) => {
+  const d = new Date(); d.setDate(d.getDate() + offsetDays)
+  const s = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d)
+  const [, m, day] = s.split('-'); return `${Number(m)}/${Number(day)}`
+}
+
 export function SubscriptionsTab() {
   // Data state
   const [subs, setSubs] = useState<SubRow[]>([])
@@ -1403,7 +1409,7 @@ export function SubscriptionsTab() {
                 >
                   <div>
                     <div className="text-sm font-medium">밀린 것 몰아서 보내기</div>
-                    <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}~{resolvingSub.current_day + 1} 한번에 발송</div>
+                    <div className="text-xs text-muted-foreground">{kstDateShort(1)} Day{resolvingSub.last_sent_day + 1}~{resolvingSub.current_day + 1} 한번에 발송</div>
                   </div>
                 </Button>
 
@@ -1414,7 +1420,7 @@ export function SubscriptionsTab() {
                 >
                   <div>
                     <div className="text-sm font-medium">밀린 것부터 하루씩 보내기</div>
-                    <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}, 모레 Day{resolvingSub.last_sent_day + 2}, ... 종료일 연장</div>
+                    <div className="text-xs text-muted-foreground">{kstDateShort(1)} Day{resolvingSub.last_sent_day + 1}, {kstDateShort(2)} Day{resolvingSub.last_sent_day + 2}, ... 종료일 연장</div>
                   </div>
                 </Button>
               </div>
