@@ -201,51 +201,47 @@ export async function PATCH(req: Request) {
     if (updates.resume_date !== undefined) {
       updateData.resume_date = updates.resume_date
     }
-    // last_sent_day 직접 지정 (Day 수동 지정)
-    if (updates.last_sent_day !== undefined && targetIds.length === 1) {
+    // last_sent_day 직접 지정 (Day 수동 지정) — 벌크 지원
+    if (updates.last_sent_day !== undefined) {
       const newLastSentDay = Number(updates.last_sent_day)
-      const prev = prevMap.get(targetIds[0])
-      if (prev) {
-        if (newLastSentDay < 0 || newLastSentDay > prev.duration_days) {
-          return NextResponse.json({ error: `last_sent_day는 0~${prev.duration_days} 범위여야 합니다` }, { status: 400 })
-        }
-        updateData.last_sent_day = newLastSentDay
-        // 실패 상태 초기화 (Day 재지정이므로)
-        updateData.backlog_mode = null
-        updateData.failure_date = null
-
-        // pending_days >= 4이면 자동 bulk 모드 (대기열 생성 차단 방지)
-        if (prev.status === 'live') {
-          const today = todayKST()
-          const computed = computeSubscription({
-            start_date: prev.start_date,
-            duration_days: prev.duration_days ?? 0,
-            last_sent_day: newLastSentDay,
-            paused_days: prev.paused_days ?? 0,
-            paused_at: prev.paused_at,
-            status: 'live',
-          }, today)
-          if (computed.pending_days.length >= 4) {
-            updateData.backlog_mode = 'bulk'
-          }
+      if (newLastSentDay < 0) {
+        return NextResponse.json({ error: 'last_sent_day는 0 이상이어야 합니다' }, { status: 400 })
+      }
+      // 각 구독의 duration_days 범위 체크
+      for (const subId of targetIds) {
+        const prev = prevMap.get(subId)
+        if (prev && newLastSentDay > prev.duration_days) {
+          return NextResponse.json({ error: `last_sent_day는 ${prev.duration_days} 이하여야 합니다` }, { status: 400 })
         }
       }
+      updateData.last_sent_day = newLastSentDay
+      // 실패 상태 초기화 (Day 재지정이므로)
+      updateData.backlog_mode = null
+      updateData.failure_date = null
     }
-    // last_sent_day 수동 조정 (+1 또는 -1)
-    if (updates.day_adjust !== undefined && targetIds.length === 1) {
-      const adjust = updates.day_adjust // +1 또는 -1
-      if (adjust !== 1 && adjust !== -1) {
-        return NextResponse.json({ error: 'last_sent_day 조정은 +1 또는 -1만 가능합니다' }, { status: 400 })
+    // last_sent_day 상대 조정 (day_adjust: 양수/음수 모두 가능) — 벌크 지원
+    if (updates.day_adjust !== undefined) {
+      const adjust = Number(updates.day_adjust)
+      if (!Number.isInteger(adjust) || adjust === 0) {
+        return NextResponse.json({ error: 'day_adjust는 0이 아닌 정수여야 합니다' }, { status: 400 })
       }
-      const prev = prevMap.get(targetIds[0])
-      if (prev) {
-        const newDay = (prev.last_sent_day ?? 0) + adjust
-        if (newDay < 0) {
-          return NextResponse.json({ error: 'last_sent_day는 0 미만이 될 수 없습니다' }, { status: 400 })
+      // 벌크: 각 구독별로 개별 업데이트 필요 (현재 last_sent_day가 다르므로)
+      for (const subId of targetIds) {
+        const prev = prevMap.get(subId)
+        if (prev) {
+          const newDay = Math.max(0, (prev.last_sent_day ?? 0) + adjust)
+          const perUpdate: Record<string, unknown> = {
+            last_sent_day: newDay,
+            backlog_mode: null,
+            failure_date: null,
+            updated_at: new Date().toISOString(),
+          }
+          await supabase.from('subscriptions').update(perUpdate).eq('id', subId)
+          await logChange(subId, 'day_adjust', 'last_sent_day', String(prev.last_sent_day ?? 0), String(newDay), session.userId, `Day 조정: ${adjust > 0 ? '+' : ''}${adjust}`)
         }
-        updateData.last_sent_day = newDay
-        // end_date는 저장하지 않음 — computed_end_date로 매번 계산
       }
+      // day_adjust는 개별 처리했으므로 공통 update 건너뛰기
+      return NextResponse.json({ success: true, count: targetIds.length })
     }
 
     const { error } = await supabase
@@ -343,10 +339,10 @@ export async function PATCH(req: Request) {
         await logChange(subId, 'product_change', 'product_id',
           null, updates.product_id, session.userId)
       }
-      if (updates.day_adjust !== undefined) {
-        await logChange(subId, 'day_adjust', 'last_sent_day',
-          String(prev.last_sent_day ?? 0), String((prev.last_sent_day ?? 0) + updates.day_adjust),
-          session.userId)
+      if (updates.last_sent_day !== undefined && prev.last_sent_day !== updates.last_sent_day) {
+        await logChange(subId, 'day_set', 'last_sent_day',
+          String(prev.last_sent_day ?? 0), String(updates.last_sent_day),
+          session.userId, `Day 직접 설정`)
       }
     }
 

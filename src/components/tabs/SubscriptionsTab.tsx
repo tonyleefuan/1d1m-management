@@ -467,6 +467,26 @@ export function SubscriptionsTab() {
     }
   }
 
+  // ─── Bulk Day setting ──────────────────────────────
+
+  const handleBulkDay = async (mode: 'set' | 'adjust', value: number) => {
+    if (selectedIds.size === 0) return
+    const ids = Array.from(selectedIds)
+    const updates = mode === 'set'
+      ? { last_sent_day: value }
+      : { day_adjust: value }
+    if (await bulkUpdateSubscriptions(ids, updates)) {
+      const msg = mode === 'set'
+        ? `${ids.length}건 → Day ${value} 설정 완료`
+        : `${ids.length}건 → Day ${value > 0 ? '+' : ''}${value} 조정 완료`
+      showSuccess(msg)
+      setSelectedIds(new Set())
+      fetchSubs()
+    } else {
+      showError('Day 일괄 변경에 실패했습니다')
+    }
+  }
+
   // ─── Detail sheet + history ─────────────────────────
 
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -538,7 +558,7 @@ export function SubscriptionsTab() {
   return (
     <div className="space-y-6">
       {/* 1. Page Header */}
-      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다 · Day = 가장 최근 발송 Day (발송 모니터링의 Day는 다음 발송할 Day)">
+      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다 · Day = 마지막으로 발송 완료된 Day (0이면 미발송)">
         <Button
           size="sm"
           variant="outline"
@@ -684,6 +704,56 @@ export function SubscriptionsTab() {
               ))}
             </SelectContent>
           </Select>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="sm" variant="outline">
+                Day 설정
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 p-3" align="start">
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">특정 Day로 설정</label>
+                  <div className="flex gap-1 mt-1">
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="Day"
+                      className="h-7 text-xs"
+                      id="bulk-day-set"
+                    />
+                    <Button size="sm" className="h-7 text-xs px-2" onClick={() => {
+                      const el = document.getElementById('bulk-day-set') as HTMLInputElement
+                      const v = parseInt(el?.value, 10)
+                      if (isNaN(v) || v < 0) { showError('0 이상의 숫자를 입력하세요'); return }
+                      handleBulkDay('set', v)
+                    }}>
+                      적용
+                    </Button>
+                  </div>
+                </div>
+                <div className="border-t pt-2">
+                  <label className="text-xs font-medium text-muted-foreground">상대 조정 (+/-)</label>
+                  <div className="flex gap-1 mt-1">
+                    <Input
+                      type="number"
+                      placeholder="+5, -3"
+                      className="h-7 text-xs"
+                      id="bulk-day-adjust"
+                    />
+                    <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={() => {
+                      const el = document.getElementById('bulk-day-adjust') as HTMLInputElement
+                      const v = parseInt(el?.value, 10)
+                      if (isNaN(v) || v === 0) { showError('0이 아닌 숫자를 입력하세요'); return }
+                      handleBulkDay('adjust', v)
+                    }}>
+                      조정
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
           <Button size="sm" variant="destructive" onClick={() => handleBulkStatus('cancel')}>
             취소
           </Button>
@@ -729,9 +799,9 @@ export function SubscriptionsTab() {
                   <TableHead
                     className="w-[50px] text-center cursor-pointer select-none"
                     onClick={() => toggleSort('day')}
-                    title="가장 최근 발송 Day (발송 모니터링의 Day는 다음 발송할 Day)"
+                    title="마지막으로 발송 완료된 Day (0이면 미발송)"
                   >
-                    최근 발송 <SortIcon field="day" />
+                    발송Day <SortIcon field="day" />
                   </TableHead>
                   <TableHead className="w-[90px]">상품</TableHead>
                   <TableHead className="min-w-[120px]">상품명</TableHead>
@@ -905,16 +975,17 @@ export function SubscriptionsTab() {
                           className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-transparent hover:border-muted-foreground/40 hover:bg-muted/50 cursor-pointer transition-colors text-foreground"
                           title="클릭하여 Day 변경"
                           onClick={() => {
-                            const input = prompt(`다음 발송할 Day를 입력하세요.\n\n현재 Day: ${sub.current_day}\n\n예) 30 입력 → Day 30부터 발송\n(1~${sub.duration_days} 범위)`)
+                            const cur = sub.last_sent_day ?? 0
+                            const input = prompt(`마지막 발송 Day를 입력하세요.\n\n현재: Day ${cur} (→ Day ${cur + 1}부터 발송)\n0 입력 → Day 1부터 발송\n(0~${sub.duration_days} 범위)`)
                             if (input === null) return
                             const num = parseInt(input, 10)
-                            if (isNaN(num) || num < 1 || num > sub.duration_days) {
-                              showError(`1~${sub.duration_days} 범위의 숫자를 입력하세요`)
+                            if (isNaN(num) || num < 0 || num > sub.duration_days) {
+                              showError(`0~${sub.duration_days} 범위의 숫자를 입력하세요`)
                               return
                             }
-                            updateSubscription(sub.id, { last_sent_day: num - 1 }).then(result => {
+                            updateSubscription(sub.id, { last_sent_day: num }).then(result => {
                               if (result.ok) {
-                                showSuccess(`Day ${num}부터 발송됩니다`)
+                                showSuccess(`Day ${num} 설정 완료 (→ Day ${num + 1}부터 발송)`)
                                 fetchSubs()
                               } else {
                                 showError(result.error || 'Day 변경에 실패했습니다')
@@ -922,7 +993,7 @@ export function SubscriptionsTab() {
                             })
                           }}
                         >
-                          {sub.last_sent_day > 0 ? sub.last_sent_day : '-'}
+                          {sub.last_sent_day ?? 0}
                         </button>
                       </TableCell>
 
@@ -1248,26 +1319,28 @@ export function SubscriptionsTab() {
                       <StatusBadge status="success" size="xs">✅ 정상</StatusBadge>
                     )}
                   </div>
-                  <div className="text-muted-foreground">마지막 발송 Day</div>
+                  <div className="text-muted-foreground">발송 Day</div>
                   <div className="flex items-center gap-2">
                     <span className="tabular-nums">Day {detailSub.last_sent_day ?? 0}</span>
+                    <span className="text-[10px] text-muted-foreground">→ Day {(detailSub.last_sent_day ?? 0) + 1}부터 발송</span>
                     <Button
                       size="sm"
                       variant="outline"
                       className="h-5 text-[10px] px-1.5"
                       onClick={async () => {
-                        const input = prompt(`다음 발송할 Day를 입력하세요.\n\n현재 마지막 발송: Day ${detailSub.last_sent_day ?? 0}\n\n예) 30 입력 → Day 30부터 발송\n(1~${detailSub.duration_days} 범위)`)
+                        const cur = detailSub.last_sent_day ?? 0
+                        const input = prompt(`마지막 발송 Day를 입력하세요.\n\n현재: Day ${cur} (→ Day ${cur + 1}부터 발송)\n0 입력 → Day 1부터 발송\n(0~${detailSub.duration_days} 범위)`)
                         if (input === null) return
                         const num = parseInt(input, 10)
-                        if (isNaN(num) || num < 1 || num > detailSub.duration_days) {
-                          showError(`1~${detailSub.duration_days} 범위의 숫자를 입력하세요`)
+                        if (isNaN(num) || num < 0 || num > detailSub.duration_days) {
+                          showError(`0~${detailSub.duration_days} 범위의 숫자를 입력하세요`)
                           return
                         }
-                        const result = await updateSubscription(detailSub.id, { last_sent_day: num - 1 })
+                        const result = await updateSubscription(detailSub.id, { last_sent_day: num })
                         if (result.ok) {
-                          showSuccess(`Day ${num}부터 발송됩니다`)
+                          showSuccess(`Day ${num} 설정 완료 (→ Day ${num + 1}부터 발송)`)
                           fetchSubs()
-                          setDetailSub({ ...detailSub, last_sent_day: num - 1 })
+                          setDetailSub({ ...detailSub, last_sent_day: num })
                         } else {
                           showError(result.error || 'Day 변경에 실패했습니다')
                         }
