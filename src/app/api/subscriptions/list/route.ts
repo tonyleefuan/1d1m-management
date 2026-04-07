@@ -17,6 +17,7 @@ export async function GET(req: Request) {
   const deviceId = searchParams.get('device_id') || ''
   const productId = searchParams.get('product_id') || ''
   const search = searchParams.get('search') || ''
+  const orderDate = searchParams.get('order_date') || ''
   const sortBy = searchParams.get('sort') || 'created_at'
   const sortOrder = searchParams.get('order') || 'desc'
   const ascending = sortOrder === 'asc'
@@ -47,6 +48,21 @@ export async function GET(req: Request) {
   if (status) query = query.eq('status', status)
   if (deviceId) query = query.eq('device_id', deviceId)
   if (productId) query = query.eq('product_id', productId)
+  if (orderDate) {
+    // ordered_at은 orders 테이블에 있으므로 join 경로로 필터
+    const nextDate = (() => { const d = new Date(orderDate + 'T00:00:00+09:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) })()
+    const { data: orderItems } = await supabase
+      .from('order_items')
+      .select('id, order:orders!inner(ordered_at)')
+      .gte('order.ordered_at', orderDate)
+      .lt('order.ordered_at', nextDate)
+      .limit(1000)
+    if (orderItems?.length) {
+      query = query.in('order_item_id', orderItems.map(oi => oi.id))
+    } else {
+      return NextResponse.json({ data: [], total: 0, page, limit })
+    }
+  }
   if (search) {
     const s = sanitizeSearch(search)
     if (!s) return NextResponse.json({ data: [], total: 0, page, limit })
