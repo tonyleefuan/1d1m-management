@@ -76,10 +76,10 @@ interface SubRow {
   missed_days: number
   // New DB fields
   last_sent_day: number
-  backlog_mode: 'flagged' | 'bulk' | 'sequential' | null
+  failure_type: 'failed' | null
   failure_date: string | null
+  recovery_mode: 'bulk' | 'sequential' | null
   paused_days: number
-  /** @deprecated DB 컬럼 잔존 — 코드 로직에서는 status === 'cancel' 사용 */
   is_cancelled: boolean
 }
 
@@ -126,7 +126,7 @@ const COMPUTED_STATUS_MAP: Record<string, { status: StatusType; label: string; c
 }
 
 const FAILURE_BADGE_MAP: Record<string, { status: StatusType; label: string; className?: string }> = {
-  flagged: { status: 'error', label: '🔴 실패' },
+  failed: { status: 'error', label: '🔴 실패' },
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
@@ -171,12 +171,6 @@ async function bulkUpdateSubscriptions(ids: string[], updates: Record<string, un
 }
 
 // ─── Main Component ──────────────────────────────────────
-
-const kstDateShort = (offsetDays: number) => {
-  const d = new Date(); d.setDate(d.getDate() + offsetDays)
-  const s = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d)
-  const [, m, day] = s.split('-'); return `${Number(m)}/${Number(day)}`
-}
 
 export function SubscriptionsTab() {
   // Data state
@@ -467,26 +461,6 @@ export function SubscriptionsTab() {
     }
   }
 
-  // ─── Bulk Day setting ──────────────────────────────
-
-  const handleBulkDay = async (mode: 'set' | 'adjust', value: number) => {
-    if (selectedIds.size === 0) return
-    const ids = Array.from(selectedIds)
-    const updates = mode === 'set'
-      ? { last_sent_day: value }
-      : { day_adjust: value }
-    if (await bulkUpdateSubscriptions(ids, updates)) {
-      const msg = mode === 'set'
-        ? `${ids.length}건 → Day ${value} 설정 완료`
-        : `${ids.length}건 → Day ${value > 0 ? '+' : ''}${value} 조정 완료`
-      showSuccess(msg)
-      setSelectedIds(new Set())
-      fetchSubs()
-    } else {
-      showError('Day 일괄 변경에 실패했습니다')
-    }
-  }
-
   // ─── Detail sheet + history ─────────────────────────
 
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -558,7 +532,7 @@ export function SubscriptionsTab() {
   return (
     <div className="space-y-6">
       {/* 1. Page Header */}
-      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다 · Day = 마지막으로 발송 완료된 Day (0이면 미발송)">
+      <PageHeader title="구독 관리" description="고객별 구독 현황을 관리합니다 · Day = 가장 최근 발송 Day (발송 모니터링의 Day는 다음 발송할 Day)">
         <Button
           size="sm"
           variant="outline"
@@ -704,56 +678,6 @@ export function SubscriptionsTab() {
               ))}
             </SelectContent>
           </Select>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button size="sm" variant="outline">
-                Day 설정
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-56 p-3" align="start">
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground">특정 Day로 설정</label>
-                  <div className="flex gap-1 mt-1">
-                    <Input
-                      type="number"
-                      min={0}
-                      placeholder="Day"
-                      className="h-7 text-xs"
-                      id="bulk-day-set"
-                    />
-                    <Button size="sm" className="h-7 text-xs px-2" onClick={() => {
-                      const el = document.getElementById('bulk-day-set') as HTMLInputElement
-                      const v = parseInt(el?.value, 10)
-                      if (isNaN(v) || v < 0) { showError('0 이상의 숫자를 입력하세요'); return }
-                      handleBulkDay('set', v)
-                    }}>
-                      적용
-                    </Button>
-                  </div>
-                </div>
-                <div className="border-t pt-2">
-                  <label className="text-xs font-medium text-muted-foreground">상대 조정 (+/-)</label>
-                  <div className="flex gap-1 mt-1">
-                    <Input
-                      type="number"
-                      placeholder="+5, -3"
-                      className="h-7 text-xs"
-                      id="bulk-day-adjust"
-                    />
-                    <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={() => {
-                      const el = document.getElementById('bulk-day-adjust') as HTMLInputElement
-                      const v = parseInt(el?.value, 10)
-                      if (isNaN(v) || v === 0) { showError('0이 아닌 숫자를 입력하세요'); return }
-                      handleBulkDay('adjust', v)
-                    }}>
-                      조정
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
           <Button size="sm" variant="destructive" onClick={() => handleBulkStatus('cancel')}>
             취소
           </Button>
@@ -799,9 +723,9 @@ export function SubscriptionsTab() {
                   <TableHead
                     className="w-[50px] text-center cursor-pointer select-none"
                     onClick={() => toggleSort('day')}
-                    title="마지막으로 발송 완료된 Day (0이면 미발송)"
+                    title="가장 최근 발송 Day (발송 모니터링의 Day는 다음 발송할 Day)"
                   >
-                    발송Day <SortIcon field="day" />
+                    최근 발송 <SortIcon field="day" />
                   </TableHead>
                   <TableHead className="w-[90px]">상품</TableHead>
                   <TableHead className="min-w-[120px]">상품명</TableHead>
@@ -860,7 +784,7 @@ export function SubscriptionsTab() {
 
                       {/* 발송상태 */}
                       <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
-                        {sub.backlog_mode === 'flagged' ? (
+                        {sub.failure_type ? (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -872,11 +796,11 @@ export function SubscriptionsTab() {
                             }}
                           >
                             <StatusBadge
-                              status={FAILURE_BADGE_MAP[sub.backlog_mode]?.status ?? 'error'}
+                              status={FAILURE_BADGE_MAP[sub.failure_type]?.status ?? 'error'}
                               size="xs"
-                              className={FAILURE_BADGE_MAP[sub.backlog_mode]?.className}
+                              className={FAILURE_BADGE_MAP[sub.failure_type]?.className}
                             >
-                              {FAILURE_BADGE_MAP[sub.backlog_mode]?.label ?? sub.backlog_mode}
+                              {FAILURE_BADGE_MAP[sub.failure_type]?.label ?? sub.failure_type}
                             </StatusBadge>
                           </Button>
                         ) : (
@@ -975,8 +899,7 @@ export function SubscriptionsTab() {
                           className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-transparent hover:border-muted-foreground/40 hover:bg-muted/50 cursor-pointer transition-colors text-foreground"
                           title="클릭하여 Day 변경"
                           onClick={() => {
-                            const cur = sub.last_sent_day ?? 0
-                            const input = prompt(`마지막 발송 Day를 입력하세요.\n\n현재: Day ${cur} (→ Day ${cur + 1}부터 발송)\n0 입력 → Day 1부터 발송\n(0~${sub.duration_days} 범위)`)
+                            const input = prompt(`최근 발송 Day를 입력하세요.\n\n현재 최근 발송: Day ${sub.last_sent_day ?? 0}\n\n예) 29 입력 → Day 30부터 발송\n(0~${sub.duration_days} 범위, 0 = Day 1부터)`)
                             if (input === null) return
                             const num = parseInt(input, 10)
                             if (isNaN(num) || num < 0 || num > sub.duration_days) {
@@ -985,7 +908,7 @@ export function SubscriptionsTab() {
                             }
                             updateSubscription(sub.id, { last_sent_day: num }).then(result => {
                               if (result.ok) {
-                                showSuccess(`Day ${num} 설정 완료 (→ Day ${num + 1}부터 발송)`)
+                                showSuccess(`최근 발송 Day ${num} 설정 → Day ${num + 1}부터 발송`)
                                 fetchSubs()
                               } else {
                                 showError(result.error || 'Day 변경에 실패했습니다')
@@ -993,7 +916,7 @@ export function SubscriptionsTab() {
                             })
                           }}
                         >
-                          {sub.last_sent_day ?? 0}
+                          {sub.last_sent_day > 0 ? sub.last_sent_day : '-'}
                         </button>
                       </TableCell>
 
@@ -1294,14 +1217,14 @@ export function SubscriptionsTab() {
                   </div>
                   <div className="text-muted-foreground">발송상태</div>
                   <div className="flex items-center gap-2">
-                    {detailSub.backlog_mode === 'flagged' ? (
+                    {detailSub.failure_type ? (
                       <>
                         <StatusBadge
-                          status={FAILURE_BADGE_MAP[detailSub.backlog_mode]?.status ?? 'error'}
+                          status={FAILURE_BADGE_MAP[detailSub.failure_type]?.status ?? 'error'}
                           size="xs"
-                          className={FAILURE_BADGE_MAP[detailSub.backlog_mode]?.className}
+                          className={FAILURE_BADGE_MAP[detailSub.failure_type]?.className}
                         >
-                          {FAILURE_BADGE_MAP[detailSub.backlog_mode]?.label ?? detailSub.backlog_mode}
+                          {FAILURE_BADGE_MAP[detailSub.failure_type]?.label ?? detailSub.failure_type}
                         </StatusBadge>
                         <Button
                           size="sm"
@@ -1319,17 +1242,15 @@ export function SubscriptionsTab() {
                       <StatusBadge status="success" size="xs">✅ 정상</StatusBadge>
                     )}
                   </div>
-                  <div className="text-muted-foreground">발송 Day</div>
+                  <div className="text-muted-foreground">마지막 발송 Day</div>
                   <div className="flex items-center gap-2">
                     <span className="tabular-nums">Day {detailSub.last_sent_day ?? 0}</span>
-                    <span className="text-[10px] text-muted-foreground">→ Day {(detailSub.last_sent_day ?? 0) + 1}부터 발송</span>
                     <Button
                       size="sm"
                       variant="outline"
                       className="h-5 text-[10px] px-1.5"
                       onClick={async () => {
-                        const cur = detailSub.last_sent_day ?? 0
-                        const input = prompt(`마지막 발송 Day를 입력하세요.\n\n현재: Day ${cur} (→ Day ${cur + 1}부터 발송)\n0 입력 → Day 1부터 발송\n(0~${detailSub.duration_days} 범위)`)
+                        const input = prompt(`최근 발송 Day를 입력하세요.\n\n현재 최근 발송: Day ${detailSub.last_sent_day ?? 0}\n\n예) 29 입력 → Day 30부터 발송\n(0~${detailSub.duration_days} 범위, 0 = Day 1부터)`)
                         if (input === null) return
                         const num = parseInt(input, 10)
                         if (isNaN(num) || num < 0 || num > detailSub.duration_days) {
@@ -1338,7 +1259,7 @@ export function SubscriptionsTab() {
                         }
                         const result = await updateSubscription(detailSub.id, { last_sent_day: num })
                         if (result.ok) {
-                          showSuccess(`Day ${num} 설정 완료 (→ Day ${num + 1}부터 발송)`)
+                          showSuccess(`최근 발송 Day ${num} 설정 → Day ${num + 1}부터 발송`)
                           fetchSubs()
                           setDetailSub({ ...detailSub, last_sent_day: num })
                         } else {
@@ -1482,7 +1403,7 @@ export function SubscriptionsTab() {
                 >
                   <div>
                     <div className="text-sm font-medium">밀린 것 몰아서 보내기</div>
-                    <div className="text-xs text-muted-foreground">{kstDateShort(1)} Day{resolvingSub.last_sent_day + 1}~{resolvingSub.current_day + 1} 한번에 발송</div>
+                    <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}~{resolvingSub.current_day + 1} 한번에 발송</div>
                   </div>
                 </Button>
 
@@ -1493,7 +1414,7 @@ export function SubscriptionsTab() {
                 >
                   <div>
                     <div className="text-sm font-medium">밀린 것부터 하루씩 보내기</div>
-                    <div className="text-xs text-muted-foreground">{kstDateShort(1)} Day{resolvingSub.last_sent_day + 1}, {kstDateShort(2)} Day{resolvingSub.last_sent_day + 2}, ... 종료일 연장</div>
+                    <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}, 모레 Day{resolvingSub.last_sent_day + 2}, ... 종료일 연장</div>
                   </div>
                 </Button>
               </div>
