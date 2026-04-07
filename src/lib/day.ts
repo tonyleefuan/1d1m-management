@@ -50,7 +50,7 @@ export function calcCurrentDay(input: CalcCurrentDayInput): number {
 }
 
 interface CalcStatusInput {
-  is_cancelled: boolean
+  status: string
   paused_at: string | null
   current_day: number
   last_sent_day: number
@@ -58,7 +58,7 @@ interface CalcStatusInput {
 }
 
 export function calcComputedStatus(input: CalcStatusInput): ComputedStatus {
-  if (input.is_cancelled) return 'cancelled'
+  if (input.status === 'cancel') return 'cancelled'
   if (input.paused_at) return 'paused'
   if (input.current_day < 1) return 'pending'
   if (input.last_sent_day >= input.duration_days) return 'completed'
@@ -98,7 +98,7 @@ export function computeSubscription(sub: {
   last_sent_day: number
   paused_days: number
   paused_at: string | null
-  is_cancelled: boolean
+  status: string
 }, today?: string) {
   const t = today || todayKST()
 
@@ -126,7 +126,7 @@ export function computeSubscription(sub: {
   })
 
   const computedStatus = calcComputedStatus({
-    is_cancelled: sub.is_cancelled,
+    status: sub.status,
     paused_at: sub.paused_at,
     current_day: currentDay,
     last_sent_day: sub.last_sent_day,

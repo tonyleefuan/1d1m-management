@@ -46,7 +46,7 @@ async function handleDailyUpdate(req: Request) {
       .update({ status: 'live', updated_at: now })
       .eq('status', 'pending')
       .lte('start_date', today)
-      .is('failure_type', null)
+      .is('backlog_mode', null)
       .not('device_id', 'is', null)
       .select('id, last_sent_day')
     if (!e1 && pendingToLive?.length) {
@@ -105,9 +105,8 @@ async function handleDailyUpdate(req: Request) {
             status: 'live',
             paused_at: null,
             resume_date: null,
-            failure_type: null,
+            backlog_mode: null,
             failure_date: null,
-            recovery_mode: null,
             updated_at: now,
           }
           if (sub.paused_at) {
@@ -116,11 +115,7 @@ async function handleDailyUpdate(req: Request) {
             const todayMidnight = new Date(today + 'T00:00:00Z')
             const pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
             updateFields.paused_days = (sub.paused_days ?? 0) + pauseDays
-            if (pauseDays > 0 && sub.end_date) {
-              const newEnd = new Date(sub.end_date + 'T00:00:00Z')
-              newEnd.setUTCDate(newEnd.getUTCDate() + pauseDays)
-              updateFields.end_date = newEnd.toISOString().slice(0, 10)
-            }
+            // end_date는 저장하지 않음 — computed_end_date로 매번 계산
             // 재개 후 pending_days >= 4이면 자동 bulk 모드
             const computed = computeSubscription({
               start_date: sub.start_date,
@@ -128,10 +123,10 @@ async function handleDailyUpdate(req: Request) {
               last_sent_day: sub.last_sent_day ?? 0,
               paused_days: (sub.paused_days ?? 0) + pauseDays,
               paused_at: null,
-              is_cancelled: false,
+              status: 'live',
             }, today)
             if (computed.pending_days.length >= 4) {
-              updateFields.recovery_mode = 'bulk'
+              updateFields.backlog_mode = 'bulk'
             }
           }
           await supabase.from('subscriptions').update(updateFields).eq('id', sub.id)
@@ -159,12 +154,12 @@ async function handleDailyUpdate(req: Request) {
     }
   } catch (e) { errors.push(`step4: ${e instanceof Error ? e.message : String(e)}`) }
 
-  // === Step 5: sequential recovery_mode 초기화 ===
+  // === Step 5: sequential backlog_mode 초기화 ===
   try {
     const { data: seqSubs } = await supabase
       .from('subscriptions')
-      .select('id, start_date, duration_days, last_sent_day, paused_days, paused_at, is_cancelled')
-      .eq('recovery_mode', 'sequential')
+      .select('id, start_date, duration_days, last_sent_day, paused_days, paused_at, status')
+      .eq('backlog_mode', 'sequential')
 
     if (seqSubs?.length) {
       for (const sub of seqSubs) {
@@ -174,11 +169,11 @@ async function handleDailyUpdate(req: Request) {
           last_sent_day: sub.last_sent_day ?? 0,
           paused_days: sub.paused_days ?? 0,
           paused_at: sub.paused_at,
-          is_cancelled: sub.is_cancelled ?? false,
+          status: sub.status ?? 'pending',
         }, today)
         if (sub.last_sent_day >= computed.current_day - 1) {
           await supabase.from('subscriptions').update({
-            recovery_mode: null,
+            backlog_mode: null,
             updated_at: now,
           }).eq('id', sub.id)
           results.recovery_reset++
@@ -187,15 +182,14 @@ async function handleDailyUpdate(req: Request) {
     }
   } catch (e) { errors.push(`step5: ${e instanceof Error ? e.message : String(e)}`) }
 
-  // === Step 6: 3일 연속 실패 → failure_type 마킹 ===
+  // === Step 6: 3일 연속 실패 → backlog_mode 마킹 ===
   try {
     const { data: candidates } = await supabase
       .from('subscriptions')
       .select('id')
-      .eq('is_cancelled', false)
+      .neq('status', 'cancel')
       .is('paused_at', null)
-      .is('recovery_mode', null)
-      .is('failure_type', null)
+      .is('backlog_mode', null)
 
     if (candidates?.length) {
       const candidateIds = candidates.map(c => c.id)
@@ -243,10 +237,10 @@ async function handleDailyUpdate(req: Request) {
 
           if (consecutiveFailures >= 3) {
             await supabase.from('subscriptions').update({
-              failure_type: 'failed',
+              backlog_mode: 'flagged',
               failure_date: today,
               updated_at: now,
-            }).eq('id', subId).is('failure_type', null)
+            }).eq('id', subId).is('backlog_mode', null)
             results.failure_marked++
           }
         }

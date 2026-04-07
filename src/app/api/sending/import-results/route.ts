@@ -304,16 +304,16 @@ async function updateSubscriptionStatuses(
 
   if (subDayGroups.size === 0) return
 
-  // 영향 받는 구독의 last_sent_day, recovery_mode 조회 (배치)
+  // 영향 받는 구독의 last_sent_day, backlog_mode 조회 (배치)
   const affectedSubIds = [...new Set([...subDayGroups.values()].map(g => g.subscriptionId))]
   const lastSentDayMap = new Map<string, number>()
-  const recoveryModeMap = new Map<string, string | null>()
+  const backlogModeMap = new Map<string, string | null>()
   for (let i = 0; i < affectedSubIds.length; i += 500) {
     const batch = affectedSubIds.slice(i, i + 500)
-    const { data } = await supabase.from('subscriptions').select('id, last_sent_day, recovery_mode').in('id', batch)
+    const { data } = await supabase.from('subscriptions').select('id, last_sent_day, backlog_mode').in('id', batch)
     for (const s of data || []) {
       lastSentDayMap.set(s.id, s.last_sent_day ?? 0)
-      recoveryModeMap.set(s.id, s.recovery_mode ?? null)
+      backlogModeMap.set(s.id, s.backlog_mode ?? null)
     }
   }
 
@@ -351,7 +351,7 @@ async function updateSubscriptionStatuses(
   for (let i = 0; i < failureList.length; i += 500) {
     const batch = failureList.slice(i, i + 500)
     await supabase.from('subscriptions')
-      .update({ failure_type: 'failed', failure_date: date, updated_at: now })
+      .update({ backlog_mode: 'flagged', failure_date: date, updated_at: now })
       .in('id', batch)
   }
 
@@ -368,20 +368,20 @@ async function updateSubscriptionStatuses(
     for (let i = 0; i < ids.length; i += 500) {
       const batch = ids.slice(i, i + 500)
       await supabase.from('subscriptions')
-        .update({ last_sent_day: day, failure_type: null, failure_date: null, updated_at: now })
+        .update({ last_sent_day: day, backlog_mode: null, failure_date: null, updated_at: now })
         .in('id', batch)
     }
   }
 
-  // #12: recovery_mode 자동 해제 — 성공적으로 업데이트된 구독 중 recovery_mode가 설정된 것
-  const recoveryResetIds = safeSuccessUpdates
-    .filter(u => recoveryModeMap.get(u.id) != null)
+  // #12: backlog_mode 자동 해제 — 성공적으로 업데이트된 구독 중 backlog_mode가 설정된 것
+  const backlogResetIds = safeSuccessUpdates
+    .filter(u => backlogModeMap.get(u.id) != null)
     .map(u => u.id)
-  if (recoveryResetIds.length > 0) {
-    for (let i = 0; i < recoveryResetIds.length; i += 500) {
-      const batch = recoveryResetIds.slice(i, i + 500)
+  if (backlogResetIds.length > 0) {
+    for (let i = 0; i < backlogResetIds.length; i += 500) {
+      const batch = backlogResetIds.slice(i, i + 500)
       await supabase.from('subscriptions')
-        .update({ recovery_mode: null, updated_at: now })
+        .update({ backlog_mode: null, updated_at: now })
         .in('id', batch)
     }
   }

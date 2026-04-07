@@ -43,7 +43,7 @@ export async function GET(req: Request) {
     .order(sortField, { ascending, nullsFirst: !ascending })
     .range((page - 1) * limit, page * limit - 1)
 
-  if (failureOnly) query = query.eq('failure_type', 'failed')
+  if (failureOnly) query = query.eq('backlog_mode', 'flagged')
   if (status) query = query.eq('status', status)
   if (deviceId) query = query.eq('device_id', deviceId)
   if (productId) query = query.eq('product_id', productId)
@@ -95,7 +95,7 @@ export async function GET(req: Request) {
       last_sent_day: sub.last_sent_day ?? 0,
       paused_days: sub.paused_days ?? 0,
       paused_at: sub.paused_at,
-      is_cancelled: sub.is_cancelled ?? false,
+      status: sub.status ?? 'pending',
     }, today)
 
     // D-Day 계산
@@ -128,8 +128,8 @@ export async function GET(req: Request) {
   const { count: failedCount } = await supabase
     .from('subscriptions')
     .select('id', { count: 'exact', head: true })
-    .eq('failure_type', 'failed')
-    .eq('is_cancelled', false)
+    .eq('backlog_mode', 'flagged')
+    .neq('status', 'cancel')
 
   return NextResponse.json({ data: enriched, total: count, page, limit, failedCount: failedCount ?? 0 })
 }
