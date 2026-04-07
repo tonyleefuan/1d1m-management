@@ -16,7 +16,7 @@ const SYSTEM_PROMPT: Anthropic.Messages.TextBlockParam[] = [
 
 ## DB 스키마
 ### subscriptions
-id(uuid PK), customer_id(FK→customers), product_id(FK→products), device_id(FK→send_devices, nullable), status('live'|'pending'|'pause'|'archive'|'cancel'), start_date, end_date, duration_days(int), day(int, 현재 일차), last_sent_day(int, default 0), paused_days(int), paused_at(timestamptz), is_cancelled(bool), failure_type('failed'|null), failure_date, recovery_mode('bulk'|'sequential'|null), send_priority(1~4), memo, created_at, updated_at
+id(uuid PK), customer_id(FK→customers), product_id(FK→products), device_id(FK→send_devices, nullable), status('live'|'pending'|'pause'|'archive'|'cancel'), start_date, end_date, duration_days(int), day(int, 현재 일차), last_sent_day(int, default 0), paused_days(int), paused_at(timestamptz), is_cancelled(bool), backlog_mode('flagged'|'bulk'|'sequential'|null), failure_date, send_priority(1~4), memo, created_at, updated_at
 
 ### customers
 id(uuid PK), name, phone, phone_last4, kakao_friend_name, memo

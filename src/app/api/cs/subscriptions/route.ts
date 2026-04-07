@@ -24,7 +24,7 @@ export async function GET() {
       last_sent_day: sub.last_sent_day ?? 0,
       paused_days: sub.paused_days ?? 0,
       paused_at: sub.paused_at,
-      is_cancelled: sub.is_cancelled ?? false,
+      status: sub.status ?? 'pending',
     }, today)
 
     let dDay: number | null = null

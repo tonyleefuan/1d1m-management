@@ -76,10 +76,10 @@ interface SubRow {
   missed_days: number
   // New DB fields
   last_sent_day: number
-  failure_type: 'failed' | null
+  backlog_mode: 'flagged' | 'bulk' | 'sequential' | null
   failure_date: string | null
-  recovery_mode: 'bulk' | 'sequential' | null
   paused_days: number
+  /** @deprecated DB 컬럼 잔존 — 코드 로직에서는 status === 'cancel' 사용 */
   is_cancelled: boolean
 }
 
@@ -126,7 +126,7 @@ const COMPUTED_STATUS_MAP: Record<string, { status: StatusType; label: string; c
 }
 
 const FAILURE_BADGE_MAP: Record<string, { status: StatusType; label: string; className?: string }> = {
-  failed: { status: 'error', label: '🔴 실패' },
+  flagged: { status: 'error', label: '🔴 실패' },
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
@@ -784,7 +784,7 @@ export function SubscriptionsTab() {
 
                       {/* 발송상태 */}
                       <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
-                        {sub.failure_type ? (
+                        {sub.backlog_mode === 'flagged' ? (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -796,11 +796,11 @@ export function SubscriptionsTab() {
                             }}
                           >
                             <StatusBadge
-                              status={FAILURE_BADGE_MAP[sub.failure_type]?.status ?? 'error'}
+                              status={FAILURE_BADGE_MAP[sub.backlog_mode]?.status ?? 'error'}
                               size="xs"
-                              className={FAILURE_BADGE_MAP[sub.failure_type]?.className}
+                              className={FAILURE_BADGE_MAP[sub.backlog_mode]?.className}
                             >
-                              {FAILURE_BADGE_MAP[sub.failure_type]?.label ?? sub.failure_type}
+                              {FAILURE_BADGE_MAP[sub.backlog_mode]?.label ?? sub.backlog_mode}
                             </StatusBadge>
                           </Button>
                         ) : (
@@ -1217,14 +1217,14 @@ export function SubscriptionsTab() {
                   </div>
                   <div className="text-muted-foreground">발송상태</div>
                   <div className="flex items-center gap-2">
-                    {detailSub.failure_type ? (
+                    {detailSub.backlog_mode === 'flagged' ? (
                       <>
                         <StatusBadge
-                          status={FAILURE_BADGE_MAP[detailSub.failure_type]?.status ?? 'error'}
+                          status={FAILURE_BADGE_MAP[detailSub.backlog_mode]?.status ?? 'error'}
                           size="xs"
-                          className={FAILURE_BADGE_MAP[detailSub.failure_type]?.className}
+                          className={FAILURE_BADGE_MAP[detailSub.backlog_mode]?.className}
                         >
-                          {FAILURE_BADGE_MAP[detailSub.failure_type]?.label ?? detailSub.failure_type}
+                          {FAILURE_BADGE_MAP[detailSub.backlog_mode]?.label ?? detailSub.backlog_mode}
                         </StatusBadge>
                         <Button
                           size="sm"

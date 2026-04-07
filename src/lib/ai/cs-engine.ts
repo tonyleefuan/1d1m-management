@@ -384,7 +384,7 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
       // 1. 구독 + 주문 정보 조회
       const { data: sub } = await supabase
         .from('subscriptions')
-        .select('id, customer_id, product_id, last_sent_day, duration_days, start_date, order_item_id, product:products(id, title)')
+        .select('id, customer_id, product_id, last_sent_day, duration_days, start_date, status, order_item_id, product:products(id, title)')
         .eq('id', input.subscription_id)
         .eq('customer_id', customerId)
         .single()
@@ -459,7 +459,7 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
         last_sent_day: sub.last_sent_day ?? 0,
         paused_days: 0,
         paused_at: null,
-        is_cancelled: false,
+        status: sub.status ?? 'live',
       }, todayKST())
       const calc = calculateRefund({
         paidAmount,

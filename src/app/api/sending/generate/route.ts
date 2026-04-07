@@ -56,9 +56,9 @@ export async function POST(req: Request) {
       const { data: page, error: subErr } = await supabase
         .from('subscriptions')
         .select(`
-          id, customer_id, product_id, device_id,
+          id, customer_id, product_id, device_id, status,
           start_date, duration_days, last_sent_day, paused_days, paused_at,
-          is_cancelled, failure_type, recovery_mode, send_priority,
+          is_cancelled, backlog_mode, send_priority,
           customer:customers(kakao_friend_name),
           product:products(sku_code, message_type),
           order_item:order_items(order:orders(ordered_at))
@@ -96,18 +96,18 @@ export async function POST(req: Request) {
         last_sent_day: sub.last_sent_day ?? 0,
         paused_days: sub.paused_days ?? 0,
         paused_at: sub.paused_at,
-        is_cancelled: sub.is_cancelled ?? false,
+        status: sub.status ?? 'live',
       }, date)
 
       if (computed.computed_status !== 'active') continue
       if (computed.pending_days.length === 0) continue
-      // 4일 이상 밀린 건 recovery_mode 없으면 스킵 (관리자 확인 필요)
-      if (sub.recovery_mode === null && computed.pending_days.length >= 4) continue
+      // 4일 이상 밀린 건 backlog_mode 없으면 스킵 (관리자 확인 필요)
+      if (!sub.backlog_mode && computed.pending_days.length >= 4) continue
 
       let daysToSend: number[]
-      if (sub.recovery_mode === 'bulk') {
+      if (sub.backlog_mode === 'bulk') {
         daysToSend = computed.pending_days
-      } else if (sub.recovery_mode === 'sequential') {
+      } else if (sub.backlog_mode === 'sequential') {
         daysToSend = [(sub.last_sent_day ?? 0) + 1]
       } else {
         // 기본: 최대 3일치 (실패 재발송 포함)
@@ -198,7 +198,7 @@ export async function POST(req: Request) {
 
     // 4) 실패 재발송 알림 템플릿 프리페치
     let retryNotice: { content: string; image_path: string | null } | null = null
-    const hasFailedSubs = activeSubs.some(s => s.failure_type === 'failed')
+    const hasFailedSubs = activeSubs.some(s => s.backlog_mode === 'flagged')
     if (hasFailedSubs) {
       const { data: noticeData } = await supabase
         .from('notice_templates')
@@ -241,7 +241,7 @@ export async function POST(req: Request) {
       const product = sub.product as any
       const customer = sub.customer as any
       const kakaoName = customer?.kakao_friend_name || '알 수 없음'
-      const isFailureRetry = sub.failure_type === 'failed'
+      const isFailureRetry = sub.backlog_mode === 'flagged'
       if (isFailureRetry) failedSubIds.push(sub.id)
       // 밀린 Day가 있으면 (pending_days > 1 = 어제 미발송) 알림 대상
       const hasMissedDays = sub.daysToSend.some((d: number) => d < sub.currentDay)

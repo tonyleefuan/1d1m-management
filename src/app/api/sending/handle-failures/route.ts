@@ -159,12 +159,12 @@ async function handleRetryNext(failedQueues: any[], now: string) {
 
   if (updateErr) throw new Error(`큐 상태 리셋 실패: ${updateErr.message}`)
 
-  // 구독의 failure_type, failure_date 클리어
+  // 구독의 backlog_mode, failure_date 클리어
   const subIds = [...new Set(failedQueues.map(q => q.subscription_id).filter(Boolean))]
   if (subIds.length > 0) {
     const { error: subErr } = await supabase
       .from('subscriptions')
-      .update({ failure_type: null, failure_date: null, updated_at: now })
+      .update({ backlog_mode: null, failure_date: null, updated_at: now })
       .in('id', subIds)
 
     if (subErr) throw new Error(`구독 상태 클리어 실패: ${subErr.message}`)
@@ -189,10 +189,10 @@ async function handleRetryShift(failedQueues: any[], now: string) {
   // 영향받는 구독 ID 수집
   const subIds = [...new Set(failedQueues.map(q => q.subscription_id).filter(Boolean))]
   if (subIds.length > 0) {
-    // failure_type, failure_date 클리어
+    // backlog_mode, failure_date 클리어
     const { error: subErr } = await supabase
       .from('subscriptions')
-      .update({ failure_type: null, failure_date: null, updated_at: now })
+      .update({ backlog_mode: null, failure_date: null, updated_at: now })
       .in('id', subIds)
 
     if (subErr) throw new Error(`구독 상태 클리어 실패: ${subErr.message}`)
@@ -268,7 +268,7 @@ async function handleSkip(failedQueues: any[], now: string) {
         .from('subscriptions')
         .update({
           last_sent_day: newLastSent,
-          failure_type: null,
+          backlog_mode: null,
           failure_date: null,
           updated_at: now,
         })
@@ -279,7 +279,7 @@ async function handleSkip(failedQueues: any[], now: string) {
       // day가 연속이 아니더라도 failure 상태는 클리어
       const { error: clearErr } = await supabase
         .from('subscriptions')
-        .update({ failure_type: null, failure_date: null, updated_at: now })
+        .update({ backlog_mode: null, failure_date: null, updated_at: now })
         .eq('id', subId)
       if (clearErr) throw new Error(`구독 failure 상태 클리어 실패 (${subId}): ${clearErr.message}`)
     }

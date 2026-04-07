@@ -51,7 +51,7 @@ export async function PATCH(req: Request) {
       // 기존 구독 조회
       const { data: prevSub } = await supabase
         .from('subscriptions')
-        .select('start_date, duration_days, last_sent_day, paused_days, paused_at, is_cancelled, failure_type')
+        .select('start_date, duration_days, last_sent_day, paused_days, paused_at, is_cancelled, status, backlog_mode')
         .eq('id', targetId)
         .single()
 
@@ -64,22 +64,22 @@ export async function PATCH(req: Request) {
         last_sent_day: prevSub.last_sent_day ?? 0,
         paused_days: prevSub.paused_days ?? 0,
         paused_at: prevSub.paused_at,
-        is_cancelled: prevSub.is_cancelled ?? false,
+        status: prevSub.status ?? 'pending',
       }, today)
 
       const updateData: Record<string, any> = {
-        failure_type: null,
+        backlog_mode: null,
         failure_date: null,
         updated_at: new Date().toISOString(),
       }
 
       if (action === 'manual_sent') {
         updateData.last_sent_day = computed.current_day
-        updateData.recovery_mode = null
+        // backlog_mode already null from above
       } else if (action === 'bulk') {
-        updateData.recovery_mode = 'bulk'
+        updateData.backlog_mode = 'bulk'
       } else if (action === 'sequential') {
-        updateData.recovery_mode = 'sequential'
+        updateData.backlog_mode = 'sequential'
       } else {
         return NextResponse.json({ error: '유효하지 않은 action' }, { status: 400 })
       }
@@ -92,8 +92,8 @@ export async function PATCH(req: Request) {
       if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
 
       // 로그 기록
-      await logChange(targetId, 'resolve_failure', 'failure_type',
-        prevSub.failure_type, action, session.userId)
+      await logChange(targetId, 'resolve_failure', 'backlog_mode',
+        prevSub.backlog_mode, action, session.userId)
 
       return NextResponse.json({ ok: true, action })
     }
@@ -101,7 +101,7 @@ export async function PATCH(req: Request) {
     // 변경 전 상태 조회 (로그용 + 검증용)
     const { data: prevSubs } = await supabase
       .from('subscriptions')
-      .select('id, status, device_id, start_date, end_date, last_sent_day, duration_days, memo, customer_id, paused_at, paused_days, failure_type')
+      .select('id, status, device_id, start_date, end_date, last_sent_day, duration_days, memo, customer_id, paused_at, paused_days, backlog_mode')
       .in('id', targetIds)
     const prevMap = new Map(prevSubs?.map(s => [s.id, s]) || [])
 
@@ -134,7 +134,7 @@ export async function PATCH(req: Request) {
               { status: 400 }
             )
           }
-          if (prev.failure_type) {
+          if (prev.backlog_mode === 'flagged') {
             return NextResponse.json(
               { error: '발송 오류 상태에서는 발송중으로 변경할 수 없습니다. 먼저 오류를 해소해주세요.' },
               { status: 400 }
@@ -177,40 +177,26 @@ export async function PATCH(req: Request) {
       if (updates.status === 'cancel') {
         updateData.cancelled_at = new Date().toISOString()
         updateData.cancel_reason = updates.cancel_reason || null
-        updateData.is_cancelled = true  // #7: computeSubscription에서 cancelled 판단 가능하도록
       }
       if (updates.status === 'live') {
         updateData.paused_at = null
         updateData.resume_date = null
-        updateData.failure_type = null
+        updateData.backlog_mode = null
         updateData.failure_date = null
-        updateData.recovery_mode = null
       }
     }
     if (updates.device_id !== undefined) updateData.device_id = updates.device_id
     if (updates.start_date !== undefined) {
       updateData.start_date = updates.start_date
-      if (updates.start_date && targetIds.length === 1) {
-        const { data: sub } = await supabase
-          .from('subscriptions')
-          .select('duration_days')
-          .eq('id', targetIds[0])
-          .single()
-        if (sub) {
-          const endDate = new Date(updates.start_date + 'T00:00:00Z')
-          endDate.setUTCDate(endDate.getUTCDate() + sub.duration_days - 1)
-          updateData.end_date = endDate.toISOString().slice(0, 10)
-        }
-      }
+      // end_date는 저장하지 않음 — computed_end_date로 매번 계산
     }
     if (updates.product_id !== undefined) updateData.product_id = updates.product_id
     if (updates.memo !== undefined) updateData.memo = updates.memo
     if (updates.send_priority !== undefined) updateData.send_priority = updates.send_priority
-    // 일괄 복구: failure_type을 null로 리셋
-    if (updates.failure_type === null) {
-      updateData.failure_type = null
+    // 일괄 복구: backlog_mode를 null로 리셋
+    if (updates.backlog_mode === null) {
+      updateData.backlog_mode = null
       updateData.failure_date = null
-      updateData.recovery_mode = null
     }
     if (updates.resume_date !== undefined) {
       updateData.resume_date = updates.resume_date
@@ -225,9 +211,8 @@ export async function PATCH(req: Request) {
         }
         updateData.last_sent_day = newLastSentDay
         // 실패 상태 초기화 (Day 재지정이므로)
-        updateData.failure_type = null
+        updateData.backlog_mode = null
         updateData.failure_date = null
-        updateData.recovery_mode = null
 
         // pending_days >= 4이면 자동 bulk 모드 (대기열 생성 차단 방지)
         if (prev.status === 'live') {
@@ -238,10 +223,10 @@ export async function PATCH(req: Request) {
             last_sent_day: newLastSentDay,
             paused_days: prev.paused_days ?? 0,
             paused_at: prev.paused_at,
-            is_cancelled: false,
+            status: 'live',
           }, today)
           if (computed.pending_days.length >= 4) {
-            updateData.recovery_mode = 'bulk'
+            updateData.backlog_mode = 'bulk'
           }
         }
       }
@@ -259,12 +244,7 @@ export async function PATCH(req: Request) {
           return NextResponse.json({ error: 'last_sent_day는 0 미만이 될 수 없습니다' }, { status: 400 })
         }
         updateData.last_sent_day = newDay
-        // end_date도 같이 조정 (UTC-safe)
-        if (prev.end_date) {
-          const newEnd = new Date(prev.end_date + 'T00:00:00Z')
-          newEnd.setUTCDate(newEnd.getUTCDate() - adjust) // last_sent_day +1이면 end_date -1
-          updateData.end_date = newEnd.toISOString().slice(0, 10)
-        }
+        // end_date는 저장하지 않음 — computed_end_date로 매번 계산
       }
     }
 
@@ -296,13 +276,8 @@ export async function PATCH(req: Request) {
           const todayMidnight = new Date(todayDateStr + 'T00:00:00Z')
           const pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
           const updateFields: Record<string, unknown> = {
-            // #6: paused_days 누적
             paused_days: (prev.paused_days ?? 0) + pauseDays,
-          }
-          if (pauseDays > 0 && prev.end_date) {
-            const newEnd = new Date(prev.end_date + 'T00:00:00Z')
-            newEnd.setUTCDate(newEnd.getUTCDate() + pauseDays)
-            updateFields.end_date = newEnd.toISOString().slice(0, 10)
+            // end_date는 저장하지 않음 — computed_end_date로 매번 계산
           }
           // 재개 후 pending_days >= 4이면 자동 bulk 모드 (대기열 생성 차단 방지)
           const computed = computeSubscription({
@@ -311,10 +286,10 @@ export async function PATCH(req: Request) {
             last_sent_day: prev.last_sent_day ?? 0,
             paused_days: (prev.paused_days ?? 0) + pauseDays,
             paused_at: null, // 이미 해제됨
-            is_cancelled: false,
+            status: 'live',
           }, todayDateStr)
           if (computed.pending_days.length >= 4) {
-            updateFields.recovery_mode = 'bulk'
+            updateFields.backlog_mode = 'bulk'
           }
 
           await supabase.from('subscriptions').update(updateFields).eq('id', subId)
