@@ -736,8 +736,8 @@ export function SendingTab() {
   const kstToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
   const kstYesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
   const kstTomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
-  const formatShort = (d: string) => { const [, m, day] = d.split('-'); return `${Number(m)}/${Number(day)}` }
-  const addDays = (dateStr: string, days: number) => { const d = new Date(dateStr + 'T00:00:00+09:00'); d.setDate(d.getDate() + days); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) }
+  const formatShort = (d: string) => { if (!d || !d.includes('-')) return d || '-'; const [, m, day] = d.split('-'); return `${Number(m)}/${Number(day)}` }
+  const addDays = (dateStr: string, days: number) => { if (!dateStr || !dateStr.includes('-')) return dateStr || ''; const d = new Date(dateStr + 'T00:00:00+09:00'); d.setDate(d.getDate() + days); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) }
 
   // 스텝 정의
   const STEPS = [
