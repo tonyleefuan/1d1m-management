@@ -312,9 +312,9 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
                   )}
                   onClick={() => setDayInterpretation('today_send')}
                 >
-                  <div className="font-medium">오늘 보내야 할 Day</div>
+                  <div className="font-medium">{referenceDate.slice(5)} 발송 대상 Day</div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    Day를 오늘 발송해야 함
+                    해당 Day를 기준일에 발송해야 함
                   </div>
                 </button>
               </div>
@@ -370,7 +370,7 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
               />
               <MetricCard
                 title="Day 보정"
-                value={dayInterpretation === 'already_sent' ? '이미 발송' : '오늘 발송'}
+                value={dayInterpretation === 'already_sent' ? '이미 발송' : `${referenceDate.slice(5)} 발송`}
                 description={`기준일: ${referenceDate}`}
               />
             </div>

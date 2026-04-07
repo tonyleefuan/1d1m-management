@@ -634,7 +634,7 @@ export function SendingTab() {
                 results: [...prev.results, { phone: event.phone, name: event.name, rows: 0, error: event.error }],
               } : prev)
             } else if (event.type === 'complete') {
-              const label = date !== sendDate ? `어제 결과 수거` : '결과 가져오기'
+              const label = `${formatShort(date || sendDate)} 결과 수거`
               showSuccess(`${label} 완료: 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`)
               if (date !== sendDate) {
                 setYesterdayPendingCount(0)
@@ -737,6 +737,7 @@ export function SendingTab() {
   const kstYesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
   const kstTomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
   const formatShort = (d: string) => { const [, m, day] = d.split('-'); return `${Number(m)}/${Number(day)}` }
+  const addDays = (dateStr: string, days: number) => { const d = new Date(dateStr + 'T00:00:00+09:00'); d.setDate(d.getDate() + days); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) }
 
   // 스텝 정의
   const STEPS = [
@@ -762,9 +763,9 @@ export function SendingTab() {
         <p className="text-sm text-muted-foreground mt-1">PC별 발송 현황과 성공률을 모니터링합니다</p>
         <div className="flex gap-1 mt-3">
           {[
-            { date: kstYesterday, label: `어제 (${formatShort(kstYesterday)})` },
-            { date: kstToday, label: `오늘 (${formatShort(kstToday)})` },
-            { date: kstTomorrow, label: `내일 (${formatShort(kstTomorrow)})` },
+            { date: kstYesterday, label: formatShort(kstYesterday) },
+            { date: kstToday, label: formatShort(kstToday) },
+            { date: kstTomorrow, label: formatShort(kstTomorrow) },
           ].map(tab => (
             <Button
               key={tab.date}
@@ -846,7 +847,7 @@ export function SendingTab() {
                   className="h-9"
                 >
                   {importing ? <Spinner size="xs" className="mr-1.5" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
-                  어제 결과 수거 ({yesterdayPendingCount}건)
+                  {formatShort(yesterdayDate)} 결과 수거 ({yesterdayPendingCount}건)
                 </Button>
                 <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
               </>
@@ -861,7 +862,7 @@ export function SendingTab() {
               className="h-9"
             >
               {generating ? <Spinner size="xs" className="mr-1.5" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-              대기열 생성
+              {formatShort(sendDate)} 대기열 생성
             </Button>
 
             <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
@@ -875,7 +876,7 @@ export function SendingTab() {
               className="h-9"
             >
               {exporting ? <Spinner size="xs" className="mr-1.5" /> : <Upload className="mr-1.5 h-3.5 w-3.5" />}
-              시트 내보내기
+              {formatShort(sendDate)} 시트 내보내기
             </Button>
 
             <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
@@ -889,7 +890,7 @@ export function SendingTab() {
               className="h-9"
             >
               {importing ? <Spinner size="xs" className="mr-1.5" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
-              결과 가져오기
+              {formatShort(sendDate)} 결과 가져오기
             </Button>
 
             {/* 진행 상황 텍스트 */}
@@ -1336,13 +1337,13 @@ export function SendingTab() {
               {
                 value: 'retry_next' as const,
                 label: '다음 발송 시 함께 보내기',
-                desc: '실패한 메시지를 내일 발송 시 내일 메시지와 함께 보냅니다. 내일은 2일치 메시지가 발송됩니다.',
+                desc: `실패한 메시지를 ${formatShort(addDays(sendDate, 1))} 발송 시 함께 보냅니다. ${formatShort(addDays(sendDate, 1))}에는 2일치 메시지가 발송됩니다.`,
                 isDefault: true,
               },
               {
                 value: 'retry_shift' as const,
                 label: '밀어서 보내기',
-                desc: '실패한 메시지를 내일 발송합니다. 내일 보낼 예정이던 메시지는 모레로 밀리며, 구독 종료일이 하루 연장됩니다.',
+                desc: `실패한 메시지를 ${formatShort(addDays(sendDate, 1))}에 발송합니다. ${formatShort(addDays(sendDate, 1))} 예정이던 메시지는 ${formatShort(addDays(sendDate, 2))}로 밀리며, 구독 종료일이 하루 연장됩니다.`,
               },
               {
                 value: 'skip' as const,
