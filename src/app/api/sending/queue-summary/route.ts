@@ -93,7 +93,7 @@ export async function GET(req: Request) {
   })
 
   // 어제 큐 중 pending 건수 (어제 결과 수거 필요 여부 판단용)
-  const yesterday = new Date(new Date(date + 'T00:00:00+09:00').getTime() - 86400000).toISOString().slice(0, 10)
+  const yesterday = prevDateKST(date)
   const { count: yesterdayPendingCount } = await supabase
     .from('send_queues')
     .select('id', { count: 'exact', head: true })
