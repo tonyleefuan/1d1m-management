@@ -68,6 +68,21 @@ export async function POST(req: Request) {
       }
     }
 
+    // duration_days=0 검증 — 즉시 종료되는 구독 방지
+    for (const item of newItems) {
+      if (item.duration_days === 0) {
+        const product = productMap.get(item.product_sku)
+        if (product?.product_prices?.length) {
+          const maxDuration = Math.max(...product.product_prices.map((p: any) => p.duration_days))
+          item.duration_days = maxDuration
+          console.warn(`[orders/upload] duration_days=0 → 상품 기본값(${maxDuration}) 적용: item ${item.imweb_item_no}`)
+        } else {
+          item.duration_days = 365
+          console.warn(`[orders/upload] duration_days=0 → fallback 365일 적용: item ${item.imweb_item_no}`)
+        }
+      }
+    }
+
     // Check for unknown SKUs
     const unknownSkus = skuCodes.filter(sku => !productMap.has(sku))
 

@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 export async function PATCH(request: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id, status } = await request.json()
   if (!id || !['draft', 'approved'].includes(status)) {

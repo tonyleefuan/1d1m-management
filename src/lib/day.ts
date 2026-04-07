@@ -11,10 +11,22 @@ function diffDays(a: string, b: string): number {
   return Math.floor((new Date(a).getTime() - new Date(b).getTime()) / msPerDay)
 }
 
-// 날짜에 일수 더하기
+// KST 기준 N일 전 날짜 (YYYY-MM-DD) — yesterday, N days ago 등에 사용
+export function daysAgoKST(n: number): string {
+  const d = new Date(Date.now() - n * 86400000)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d)
+}
+
+// 특정 KST 날짜의 전날 (YYYY-MM-DD)
+export function prevDateKST(dateStr: string): string {
+  const ms = new Date(dateStr + 'T00:00:00+09:00').getTime() - 86400000
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(ms))
+}
+
+// 날짜에 일수 더하기 (UTC-safe)
 function addDays(date: string, days: number): string {
-  const d = new Date(date)
-  d.setDate(d.getDate() + days)
+  const d = new Date(date + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString().slice(0, 10)
 }
 

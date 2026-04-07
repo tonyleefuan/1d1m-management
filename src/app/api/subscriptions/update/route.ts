@@ -32,6 +32,7 @@ const STATUS_LABELS: Record<string, string> = {
 export async function PATCH(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const body = await req.json()
@@ -181,6 +182,9 @@ export async function PATCH(req: Request) {
       if (updates.status === 'live') {
         updateData.paused_at = null
         updateData.resume_date = null
+        updateData.failure_type = null
+        updateData.failure_date = null
+        updateData.recovery_mode = null
       }
     }
     if (updates.device_id !== undefined) updateData.device_id = updates.device_id
@@ -193,9 +197,8 @@ export async function PATCH(req: Request) {
           .eq('id', targetIds[0])
           .single()
         if (sub) {
-          const startDate = new Date(updates.start_date)
-          const endDate = new Date(startDate)
-          endDate.setDate(endDate.getDate() + sub.duration_days - 1)
+          const endDate = new Date(updates.start_date + 'T00:00:00Z')
+          endDate.setUTCDate(endDate.getUTCDate() + sub.duration_days - 1)
           updateData.end_date = endDate.toISOString().slice(0, 10)
         }
       }
@@ -225,6 +228,22 @@ export async function PATCH(req: Request) {
         updateData.failure_type = null
         updateData.failure_date = null
         updateData.recovery_mode = null
+
+        // pending_days >= 4이면 자동 bulk 모드 (대기열 생성 차단 방지)
+        if (prev.status === 'live') {
+          const today = todayKST()
+          const computed = computeSubscription({
+            start_date: prev.start_date,
+            duration_days: prev.duration_days ?? 0,
+            last_sent_day: newLastSentDay,
+            paused_days: prev.paused_days ?? 0,
+            paused_at: prev.paused_at,
+            is_cancelled: false,
+          }, today)
+          if (computed.pending_days.length >= 4) {
+            updateData.recovery_mode = 'bulk'
+          }
+        }
       }
     }
     // last_sent_day 수동 조정 (+1 또는 -1)
@@ -240,10 +259,10 @@ export async function PATCH(req: Request) {
           return NextResponse.json({ error: 'last_sent_day는 0 미만이 될 수 없습니다' }, { status: 400 })
         }
         updateData.last_sent_day = newDay
-        // end_date도 같이 조정
+        // end_date도 같이 조정 (UTC-safe)
         if (prev.end_date) {
-          const newEnd = new Date(prev.end_date)
-          newEnd.setDate(newEnd.getDate() - adjust) // last_sent_day +1이면 end_date -1, last_sent_day -1이면 end_date +1
+          const newEnd = new Date(prev.end_date + 'T00:00:00Z')
+          newEnd.setUTCDate(newEnd.getUTCDate() - adjust) // last_sent_day +1이면 end_date -1
           updateData.end_date = newEnd.toISOString().slice(0, 10)
         }
       }
@@ -254,15 +273,27 @@ export async function PATCH(req: Request) {
       .update(updateData)
       .in('id', targetIds)
 
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // 취소 시 당일 이후 pending 큐 삭제 (발송 방지)
+    if (updates.status === 'cancel') {
+      await supabase
+        .from('send_queues')
+        .delete()
+        .in('subscription_id', targetIds)
+        .eq('status', 'pending')
+    }
+
     // Fix end_date + paused_days individually for pause→live transitions
     if (updates.status === 'live') {
-      const todayKST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+      const todayDateStr = todayKST()
       for (const subId of targetIds) {
         const prev = prevMap.get(subId)
         if (prev?.status === 'pause' && prev.paused_at) {
-          // #11: KST 자정 기준 일수 계산 (daily-update와 통일, Math.floor)
-          const pauseStart = new Date(new Date(prev.paused_at).toISOString().slice(0, 10) + 'T00:00:00Z')
-          const todayMidnight = new Date(todayKST + 'T00:00:00Z')
+          // KST 자정 기준 일수 계산 (daily-update와 통일)
+          const pausedAtKST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(prev.paused_at))
+          const pauseStart = new Date(pausedAtKST + 'T00:00:00Z')
+          const todayMidnight = new Date(todayDateStr + 'T00:00:00Z')
           const pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
           const updateFields: Record<string, unknown> = {
             // #6: paused_days 누적
@@ -273,6 +304,19 @@ export async function PATCH(req: Request) {
             newEnd.setUTCDate(newEnd.getUTCDate() + pauseDays)
             updateFields.end_date = newEnd.toISOString().slice(0, 10)
           }
+          // 재개 후 pending_days >= 4이면 자동 bulk 모드 (대기열 생성 차단 방지)
+          const computed = computeSubscription({
+            start_date: prev.start_date,
+            duration_days: prev.duration_days ?? 0,
+            last_sent_day: prev.last_sent_day ?? 0,
+            paused_days: (prev.paused_days ?? 0) + pauseDays,
+            paused_at: null, // 이미 해제됨
+            is_cancelled: false,
+          }, todayDateStr)
+          if (computed.pending_days.length >= 4) {
+            updateFields.recovery_mode = 'bulk'
+          }
+
           await supabase.from('subscriptions').update(updateFields).eq('id', subId)
         }
       }
@@ -288,8 +332,6 @@ export async function PATCH(req: Request) {
           .eq('id', prev.customer_id)
       }
     }
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     // ─── 히스토리 로그 기록 ─────────────────────────
     for (const subId of targetIds) {

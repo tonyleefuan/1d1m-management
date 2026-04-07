@@ -15,6 +15,7 @@ export const maxDuration = 300
 export async function POST(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const body = await req.json().catch(() => ({}))
@@ -393,17 +394,8 @@ export async function POST(req: Request) {
       inserted += batch.length
     }
 
-    // 7) 실패 구독 failure flags 클리어 — 실제 큐가 생성된 구독만
-    const generatedSubIds = new Set(queueRows.filter(r => !r.is_notice).map(r => r.subscription_id))
-    const safeFailedSubIds = failedSubIds.filter(id => generatedSubIds.has(id))
-    for (let i = 0; i < safeFailedSubIds.length; i += 500) {
-      const batch = safeFailedSubIds.slice(i, i + 500)
-      await supabase.from('subscriptions').update({
-        failure_type: null,
-        failure_date: null,
-        updated_at: new Date().toISOString(),
-      }).in('id', batch)
-    }
+    // 7) failure flags는 generate 시점에 클리어하지 않음
+    // import-results에서 발송 성공 확인 후 클리어됨
 
     return NextResponse.json({
       ok: true,

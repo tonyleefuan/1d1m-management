@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { todayKST } from '@/lib/day'
 
 export async function POST(req: Request) {
   const session = await getSession()
@@ -9,7 +10,25 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({ device_id: null, date: null }))
   const device_id = body.device_id || null
-  const date = body.date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+  const date = body.date || todayKST()
+
+  // 이미 발송된 건이 있는지 확인
+  let sentCheck = supabase
+    .from('send_queues')
+    .select('id', { count: 'exact', head: true })
+    .eq('send_date', date)
+    .eq('status', 'sent')
+
+  if (device_id) sentCheck = sentCheck.eq('device_id', device_id)
+
+  const { count: sentCount } = await sentCheck
+
+  if (sentCount && sentCount > 0) {
+    return NextResponse.json(
+      { error: '이미 발송된 건이 있어 삭제할 수 없습니다. 먼저 결과를 가져와주세요.' },
+      { status: 409 }
+    )
+  }
 
   let query = supabase
     .from('send_queues')

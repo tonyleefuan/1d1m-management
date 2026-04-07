@@ -34,6 +34,7 @@ function mapResultStatus(result: string): 'sent' | 'failed' | null {
 export async function POST(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json().catch(() => ({}))
   const date = body.date || todayKST()
@@ -354,8 +355,8 @@ async function updateSubscriptionStatuses(
       .in('id', batch)
   }
 
-  // 배치 업데이트: 성공 구독 — #5: 같은 런에서 failure도 발생한 구독은 성공에서 제외
-  const safeSuccessUpdates = successUpdates.filter(u => !failureSubIds.has(u.id))
+  // 배치 업데이트: 성공 구독 — 실패 Day가 있어도 그 전까지의 성공 Day는 진행
+  const safeSuccessUpdates = successUpdates
   // 구독별 하나의 day만 있으므로 (subMaxSuccessDay) day별 그룹화 후 단일 UPDATE
   const dayGroups = new Map<number, string[]>()
   for (const u of safeSuccessUpdates) {

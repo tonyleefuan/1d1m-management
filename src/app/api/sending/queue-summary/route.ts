@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-import { todayKST } from '@/lib/day'
+import { todayKST, prevDateKST } from '@/lib/day'
 
 /**
  * GET /api/sending/queue-summary
@@ -70,7 +70,7 @@ export async function GET(req: Request) {
     })
 
     // 어제 큐 중 pending 건수
-    const yesterday = new Date(new Date(date + 'T00:00:00+09:00').getTime() - 86400000).toISOString().slice(0, 10)
+    const yesterday = prevDateKST(date)
     const { count: yesterdayPendingCount } = await supabase
       .from('send_queues')
       .select('id', { count: 'exact', head: true })
