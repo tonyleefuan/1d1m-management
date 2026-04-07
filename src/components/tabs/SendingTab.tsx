@@ -182,6 +182,7 @@ export function SendingTab() {
       setFileDelay(Number(s.send_file_delay) || 6)
       setLastExportAt(s.last_sheet_export_at || null)
       setLastImportAt(s.last_sheet_import_at || null)
+      setSettingsDirty(false)
       setYesterdayPendingCount(json.yesterdayPendingCount ?? 0)
       setYesterdayDate(json.yesterdayDate ?? '')
     } catch (err) {
@@ -569,7 +570,7 @@ export function SendingTab() {
               const data = JSON.parse(line.slice(6))
               if (data.type === 'complete') lastResult = data
               else if (data.type === 'error') throw new Error(data.error)
-            } catch (e) { if (e instanceof Error && e.message !== 'error') throw e }
+            } catch (e) { if (e instanceof Error && e.message !== 'Unexpected end of JSON input') throw e }
           }
         }
         showSuccess(`선택 내보내기 완료: ${lastResult.total ?? 0}건 (${lastResult.devices ?? 0}개 PC)`)
@@ -642,9 +643,9 @@ export function SendingTab() {
               }
               fetchSummary(); fetchQueue(1)
             } else if (event.type === 'error') {
-              showError(event.message)
+              showError(event.error || event.message || '알 수 없는 오류')
             }
-          } catch { /* 파싱 실패 무시 */ }
+          } catch (e) { if (e instanceof Error && e.message !== 'Unexpected end of JSON input') throw e }
         }
       }
     } catch (err) {
@@ -823,10 +824,10 @@ export function SendingTab() {
               <>
                 <div className="flex-1 h-px mx-1 bg-foreground" />
                 <div className="flex items-center gap-2">
-                  <div className="flex items-center justify-center w-7 h-7 rounded-full bg-emerald-600 text-white">
+                  <div className="flex items-center justify-center w-7 h-7 rounded-full bg-foreground text-background">
                     <CheckCircle2 className="h-4 w-4" />
                   </div>
-                  <p className="text-sm font-medium text-emerald-600">완료</p>
+                  <p className="text-sm font-medium text-foreground">완료</p>
                 </div>
               </>
             )}
@@ -869,7 +870,7 @@ export function SendingTab() {
             <Button
               size="sm"
               onClick={handleExportSheet}
-              disabled={exporting}
+              disabled={exporting || importing}
               variant={actionPhase === 'export' ? 'default' : 'outline'}
               className="h-9"
             >
@@ -883,7 +884,7 @@ export function SendingTab() {
             <Button
               size="sm"
               onClick={() => handleImportResults()}
-              disabled={importing}
+              disabled={importing || exporting}
               variant={actionPhase === 'import' ? 'default' : 'outline'}
               className="h-9"
             >
