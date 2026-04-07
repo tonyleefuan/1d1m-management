@@ -130,6 +130,11 @@ export function SendingTab() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // 어제 결과 수거
+  const [yesterdayPendingCount, setYesterdayPendingCount] = useState(0)
+  const [yesterdayDate, setYesterdayDate] = useState('')
+  const [yesterdayImportResult, setYesterdayImportResult] = useState<{ sent: number; failed: number } | null>(null)
+
   // 구글시트 연동
   const [exporting, setExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState('')
@@ -179,6 +184,9 @@ export function SendingTab() {
       setLastExportAt(s.last_sheet_export_at || null)
       setLastImportAt(s.last_sheet_import_at || null)
       setSettingsDirty(false)
+      setYesterdayPendingCount(json.yesterdayPendingCount ?? 0)
+      setYesterdayDate(json.yesterdayDate ?? '')
+      setYesterdayImportResult(null)
     } catch (err) {
       showError(err instanceof Error ? err.message : '요약을 불러오는데 실패했습니다')
     }
@@ -629,6 +637,11 @@ export function SendingTab() {
               } : prev)
             } else if (event.type === 'complete') {
               showSuccess(`결과 수거 완료: 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`)
+              if (date && date !== sendDate) {
+                // 어제 결과 수거 완료 → 뱃지로 전환
+                setYesterdayImportResult({ sent: event.sent ?? 0, failed: event.failed ?? 0 })
+                setYesterdayPendingCount(0)
+              }
               setLastImportAt(new Date().toISOString())
               fetchSummary(); fetchQueue(1)
             } else if (event.type === 'error') {
@@ -823,9 +836,35 @@ export function SendingTab() {
             )}
           </div>
 
-          {/* 현재 스텝 액션 영역 */}
+          {/* 현재 스텝 액션 영역 — 5단계 플로우 */}
           <div className="flex flex-wrap items-center gap-3 pt-3 border-t">
 
+            {/* STEP 0: 어제 결과 수거 */}
+            {yesterdayPendingCount > 0 && !yesterdayImportResult && (
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => handleImportResults(yesterdayDate)}
+                  disabled={importing}
+                  variant="default"
+                  className="h-9"
+                >
+                  {importing ? <Spinner size="xs" className="mr-1.5" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
+                  {formatShort(yesterdayDate)} 결과 수거 ({yesterdayPendingCount.toLocaleString()}건)
+                </Button>
+                <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
+              </>
+            )}
+            {yesterdayImportResult && (
+              <>
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-muted text-xs">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                  <span>{formatShort(yesterdayDate)} 수거 완료</span>
+                  <span className="text-muted-foreground">— 성공 {yesterdayImportResult.sent.toLocaleString()} · 실패 {yesterdayImportResult.failed.toLocaleString()}</span>
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
+              </>
+            )}
 
             {/* STEP 1: 대기열 생성 */}
             <Button
@@ -841,7 +880,20 @@ export function SendingTab() {
 
             <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
 
-            {/* STEP 2: 시트 내보내기 */}
+            {/* STEP 2: 시트 초기화 */}
+            <Button
+              size="sm"
+              onClick={handleClearSheet}
+              disabled={exporting}
+              variant="outline"
+              className="h-9"
+            >
+              시트 초기화
+            </Button>
+
+            <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
+
+            {/* STEP 3: 시트 내보내기 */}
             <Button
               size="sm"
               onClick={handleExportSheet}
@@ -855,7 +907,7 @@ export function SendingTab() {
 
             <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
 
-            {/* STEP 3: 결과 가져오기 */}
+            {/* STEP 4: 결과 가져오기 */}
             <Button
               size="sm"
               onClick={() => handleImportResults()}
@@ -897,16 +949,13 @@ export function SendingTab() {
             </div>
           </div>
 
-          {/* 내보내기/수거 타임스탬프 + 시트 초기화 */}
+          {/* 내보내기/수거 타임스탬프 */}
           <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t">
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>마지막 내보내기: {formatTime(lastExportAt)}</span>
               <span>마지막 결과 수거: {formatTime(lastImportAt)}</span>
             </div>
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="ghost" onClick={handleClearSheet} disabled={exporting} className="h-7 text-xs text-destructive hover:text-destructive">
-                시트 초기화
-              </Button>
               {(totalSummary.sent > 0 || totalSummary.failed > 0) && (
                 <span className="text-xs text-muted-foreground">결과가 있어 재생성 불가</span>
               )}
