@@ -298,4 +298,4 @@ src/
 
 ## 프롬프트 초기 데이터
 
-7개 상품의 search_prompt, generation_prompt는 `docs/prompts/SUB-*.md` 파일에서 추출하여 product_prompts 테이블에 시드.
+7개 상품의 search_prompt, generation_prompt는 `docs/guides/prompts/SUB-*.md` 파일에서 추출하여 product_prompts 테이블에 시드.

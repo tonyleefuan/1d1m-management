@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 14 App Router, @anthropic-ai/sdk, Supabase PostgreSQL, Vercel Cron, TinyURL API
 
-**Spec:** `docs/superpowers/specs/2026-03-22-ai-daily-message-automation-design.md`
+**Spec:** `docs/specs/integration/ai-daily-message-automation-design.md`
 
 ---
 
@@ -83,7 +83,7 @@ git commit -m "feat: add status field to DailyMessage, add ProductPrompt type"
 ### Task 2: 프롬프트 시드 데이터 삽입
 
 **Files:**
-- Read: `docs/prompts/SUB-*.md` (7개 파일)
+- Read: `docs/guides/prompts/SUB-*.md` (7개 파일)
 - Modify: Supabase SQL (직접 실행)
 
 - [ ] **Step 1: 각 SUB-*.md 파일에서 search_prompt와 generation_prompt 추출**

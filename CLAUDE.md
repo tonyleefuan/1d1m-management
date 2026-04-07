@@ -54,11 +54,54 @@ src/
 | 발송 모니터링 | `SendingTab.tsx` | PC별 발송 현황 |
 | 관리자 설정 | `AdminTab.tsx` | 사용자, PC 장치 관리 |
 
-## DB 스키마
-→ `docs/SCHEMA_REGISTRY.md` 참조 (SSOT)
+## 문서 체계
+→ `docs/README.md` 참조 (문서 인덱스)
+
+```
+docs/
+├── modules/      — 모듈별 상세 문서 (구현 내역, API/DB 명세)
+├── policies/     — 횡단 비즈니스 정책 (모듈 공통 규칙)
+├── registries/   — SSOT 레지스트리 (결정 기록, 마이그레이션 SQL)
+├── specs/        — UI/통합 스펙
+│   ├── ui/       — UI 스펙
+│   └── integration/ — 시스템 통합 스펙
+├── guides/       — 개발 가이드 (프롬프트, 스크립트)
+│   ├── prompts/  — AI 메시지 생성 프롬프트 (SUB-*.md)
+│   └── scripts/  — 유틸리티 스크립트
+└── archive/      — 레거시 문서 (초기 설계, 온보딩용 — SSOT 아님)
+```
+
+### 코드 → 문서 매핑
+
+| 코드 경로 패턴 | 변경 시 업데이트할 문서 |
+|---------------|---------------------|
+| `src/app/api/orders/**` | `docs/modules/CS_IMPLEMENTATION.md` (주문 연관 시) |
+| `src/app/api/subscriptions/**` | `docs/modules/CS_IMPLEMENTATION.md`, `docs/registries/DECISIONS.md` |
+| `src/app/api/sending/**` | `docs/specs/ui/sending-v2.md`, `docs/specs/ui/sending-failure-handling.md` |
+| `src/app/api/daily-messages/**` | `docs/specs/integration/ai-daily-message-automation-design.md` |
+| `src/app/api/ai/**` | `docs/specs/integration/ai-daily-message-automation-design.md` |
+| `src/app/cs/**`, `src/app/api/cs/**` | `docs/modules/CS_IMPLEMENTATION.md`, `docs/specs/ui/cs.md` |
+| `src/lib/day.ts` | `docs/registries/DECISIONS.md` |
+| `src/lib/types.ts` | 관련 모듈 문서 전체 |
+| `src/components/tabs/*Tab.tsx` | `docs/specs/ui/` 내 해당 스펙 |
+| `src/components/ui/**` | 디자인 시스템 섹션 (CLAUDE.md) |
+| `docs/registries/migrations/*.sql` | `docs/registries/DECISIONS.md` |
+| `docs/guides/prompts/SUB-*.md` | `docs/specs/integration/ai-daily-message-automation-design.md` |
+| `src/app/api/cron/**` | `docs/policies/CS_POLICY.md` (CS cron), `docs/registries/DECISIONS.md` |
+
+### 주요 문서 바로가기
+
+| 문서 | 경로 | 역할 |
+|------|------|------|
+| CS 구현 내역 | `docs/modules/CS_IMPLEMENTATION.md` | CS 시스템 전체 구현 상태 |
+| CS 정책 | `docs/policies/CS_POLICY.md` | AI 자동응답/에스컬레이션 정책 |
+| 비즈니스 결정 | `docs/registries/DECISIONS.md` | 아키텍처 결정 기록 (ADR) |
+| 발송 v2 UI | `docs/specs/ui/sending-v2.md` | 구글시트 기반 발송 UI 스펙 |
+| CS UI | `docs/specs/ui/cs.md` | 고객/관리자 CS 페이지 스펙 |
+| AI 메시지 설계 | `docs/specs/integration/ai-daily-message-automation-design.md` | AI 일일 메시지 시스템 |
 
 ## UI 스펙
-→ `docs/ui-specs/dashboard.md` 참조
+→ `docs/specs/ui/` 참조
 
 ## 디자인 시스템
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 14 (App Router), Supabase (PostgreSQL), TypeScript
 
-**Spec:** `docs/superpowers/specs/2026-03-22-day-system-macro-design.md`
+**Spec:** `docs/archive/day-system-macro-design.md`
 
 ---
 
@@ -174,9 +174,9 @@ Expected: 새 칼럼이 기본값으로 채워져 있음
 - [ ] **Step 3: Commit (마이그레이션 기록)**
 
 ```bash
-echo "-- Migration executed on $(date)" > docs/migrations/2026-03-22-day-system.sql
+echo "-- Migration executed on $(date)" > docs/registries/migrations/2026-03-22-day-system.sql
 # 위 SQL을 파일에 복사
-git add docs/migrations/
+git add docs/registries/migrations/
 git commit -m "docs: record day system DB migration SQL"
 ```
 

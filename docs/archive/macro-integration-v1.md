@@ -833,7 +833,7 @@ report API:
 
 ## 9. 원본 설계 문서 참조
 
-전체 설계 문서: `docs/superpowers/specs/2026-03-22-day-system-macro-design.md`
+전체 설계 문서: `docs/archive/day-system-macro-design.md`
 
 이 문서에는 다음 내용이 포함되어 있다:
 - Day 계산 시스템 전체 설계 (공식, DB 칼럼, 상태 판단)
