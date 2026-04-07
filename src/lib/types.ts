@@ -101,9 +101,12 @@ export interface Subscription {
   last_sent_day: number
   paused_days: number
   is_cancelled: boolean
-  failure_type: 'failed' | null
-  failure_date: string | null
-  recovery_mode: 'bulk' | 'sequential' | null
+  /** @deprecated Phase 8에서 DB 컬럼 삭제 예정 */
+  failure_type?: 'failed' | null
+  /** @deprecated Phase 8에서 DB 컬럼 삭제 예정 */
+  failure_date?: string | null
+  /** @deprecated Phase 8에서 DB 컬럼 삭제 예정 */
+  recovery_mode?: 'bulk' | 'sequential' | null
   created_at: string
   updated_at: string
   // joined
@@ -158,7 +161,7 @@ export interface ProductPrompt {
 
 export interface NoticeTemplate {
   id: string
-  notice_type: 'start' | 'end' | 'failure_retry_now' | 'failure_retry_next' | 'failure_retry_shift'
+  notice_type: 'start' | 'end' | 'failure_retry_now' | 'failure_retry_next'
   product_id: string | null
   content: string
   image_path: string | null

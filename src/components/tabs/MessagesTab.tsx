@@ -1641,7 +1641,6 @@ function NoticesPanel({ products }: { products: Product[] }) {
   const endNotice = notices.find(n => n.notice_type === 'end' && !n.product_id)
   const failureRetryNow = notices.find(n => n.notice_type === 'failure_retry_now')
   const failureRetryNext = notices.find(n => n.notice_type === 'failure_retry_next')
-  const failureRetryShift = notices.find(n => n.notice_type === 'failure_retry_shift')
   const productNotices = notices.filter(n => n.product_id)
 
   if (loading) {
@@ -1696,11 +1695,10 @@ function NoticesPanel({ products }: { products: Product[] }) {
       <Card>
         <CardContent className="p-4">
           <SectionHeader title="발송 실패 안내 템플릿" className="mb-3" />
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             {[
               { key: 'failure_retry_now', label: '즉시 재발송', notice: failureRetryNow },
               { key: 'failure_retry_next', label: '함께 발송', notice: failureRetryNext },
-              { key: 'failure_retry_shift', label: '밀어서 발송', notice: failureRetryShift },
             ].map(item => (
               <div key={item.key}>
                 <div className="flex items-center justify-between mb-1">
@@ -1751,7 +1749,7 @@ function NoticesPanel({ products }: { products: Product[] }) {
           open
           onClose={() => setEditingNotice(null)}
           title={`${
-            { start: '시작', end: '종료', failure_retry_now: '즉시 재발송', failure_retry_next: '함께 발송', failure_retry_shift: '밀어서 발송' }[editingNotice.type] || editingNotice.type
+            { start: '시작', end: '종료', failure_retry_now: '즉시 재발송', failure_retry_next: '함께 발송' }[editingNotice.type] || editingNotice.type
           } 알림 ${editingNotice.notice ? '수정' : '추가'}`}
           submitLabel="저장"
           validate={() => {

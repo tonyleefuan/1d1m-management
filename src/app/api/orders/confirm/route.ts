@@ -182,12 +182,22 @@ export async function POST(req: Request) {
         return saved && productMap.has(item.product_sku) && phoneToId.has(item.customer_phone)
       })
       .map((item: any) => {
-        // 시작일 = 주문일 다음 날
-        const orderedAt = item.ordered_at ? new Date(item.ordered_at) : new Date()
-        const startDate = new Date(orderedAt)
-        startDate.setDate(startDate.getDate() + 1)
-        const startStr = startDate.toISOString().slice(0, 10)
+        // 시작일 = 업로드 시점 KST 기준 4AM 컷오프
+        // KST 04시 이전 → 오늘, 04시 이후 → 내일
+        const nowKST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }))
+        const kstHour = nowKST.getHours()
+        let startStr: string
+        if (kstHour < 4) {
+          // 오늘 KST
+          startStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+        } else {
+          // 내일 KST
+          const tomorrow = new Date()
+          tomorrow.setDate(tomorrow.getDate() + 1)
+          startStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(tomorrow)
+        }
         // 종료일 = 시작일 + 기간 - 1
+        const startDate = new Date(startStr + 'T00:00:00')
         const endDate = new Date(startDate)
         endDate.setDate(endDate.getDate() + (item.duration_days || 365) - 1)
         const endStr = endDate.toISOString().slice(0, 10)

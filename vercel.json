@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/subscriptions/daily-update",
-      "schedule": "0 */2 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/cs-reply",
