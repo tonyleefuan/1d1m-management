@@ -18,7 +18,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
-import { cn } from '@/lib/utils'
+import { cn, toKST } from '@/lib/utils'
 import { PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Timeline } from '@/components/ui/timeline'
@@ -765,7 +765,7 @@ export function SubscriptionsTab() {
 
                       {/* 주문일 */}
                       <TableCell className="py-1 text-xs tabular-nums text-muted-foreground">
-                        {sub.order_item?.order?.ordered_at?.slice(0, 10) || sub.created_at?.slice(0, 10) || '-'}
+                        {sub.order_item?.order?.ordered_at ? toKST(new Date(sub.order_item.order.ordered_at)) : sub.created_at?.slice(0, 10) || '-'}
                       </TableCell>
 
                       {/* 주문번호 */}
@@ -1170,7 +1170,7 @@ export function SubscriptionsTab() {
                   <div className="text-muted-foreground">상품</div>
                   <div><span className="font-mono text-xs">{detailSub.product.sku_code}</span> <span className="text-xs text-muted-foreground">{detailSub.product.title}</span></div>
                   <div className="text-muted-foreground">주문일</div>
-                  <div className="tabular-nums">{detailSub.order_item?.order?.ordered_at?.slice(0, 10) || detailSub.created_at?.slice(0, 10) || '-'}</div>
+                  <div className="tabular-nums">{detailSub.order_item?.order?.ordered_at ? toKST(new Date(detailSub.order_item.order.ordered_at)) : detailSub.created_at?.slice(0, 10) || '-'}</div>
                   <div className="text-muted-foreground">기간</div>
                   <div>{detailSub.duration_days}일</div>
                   <div className="text-muted-foreground">시작일</div>

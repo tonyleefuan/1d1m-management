@@ -7,6 +7,20 @@
  * C) 상품 선택형: 상품SKU=빈칸, 옵션SKU=SUB-45 → SUB-45을 최대기간으로 구독
  */
 
+/** 엑셀 주문일(KST)에 +09:00 오프셋 추가 — DB가 UTC로 정확히 변환하도록 */
+function appendKSTOffset(dateStr: string): string {
+  if (!dateStr) return ''
+  // 이미 오프셋이 있으면 그대로
+  if (/[+-]\d{2}:\d{2}$/.test(dateStr) || dateStr.endsWith('Z')) return dateStr
+  // "2026-04-04 23:38" → "2026-04-04T23:38:00+09:00"
+  const normalized = dateStr.replace(' ', 'T')
+  // 초가 없으면 붙이기
+  const withSeconds = normalized.includes('T') && normalized.split('T')[1]?.split(':').length === 2
+    ? normalized + ':00'
+    : normalized
+  return withSeconds + '+09:00'
+}
+
 export interface RawOrderRow {
   '주문일': string
   '주문번호': string
@@ -108,7 +122,7 @@ export function parseOrderRows(rows: RawOrderRow[]): ParsedOrderItem[] {
         raw_product_sku: productSku,
         raw_option_sku: optionSku,
         raw_option_name: optionName,
-        ordered_at: row['주문일']?.trim() || '',
+        ordered_at: appendKSTOffset(row['주문일']?.trim() || ''),
         total_amount: parseInt(String(row['최종주문금액'] || '0').replace(/[₩,]/g, '')) || 0,
       }
       for (let si = 0; si < setSKUs.length; si++) {
