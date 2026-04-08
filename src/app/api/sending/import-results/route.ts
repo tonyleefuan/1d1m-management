@@ -501,7 +501,8 @@ async function updateSubscriptionStatuses(
   }
 
   // ─── 자동 정지 구독의 재발송 성공 감지 → 자동 재개 ───
-  const resumeTargetIds = [...subMaxSuccessDay.keys()]
+  // 실패도 있었던 구독은 제외 (같은 import에서 자동 정지 + 자동 재개 동시 발생 방지)
+  const resumeTargetIds = safeSuccessUpdates.map(u => u.id)
   if (resumeTargetIds.length > 0) {
     const successSubIdArr = resumeTargetIds
     // auto_failure로 정지된 구독 중 이번에 성공한 것 조회
@@ -523,10 +524,10 @@ async function updateSubscriptionStatuses(
         // 정지 기간 계산
         let pauseDays = 0
         if (sub.paused_at) {
-          const pauseStart = new Date(sub.paused_at)
-          const todayMidnight = new Date(now)
-          todayMidnight.setHours(0, 0, 0, 0)
-          pauseStart.setHours(0, 0, 0, 0)
+          const pausedAtKST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(sub.paused_at))
+          const pauseStart = new Date(pausedAtKST + 'T00:00:00Z')
+          const todayKSTStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(now))
+          const todayMidnight = new Date(todayKSTStr + 'T00:00:00Z')
           pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
         }
         const newPausedDays = (sub.paused_days ?? 0) + pauseDays
