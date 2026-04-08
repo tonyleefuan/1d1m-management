@@ -184,6 +184,7 @@ export async function POST(req: Request) {
 
     // fixed 메시지 조회
     const fixedMsgMap = new Map<string, { content: string; image_path: string | null; sort_order: number }[]>()
+    const seenMsgIds = new Set<string>()
     if (fixedKeys.size > 0) {
       const productDayPairs = [...fixedKeys].map(k => {
         const [pid, day] = k.split(':')
@@ -201,15 +202,20 @@ export async function POST(req: Request) {
         while (true) {
           const { data, error } = await supabase
             .from('messages')
-            .select('product_id, day_number, content, image_path, sort_order')
+            .select('id, product_id, day_number, content, image_path, sort_order')
             .in('product_id', pidBatch)
             .gte('day_number', minDay)
             .lte('day_number', maxDay)
+            .order('product_id', { ascending: true })
+            .order('day_number', { ascending: true })
             .order('sort_order', { ascending: true })
+            .order('id', { ascending: true })
             .range(offset, offset + BATCH_SIZE - 1)
           if (error) return NextResponse.json({ error: `고정 메시지 조회 실패: ${error.message}` }, { status: 500 })
           if (!data?.length) break
           for (const msg of data) {
+            if (seenMsgIds.has(msg.id)) continue
+            seenMsgIds.add(msg.id)
             const key = `${msg.product_id}:${msg.day_number}`
             if (!fixedKeys.has(key)) continue
             if (!fixedMsgMap.has(key)) fixedMsgMap.set(key, [])
