@@ -106,15 +106,15 @@ interface ProductOption {
 // ─── Constants ───────────────────────────────────────────
 
 const STATUS_MAP: Record<string, { status: StatusType; label: string; className?: string }> = {
-  live: { status: 'info', label: '발송중' },
+  live: { status: 'info', label: '활성' },
   pending: { status: 'warning', label: '대기' },
-  pause: { status: 'neutral', label: '일시정지', className: 'bg-purple-100/60 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
+  pause: { status: 'neutral', label: '정지', className: 'bg-purple-100/60 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
   archive: { status: 'neutral', label: '종료' },
   cancel: { status: 'error', label: '취소' },
 }
 
 const COMPUTED_STATUS_MAP: Record<string, { status: StatusType; label: string; className?: string }> = {
-  active: { status: 'info', label: '활성' },
+  active: { status: 'info', label: '발송중' },
   pending: { status: 'warning', label: '대기' },
   completed: { status: 'neutral', label: '완료' },
   paused: { status: 'neutral', label: '정지', className: 'bg-purple-100/60 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
@@ -490,9 +490,9 @@ export function SubscriptionsTab() {
 
   const quickFilters = [
     { label: '전체', active: filters.status === '', onClick: () => setFilters((f) => ({ ...f, status: '', page: 1 })) },
-    { label: '발송중', active: filters.status === 'live', onClick: () => setFilters((f) => ({ ...f, status: 'live', page: 1 })) },
+    { label: '활성', active: filters.status === 'live', onClick: () => setFilters((f) => ({ ...f, status: 'live', page: 1 })) },
     { label: '대기', active: filters.status === 'pending', onClick: () => setFilters((f) => ({ ...f, status: 'pending', page: 1 })) },
-    { label: '일시정지', active: filters.status === 'pause', onClick: () => setFilters((f) => ({ ...f, status: 'pause', page: 1 })) },
+    { label: '정지', active: filters.status === 'pause', onClick: () => setFilters((f) => ({ ...f, status: 'pause', page: 1 })) },
     { label: '종료', active: filters.status === 'archive', onClick: () => setFilters((f) => ({ ...f, status: 'archive', page: 1 })) },
     { label: '취소', active: filters.status === 'cancel', onClick: () => setFilters((f) => ({ ...f, status: 'cancel', page: 1 })) },
   ]
@@ -693,8 +693,7 @@ export function SubscriptionsTab() {
                     주문일 <SortIcon field="created_at" />
                   </TableHead>
                   <TableHead className="w-[130px]">주문번호</TableHead>
-                  <TableHead className="w-[80px]">상태</TableHead>
-                  <TableHead className="w-[90px]">발송상태</TableHead>
+                  <TableHead className="w-[80px]">구독 상태</TableHead>
                   <TableHead className="w-[110px]">PC</TableHead>
                   <TableHead className="min-w-[80px]">고객명</TableHead>
                   <TableHead className="min-w-[80px]">카톡이름</TableHead>
@@ -758,11 +757,6 @@ export function SubscriptionsTab() {
                         >
                           {COMPUTED_STATUS_MAP[sub.computed_status]?.label ?? sub.computed_status}
                         </StatusBadge>
-                      </TableCell>
-
-                      {/* 발송상태 */}
-                      <TableCell className="py-1">
-                        <StatusBadge status="success" size="xs">정상</StatusBadge>
                       </TableCell>
 
                       {/* PC */}
@@ -971,7 +965,7 @@ export function SubscriptionsTab() {
                               <span className={cn('text-[11px]', sub.computed_status === 'paused' ? 'text-purple-700 dark:text-purple-300' : 'text-muted-foreground')}>
                                 {sub.computed_status === 'paused'
                                   ? (sub.resume_date ? `~${sub.resume_date.slice(5)}` : '정지')
-                                  : '발송중'}
+                                  : '활성'}
                               </span>
                             </div>
                             <PopoverContent align="start" className="w-56 p-3">
@@ -1171,10 +1165,6 @@ export function SubscriptionsTab() {
                     {detailSub.device
                       ? `${detailSub.device.phone_number?.slice(-4)} ${detailSub.device.name ? `(${detailSub.device.name})` : ''}`
                       : '미배정'}
-                  </div>
-                  <div className="text-muted-foreground">발송상태</div>
-                  <div>
-                    <StatusBadge status="success" size="xs">정상</StatusBadge>
                   </div>
                   <div className="text-muted-foreground">마지막 발송 Day</div>
                   <div className="flex items-center gap-2">

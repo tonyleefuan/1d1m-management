@@ -52,9 +52,9 @@ interface Inquiry {
 }
 
 const STATUS_MAP: Record<string, { status: 'success' | 'warning' | 'info' | 'neutral' | 'error'; label: string }> = {
-  active: { status: 'success', label: '발송중' },
+  active: { status: 'success', label: '활성' },
   pending: { status: 'info', label: '대기' },
-  paused: { status: 'warning', label: '일시정지' },
+  paused: { status: 'warning', label: '정지' },
   completed: { status: 'neutral', label: '만료' },
   cancelled: { status: 'error', label: '취소' },
 }

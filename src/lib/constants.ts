@@ -25,9 +25,9 @@ export const SUBSCRIPTION_STATUSES = ['live', 'pending', 'pause', 'archive', 'ca
 export type SubscriptionStatus = typeof SUBSCRIPTION_STATUSES[number]
 
 export const STATUS_LABELS: Record<SubscriptionStatus, string> = {
-  live: '발송중',
+  live: '활성',
   pending: '대기',
-  pause: '일시정지',
+  pause: '정지',
   archive: '종료',
   cancel: '취소',
 }
@@ -88,7 +88,7 @@ export const CS_CATEGORY_LABELS: Record<string, string> = {
   message_stopped: '메시지가 오다가 안 와요',
   // legacy alias
   message_not_received: '메시지 미수신',
-  pause_resume: '일시정지/재개',
+  pause_resume: '정지/재개',
   product_change: '상품 변경',
   cancel_refund: '취소/환불',
   delivery_time: '발송 시간',
@@ -119,7 +119,7 @@ export const CS_CATEGORY_GUIDES: Record<string, {
   pause_resume: {
     select: [
       { key: 'action_type', label: '요청 유형', options: [
-        { value: 'pause', label: '일시정지' },
+        { value: 'pause', label: '정지' },
         { value: 'resume', label: '재개' },
       ]},
     ],

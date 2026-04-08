@@ -438,7 +438,7 @@ async function updateSubscriptionStatuses(
     }
   }
 
-  // ─── 3일 연속 실패 감지 → 자동 일시정지 ───
+  // ─── 3일 연속 실패 감지 → 자동 정지 ───
   if (failureSubIds.size > 0) {
     onProgress?.('연속 실패 감지 중...')
     const failureSubIdArr = [...failureSubIds]
@@ -490,7 +490,7 @@ async function updateSubscriptionStatuses(
     }
 
     if (pauseIds.length > 0) {
-      onProgress?.(`3일 연속 실패 ${pauseIds.length}건 자동 일시정지...`)
+      onProgress?.(`3일 연속 실패 ${pauseIds.length}건 자동 정지...`)
       for (let i = 0; i < pauseIds.length; i += 500) {
         const batch = pauseIds.slice(i, i + 500)
         await supabase.from('subscriptions')

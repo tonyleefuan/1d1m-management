@@ -173,7 +173,7 @@ export async function POST(req: Request) {
 
     // Build warnings for missing optional columns
     const warnings: string[] = []
-    if (!colMap.has('status')) warnings.push('상태 컬럼이 없어서 모두 "발송중(Live)"으로 설정됩니다')
+    if (!colMap.has('status')) warnings.push('상태 컬럼이 없어서 모두 "활성(Live)"으로 설정됩니다')
     if (!colMap.has('day')) warnings.push('Day 컬럼이 없어서 last_sent_day를 0으로 설정됩니다')
     if (!colMap.has('duration')) warnings.push('기간 컬럼이 없어서 상품 기본 기간을 사용합니다')
 

@@ -26,7 +26,7 @@ async function logChange(
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  live: '발송중', pending: '대기', pause: '일시정지', archive: '종료', cancel: '취소',
+  live: '활성', pending: '대기', pause: '정지', archive: '종료', cancel: '취소',
 }
 
 export async function PATCH(req: Request) {
@@ -75,7 +75,7 @@ export async function PATCH(req: Request) {
         if (updates.status === 'live' && prev.status === 'pending') {
           if (!prev.start_date || prev.start_date > today) {
             return NextResponse.json(
-              { error: `시작일(${prev.start_date || '미설정'})이 아직 도래하지 않아 발송중으로 변경할 수 없습니다` },
+              { error: `시작일(${prev.start_date || '미설정'})이 아직 도래하지 않아 활성으로 변경할 수 없습니다` },
               { status: 400 }
             )
           }

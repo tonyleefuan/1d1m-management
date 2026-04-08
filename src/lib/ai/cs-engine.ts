@@ -32,7 +32,7 @@ const CS_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'pause_subscription',
-    description: '구독을 일시정지 처리합니다. live/active 상태인 구독만 가능합니다.',
+    description: '구독을 정지 처리합니다. live/active 상태인 구독만 가능합니다.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -43,7 +43,7 @@ const CS_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'resume_subscription',
-    description: '일시정지 된 구독을 재개합니다. pause 상태인 구독만 가능합니다.',
+    description: '정지 된 구독을 재개합니다. pause 상태인 구독만 가능합니다.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -192,8 +192,8 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
         .single()
 
       if (!sub) return { success: false, error: '구독을 찾을 수 없습니다.' }
-      if (sub.status === 'pause') return { success: false, error: '이미 일시정지 상태입니다.' }
-      if (sub.status !== 'live') return { success: false, error: `현재 상태(${sub.status})에서는 일시정지할 수 없습니다.` }
+      if (sub.status === 'pause') return { success: false, error: '이미 정지 상태입니다.' }
+      if (sub.status !== 'live') return { success: false, error: `현재 상태(${sub.status})에서는 정지할 수 없습니다.` }
 
       const today = new Date().toISOString().split('T')[0]
       const { error } = await supabase
@@ -622,7 +622,7 @@ ${policyTexts}
 1a. "한 번도 못 받았어요": 연락처 저장 + 친구 추가 + 성함/뒷4자리 전송 완료 여부 확인. 사전 체크리스트 제출했다면 참고. 모두 완료했는데 안 오면 에스컬레이션. 카톡 ID 제공 또는 연락처 친구추가 안 되면 즉시 에스컬레이션.
 1b. "오다가 안 와요": query_subscription으로 상태 조회. 만료/정지/취소면 안내, active인데 안 오면 에스컬레이션.
 2. PC 번호는 query_default_device로 조회. 절대 추측 금지.
-3. 일시정지/재개는 해당 도구로 즉시 처리.
+3. 정지/재개는 해당 도구로 즉시 처리.
 4. 상품 변경: search_product로 상품 검색 → change_product 호출. change_product가 가격을 자동 비교하므로 직접 가격 판단하지 말고 바로 호출할 것. PRICE_MISMATCH 에러 시 고객에게 "동일 가격 상품만 변경 가능합니다" 안내 후 에스컬레이션.
 5. 취소/환불: a)사과+정책안내(3일이내 전액, 3일초과 결제액-이용액-위약금30%) b)결제방법 확인(고객이 이미 선택정보에서 제공했으면 다시 묻지 말 것) c)계좌이체면 계좌정보 수집 d)카드면 바로 request_refund 호출, NEEDS_ACCOUNT_INFO시 계좌 추가 수집 e)request_refund 호출 f)"담당자가 확인 후 처리해 드리겠습니다" 안내 g)구독 2개 이상이면 먼저 확인(단, [고객이 선택한 관련 구독]이 있으면 바로 처리).
 6. 기타/처리 불가(계정 변경, 수동 발송, 시스템 오류 등) → 에스컬레이션.
