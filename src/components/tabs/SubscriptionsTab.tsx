@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils'
 import { PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Timeline } from '@/components/ui/timeline'
-import { Play, Pause, FileText, RefreshCw, Upload } from 'lucide-react'
+import { Play, Pause, FileText, RefreshCw, Upload, Hash } from 'lucide-react'
 import { FloatingChatButton } from '@/components/ui/floating-chat'
 // CSV import removed — use scripts/import-subscriptions.ts for bulk import
 
@@ -431,6 +431,26 @@ export function SubscriptionsTab() {
     }
   }
 
+  // ─── Bulk last_sent_day edit ────────────────────────
+
+  const handleBulkDayEdit = async () => {
+    if (selectedIds.size === 0) return
+    const input = prompt(`선택한 ${selectedIds.size}건의 최근 발송 Day를 일괄 변경합니다.\n\n새 Day 값을 입력하세요 (0 이상):`)
+    if (input === null) return
+    const day = Number(input)
+    if (!Number.isInteger(day) || day < 0) {
+      showError('0 이상의 정수를 입력해주세요')
+      return
+    }
+    if (await bulkUpdateSubscriptions(Array.from(selectedIds), { last_sent_day: day })) {
+      showSuccess(`${selectedIds.size}건의 최근 발송 Day가 ${day}(으)로 변경되었습니다 (큐 초기화됨)`)
+      setSelectedIds(new Set())
+      fetchSubs()
+    } else {
+      showError('일괄 Day 변경에 실패했습니다')
+    }
+  }
+
   // ─── Detail sheet + history ─────────────────────────
 
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -636,6 +656,10 @@ export function SubscriptionsTab() {
           <Button size="sm" variant="outline" onClick={() => handleBulkStatus('pause')}>
             <Pause className="mr-1 h-3 w-3" />
             정지
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleBulkDayEdit}>
+            <Hash className="mr-1 h-3 w-3" />
+            Day 수정
           </Button>
           <Select onValueChange={(v) => handleBulkDevice(v === '__none__' ? '' : v)}>
             <SelectTrigger className="h-8 w-[160px] text-xs">

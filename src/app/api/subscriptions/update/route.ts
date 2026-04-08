@@ -149,14 +149,13 @@ export async function PATCH(req: Request) {
         }
       }
       updateData.last_sent_day = newLastSentDay
-      // old failed 큐 정리 (day_number <= 새 값)
+      // 큐 초기화: pending + failed 큐 모두 삭제 → 다음 generate에서 재생성
       for (const subId of targetIds) {
         await supabase
           .from('send_queues')
           .delete()
           .eq('subscription_id', subId)
-          .eq('status', 'failed')
-          .lte('day_number', newLastSentDay)
+          .in('status', ['pending', 'failed'])
       }
     }
     // last_sent_day 상대 조정 (day_adjust: 양수/음수 모두 가능) — 벌크 지원
