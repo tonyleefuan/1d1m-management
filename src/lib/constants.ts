@@ -1,23 +1,23 @@
-// 1D1M Brand Colors
+// Notion-Inspired Color Palette
 export const C = {
   bg: '#ffffff',
-  surface: '#f8f8f8',
-  surfaceAlt: '#f0f0f0',
-  border: '#e0e0e0',
-  borderLight: '#eeeeee',
-  text: '#000000',
-  textSecondary: '#666666',
-  textMuted: '#999999',
-  // Brand
-  primary: '#2959FD',
-  primaryBg: '#eef2ff',
+  surface: '#f6f5f4',
+  surfaceAlt: '#edeceb',
+  border: 'rgba(0,0,0,0.1)',
+  borderLight: 'rgba(0,0,0,0.06)',
+  text: 'rgba(0,0,0,0.95)',
+  textSecondary: '#615d59',
+  textMuted: '#a39e98',
+  // Primary (Notion Blue)
+  primary: '#0075de',
+  primaryBg: '#f2f9ff',
   // Status
-  red: '#FD5046',
-  redBg: '#fff0ef',
-  green: '#04D1AE',
-  greenBg: '#e6faf5',
-  yellow: '#FFE343',
-  orange: '#FF9720',
+  red: '#e5484d',
+  redBg: '#fde8e8',
+  green: '#2a9d99',
+  greenBg: '#e6f7f5',
+  yellow: '#dd5b00',
+  orange: '#dd5b00',
 } as const
 
 // Subscription statuses

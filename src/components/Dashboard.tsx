@@ -181,18 +181,18 @@ export function Dashboard({ userName, userRole, initialTab }: Props) {
   const firstTabId = visibleTabs[0]?.id || TABS[0].id
 
   return (
-    <div className="min-h-screen bg-muted/40">
+    <div className="min-h-screen bg-white">
       {/* Header */}
-      <header className="bg-background sticky top-0 z-50 border-b">
-        <div className="max-w-[1400px] mx-auto px-4 h-12 flex items-center justify-between">
+      <header className="bg-white sticky top-0 z-50 border-b border-[rgba(0,0,0,0.1)]">
+        <div className="max-w-[1400px] mx-auto px-6 h-12 flex items-center justify-between">
           <img src="/logo.png" alt="1Day1Message" className="h-5" />
           <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">{userName} ({userRole})</span>
+            <span className="text-[13px] text-[#a39e98]">{userName} ({userRole})</span>
             <Button
               variant="ghost"
               size="sm"
               onClick={handleLogout}
-              className="text-xs text-muted-foreground/60 hover:text-foreground h-auto px-2 py-1"
+              className="text-[13px] text-[#a39e98] hover:text-foreground h-auto px-2 py-1"
             >
               로그아웃
             </Button>
@@ -201,8 +201,8 @@ export function Dashboard({ userName, userRole, initialTab }: Props) {
       </header>
 
       {/* Tab Navigation */}
-      <nav className="bg-background border-b">
-        <div className="max-w-[1400px] mx-auto px-4 flex gap-0 overflow-x-auto">
+      <nav className="bg-white border-b border-[rgba(0,0,0,0.1)]">
+        <div className="max-w-[1400px] mx-auto px-6 flex gap-0 overflow-x-auto">
           {!ready ? (
             Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="px-4 py-2.5">
@@ -221,10 +221,10 @@ export function Dashboard({ userName, userRole, initialTab }: Props) {
                   handleTabChange(t.id)
                 }}
                 className={cn(
-                  'px-4 py-2.5 text-sm whitespace-nowrap border-b-2 transition-colors inline-flex items-center',
+                  'px-4 py-2.5 text-[14px] whitespace-nowrap border-b-2 transition-colors inline-flex items-center',
                   tab === t.id
                     ? 'border-foreground text-foreground font-medium'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                    : 'border-transparent text-[#a39e98] hover:text-[#615d59]'
                 )}
               >
                 {t.label}
@@ -235,7 +235,7 @@ export function Dashboard({ userName, userRole, initialTab }: Props) {
       </nav>
 
       {/* Tab Content */}
-      <main className="max-w-[1400px] mx-auto px-4 py-6">
+      <main className="max-w-[1400px] mx-auto px-6 py-6 bg-[#f6f5f4] min-h-[calc(100vh-97px)]">
         <TabErrorBoundary
           resetKey={tab}
           fallback={

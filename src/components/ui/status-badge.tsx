@@ -26,11 +26,11 @@ type Variant = 'filled' | 'outline' | 'subtle' | 'dot'
 type Size = 'xs' | 'sm' | 'md'
 
 const statusColors: Record<StatusType, { bg: string; text: string; border: string; dot: string }> = {
-  success: { bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-300', dot: 'bg-emerald-500' },
-  warning: { bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-300', dot: 'bg-amber-500' },
-  error:   { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300', dot: 'bg-red-500' },
-  info:    { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300', dot: 'bg-blue-500' },
-  neutral: { bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-300', dot: 'bg-gray-400' },
+  success: { bg: 'bg-[#e6f7f5]', text: 'text-[#1a7a72]', border: 'border-[#b3e6e0]', dot: 'bg-[#2a9d99]' },
+  warning: { bg: 'bg-[#fef3e5]', text: 'text-[#b44d00]', border: 'border-[#f5d0a9]', dot: 'bg-[#dd5b00]' },
+  error:   { bg: 'bg-[#fde8e8]', text: 'text-[#c33]', border: 'border-[#f5b3b3]', dot: 'bg-[#e5484d]' },
+  info:    { bg: 'bg-[#f2f9ff]', text: 'text-[#097fe8]', border: 'border-[#b3d9f7]', dot: 'bg-[#0075de]' },
+  neutral: { bg: 'bg-[#f4f3f2]', text: 'text-[#615d59]', border: 'border-[#d4d2cf]', dot: 'bg-[#a39e98]' },
 }
 
 const statusIcons: Record<StatusType, LucideIcon> = {

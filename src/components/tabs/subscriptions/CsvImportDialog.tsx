@@ -377,9 +377,9 @@ export function CsvImportDialog({ open, onOpenChange, onComplete }: Props) {
 
             {/* Warnings for missing optional columns */}
             {preview.warnings.length > 0 && (
-              <div className="space-y-1 rounded-md border border-blue-500/30 bg-blue-500/5 p-3">
+              <div className="space-y-1 rounded-md border border-[#0075de]/20 bg-[#f2f9ff] p-3">
                 {preview.warnings.map((w, i) => (
-                  <p key={i} className="text-xs text-blue-700">ℹ {w}</p>
+                  <p key={i} className="text-xs text-[#097fe8]">ℹ {w}</p>
                 ))}
               </div>
             )}
