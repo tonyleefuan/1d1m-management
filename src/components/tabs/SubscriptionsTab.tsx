@@ -723,7 +723,7 @@ export function SubscriptionsTab() {
               <TableBody>
                 {subs.map((sub) => {
                   return (
-                    <TableRow key={sub.id} className="group">
+                    <TableRow key={sub.id} className={cn('group', sub.computed_status === 'paused' && 'bg-red-50/60 dark:bg-red-950/20')}>
                       {/* 1. Checkbox (Shift+Click 범위 선택 지원) */}
                       <TableCell
                         className="py-1 cursor-pointer select-none"
