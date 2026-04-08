@@ -492,6 +492,8 @@ export function SendingTab() {
 
     setExporting(true)
     setExportProgress('준비 중...')
+    setGenerateLogs([])
+    addGenLog('📤 시트 내보내기 시작...')
     try {
       const res = await fetch('/api/sending/export-sheet', {
         method: 'POST',
@@ -525,12 +527,15 @@ export function SendingTab() {
               const data = JSON.parse(line.slice(6))
               if (data.type === 'clearing') {
                 setExportProgress('시트 초기화 중...')
+                addGenLog('🗑️ 시트 초기화 중...')
               } else if (data.type === 'start') {
                 setExportProgress(`${data.totalItems}건 내보내기 시작 (${data.totalDevices}개 PC)`)
+                addGenLog(`📋 ${data.totalItems}건 내보내기 시작 (${data.totalDevices}개 PC)`)
               } else if (data.type === 'device_start') {
                 setExportProgress(`${data.device} 쓰는 중... (${data.deviceIndex}/${data.totalDevices} PC, ${data.items}건)`)
               } else if (data.type === 'device_done') {
                 setExportProgress(`${data.device} 완료 (${data.deviceIndex}/${data.totalDevices} PC, 누적 ${data.totalWritten}건)`)
+                addGenLog(`   ${data.device} — ${data.items}건 완료`)
               } else if (data.type === 'complete') {
                 lastResult = data
               } else if (data.type === 'error') {
@@ -546,11 +551,14 @@ export function SendingTab() {
       let msg = `구글시트 내보내기 완료: ${lastResult.total ?? 0}건 (${lastResult.devices ?? 0}개 PC)`
       if (lastResult.autoImported) {
         msg += '\n(이전 미수거 결과를 자동으로 가져왔습니다)'
+        addGenLog('ℹ️ 이전 미수거 결과 자동 가져오기 완료')
       }
+      addGenLog(`🎉 시트 내보내기 완료 — ${lastResult.total ?? 0}건 (${lastResult.devices ?? 0}개 PC)`)
       showSuccess(msg)
       setLastExportAt(new Date().toISOString())
       fetchSummary(); fetchQueue(1)
     } catch (err) {
+      addGenLog(`❌ 시트 내보내기 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
       showError(err instanceof Error ? err.message : '시트 내보내기에 실패했습니다')
     }
     setExporting(false)
@@ -568,12 +576,16 @@ export function SendingTab() {
 
     setExporting(true)
     setExportProgress('시트 초기화 중...')
+    setGenerateLogs([])
+    addGenLog('🗑️ 시트 초기화 중...')
     try {
       const res = await fetch('/api/sending/clear-sheet', { method: 'POST' })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || '시트 초기화 실패')
+      addGenLog(`✅ ${json.message || '시트 초기화 완료'}`)
       showSuccess(json.message || '시트 초기화 완료')
     } catch (err) {
+      addGenLog(`❌ 시트 초기화 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
       showError(err instanceof Error ? err.message : '시트 초기화에 실패했습니다')
     }
     setExporting(false)
