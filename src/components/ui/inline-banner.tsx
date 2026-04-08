@@ -36,11 +36,11 @@ const bannerVariants = cva(
   {
     variants: {
       variant: {
-        info: 'bg-blue-50 border-blue-200 text-blue-900',
-        warning: 'bg-amber-50 border-amber-200 text-amber-900',
-        error: 'bg-red-50 border-red-200 text-red-900',
-        success: 'bg-emerald-50 border-emerald-200 text-emerald-900',
-        neutral: 'bg-gray-50 border-gray-200 text-gray-900',
+        info: 'bg-[#f2f9ff] border-[#b3d9f7] text-[#2e7eb8]',
+        warning: 'bg-[#fef3e5] border-[#f5d0a9] text-[#b44d00]',
+        error: 'bg-[#fde8e8] border-[#f5b3b3] text-[#c33]',
+        success: 'bg-[#e6f7f5] border-[#b3e6e0] text-[#1a7a72]',
+        neutral: 'bg-[#f4f3f2] border-[rgba(0,0,0,0.1)] text-foreground',
       },
       size: {
         sm: 'px-3 py-2 text-xs',
@@ -64,11 +64,11 @@ const iconMap: Record<string, LucideIcon> = {
 }
 
 const iconColorMap: Record<string, string> = {
-  info: 'text-blue-600',
-  warning: 'text-amber-600',
-  error: 'text-red-600',
-  success: 'text-emerald-600',
-  neutral: 'text-gray-500',
+  info: 'text-[#0075de]',
+  warning: 'text-[#dd5b00]',
+  error: 'text-[#e5484d]',
+  success: 'text-[#2a9d99]',
+  neutral: 'text-[#615d59]',
 }
 
 interface InlineBannerProps extends VariantProps<typeof bannerVariants> {

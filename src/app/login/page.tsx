@@ -2,6 +2,9 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Card, CardContent } from '@/components/ui/card'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -38,51 +41,51 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-[#f6f5f4]">
       <div className="w-full max-w-sm">
-        <div className="bg-white rounded-lg shadow-sm border p-8">
-          <h1 className="text-xl font-bold text-center mb-1">1D1M Management</h1>
-          <p className="text-sm text-gray-500 text-center mb-6">1Day1Message 운영 대시보드</p>
+        <Card className="p-8">
+          <CardContent className="p-0">
+            <h1 className="text-section-heading text-center mb-1">1D1M Management</h1>
+            <p className="text-[14px] text-[#615d59] text-center mb-6">1Day1Message 운영 대시보드</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">아이디</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="아이디를 입력하세요"
-                required
-                autoFocus
-              />
-            </div>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[13px] font-medium text-foreground mb-1.5">아이디</label>
+                <Input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="아이디를 입력하세요"
+                  required
+                  autoFocus
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">비밀번호</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="비밀번호를 입력하세요"
-                required
-              />
-            </div>
+              <div>
+                <label className="block text-[13px] font-medium text-foreground mb-1.5">비밀번호</label>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="비밀번호를 입력하세요"
+                  required
+                />
+              </div>
 
-            {error && (
-              <p className="text-sm text-red-500">{error}</p>
-            )}
+              {error && (
+                <p className="text-[13px] text-[#e5484d]">{error}</p>
+              )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2 px-4 bg-black text-white text-sm font-medium rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? '로그인 중...' : '로그인'}
-            </button>
-          </form>
-        </div>
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full"
+              >
+                {loading ? '로그인 중...' : '로그인'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

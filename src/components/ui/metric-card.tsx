@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './card'
 import { TrendingUp, TrendingDown, type LucideIcon } from 'lucide-react'
 
 /* ── MetricCard ──────────────────────────────────────
- *  큰 숫자 + 전기 대비 % + 아이콘
+ *  Notion-style 통계 카드: 큰 숫자 + 전기 대비 % + 아이콘
  *
  *  사용법:
  *    <MetricCard
@@ -23,9 +23,7 @@ interface MetricCardProps {
   value: string
   change?: string
   description?: string
-  /** Dashboard 스타일: 큰 설명 텍스트 (예: "Trending up this month") */
   subtitle?: string
-  /** Dashboard 스타일: 부가 설명 (예: "Visitors for the last 6 months") */
   footnote?: string
   trend?: 'up' | 'down' | 'neutral'
   icon?: LucideIcon
@@ -46,15 +44,15 @@ export function MetricCard({
   return (
     <Card className={cn('', className)}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <CardTitle className="text-[14px] font-medium text-[#615d59]">{title}</CardTitle>
         <div className="flex items-center gap-2">
           {change && (
             <span
               className={cn(
-                'flex items-center text-xs font-medium',
-                trend === 'up' && 'text-emerald-600',
-                trend === 'down' && 'text-hh-red',
-                trend === 'neutral' && 'text-muted-foreground',
+                'flex items-center text-[13px] font-medium',
+                trend === 'up' && 'text-[#2a9d99]',
+                trend === 'down' && 'text-[#e5484d]',
+                trend === 'neutral' && 'text-[#a39e98]',
               )}
             >
               {trend === 'up' && <TrendingUp className="mr-0.5 h-3 w-3" />}
@@ -62,25 +60,23 @@ export function MetricCard({
               {change}
             </span>
           )}
-          {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
+          {Icon && <Icon className="h-4 w-4 text-[#a39e98]" />}
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        {/* 기본 스타일: change + description 한 줄 */}
+        <div className="text-[28px] font-bold tracking-[-0.5px]">{value}</div>
         {!subtitle && description && (
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+          <p className="mt-1 text-[13px] text-[#a39e98]">{description}</p>
         )}
-        {/* Dashboard 스타일: subtitle + footnote */}
         {subtitle && (
           <div className="mt-2">
-            <p className="flex items-center gap-1 text-sm font-medium">
+            <p className="flex items-center gap-1 text-[14px] font-medium">
               {subtitle}
-              {trend === 'up' && <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />}
-              {trend === 'down' && <TrendingDown className="h-3.5 w-3.5 text-hh-red" />}
+              {trend === 'up' && <TrendingUp className="h-3.5 w-3.5 text-[#2a9d99]" />}
+              {trend === 'down' && <TrendingDown className="h-3.5 w-3.5 text-[#e5484d]" />}
             </p>
             {footnote && (
-              <p className="text-xs text-muted-foreground">{footnote}</p>
+              <p className="text-[13px] text-[#a39e98]">{footnote}</p>
             )}
           </div>
         )}

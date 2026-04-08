@@ -858,7 +858,7 @@ export function SendingTab() {
             {yesterdayImportResult && (
               <>
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-muted text-xs">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                  <CheckCircle2 className="h-3.5 w-3.5 text-[#2a9d99]" />
                   <span>{formatShort(yesterdayDate)} 수거 완료</span>
                   <span className="text-muted-foreground">— 성공 {yesterdayImportResult.sent.toLocaleString()} · 실패 {yesterdayImportResult.failed.toLocaleString()}</span>
                 </div>

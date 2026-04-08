@@ -7,21 +7,41 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        /* ── Surface ── */
-        surface: 'hsl(var(--surface))',
-        'surface-alt': 'hsl(var(--surface-alt))',
+        /* ── Notion-Inspired Semantic Tokens ── */
         border: 'hsl(var(--border))',
-        'border-light': '#eeeeee',
-
-        /* ── 1D1M Brand ── */
-        '1d1m-yellow': 'hsl(var(--1d1m-yellow))',
-        '1d1m-black': 'hsl(var(--1d1m-black))',
-
-        /* ── shadcn/ui semantic tokens ── */
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
+
+        /* Surface (warm neutrals) */
+        surface: 'hsl(var(--surface))',
+        'surface-alt': 'hsl(var(--surface-alt))',
+        'warm-white': 'hsl(var(--warm-white))',
+        'warm-dark': 'hsl(var(--warm-dark))',
+        'warm-gray': {
+          300: 'hsl(var(--warm-gray-300))',
+          500: 'hsl(var(--warm-gray-500))',
+        },
+
+        /* Legacy compat — prevent build errors */
+        'border-light': 'rgba(0,0,0,0.06)',
+        '1d1m-yellow': 'hsl(var(--warm-white))',
+        '1d1m-black': 'hsl(var(--foreground))',
+
+        /* havehad legacy colors → Notion-mapped */
+        'hh-red': '#e5484d',
+        'hh-green': '#2a9d99',
+        'hh-blue': '#0075de',
+        'hh-yellow': '#cb912f',
+        'hh-orange': '#dd5b00',
+        'hh-pink': '#b84f7a',
+        'hh-purple': '#8854b8',
+        'blue-bg': '#f2f9ff',
+        'red-bg': '#fde8e8',
+        'green-bg': '#e6f7f5',
+
+        /* shadcn/ui semantic tokens */
         primary: {
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
@@ -53,21 +73,32 @@ const config: Config = {
       },
       borderRadius: {
         lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        md: 'calc(var(--radius) - 4px)',
+        sm: 'calc(var(--radius) - 8px)',
       },
       boxShadow: {
-        card: '0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)',
-        'card-hover': '0 2px 8px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)',
-        panel: '0 1px 2px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.03)',
-        dropdown: '0 4px 12px rgba(0,0,0,0.1)',
-        modal: '0 8px 32px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.1)',
-        toast: '0 8px 30px rgba(0,0,0,0.2)',
-        subtle: '0 1px 2px rgba(0,0,0,0.06)',
+        /* Notion-style multi-layer shadows */
+        card: 'rgba(0,0,0,0.04) 0 4px 18px, rgba(0,0,0,0.027) 0 2px 7.85px, rgba(0,0,0,0.02) 0 0.8px 2.93px, rgba(0,0,0,0.01) 0 0.175px 1.04px',
+        'card-hover': 'rgba(0,0,0,0.06) 0 6px 24px, rgba(0,0,0,0.04) 0 3px 10px, rgba(0,0,0,0.03) 0 1px 4px',
+        panel: 'rgba(0,0,0,0.03) 0 2px 8px, rgba(0,0,0,0.02) 0 1px 3px',
+        dropdown: 'rgba(0,0,0,0.01) 0 1px 3px, rgba(0,0,0,0.02) 0 3px 7px, rgba(0,0,0,0.02) 0 7px 15px, rgba(0,0,0,0.04) 0 14px 28px, rgba(0,0,0,0.05) 0 23px 52px',
+        modal: 'rgba(0,0,0,0.01) 0 1px 3px, rgba(0,0,0,0.02) 0 3px 7px, rgba(0,0,0,0.02) 0 7px 15px, rgba(0,0,0,0.04) 0 14px 28px, rgba(0,0,0,0.05) 0 23px 52px',
+        toast: 'rgba(0,0,0,0.04) 0 8px 30px, rgba(0,0,0,0.03) 0 4px 12px',
+        subtle: 'rgba(0,0,0,0.03) 0 1px 2px',
       },
       fontFamily: {
-        sans: ['"Pretendard Variable"', 'Pretendard', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'system-ui', 'sans-serif'],
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+        sans: ['Inter', '"Pretendard Variable"', 'Pretendard', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        mono: ['"SF Mono"', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+      },
+      fontSize: {
+        'page-title': ['1.75rem', { lineHeight: '1.15', letterSpacing: '-0.5px', fontWeight: '700' }],
+        'section-heading': ['1.375rem', { lineHeight: '1.25', letterSpacing: '-0.25px', fontWeight: '700' }],
+        'sub-heading': ['1.125rem', { lineHeight: '1.35', letterSpacing: '-0.125px', fontWeight: '600' }],
+        'body-large': ['1rem', { lineHeight: '1.5', fontWeight: '500' }],
+        'body': ['0.875rem', { lineHeight: '1.5', fontWeight: '400' }],
+        'caption': ['0.8125rem', { lineHeight: '1.4', fontWeight: '500' }],
+        'badge': ['0.75rem', { lineHeight: '1.33', letterSpacing: '0.125px', fontWeight: '600' }],
+        'micro': ['0.6875rem', { lineHeight: '1.33', letterSpacing: '0.125px', fontWeight: '400' }],
       },
       keyframes: {
         'accordion-down': {

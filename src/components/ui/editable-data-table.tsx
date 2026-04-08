@@ -696,7 +696,7 @@ export function EditableDataTable<T extends Record<string, any>>({
                   return next
                 })
               }}
-              className="h-4 w-4 rounded border-gray-300"
+              className="h-4 w-4 rounded border-[rgba(0,0,0,0.15)]"
             />
           </td>
           {columns.map((col) => (
@@ -872,7 +872,7 @@ export function EditableDataTable<T extends Record<string, any>>({
                         setSelectedRows(new Set(paged.map((r) => String(r[rowKey]))))
                       }
                     }}
-                    className="h-4 w-4 rounded border-gray-300"
+                    className="h-4 w-4 rounded border-[rgba(0,0,0,0.15)]"
                   />
                 </th>
                 {columns.map((col) => (
