@@ -992,7 +992,7 @@ export function SendingTab() {
             )}
             {/* 대기열 생성 상세 로그 */}
             {generateLogs.length > 0 && (
-              <div className="w-full mt-2 font-mono text-xs text-muted-foreground bg-muted/30 rounded p-2 max-h-[150px] overflow-y-auto">
+              <div className="w-full mt-2 font-mono text-xs text-muted-foreground bg-muted/30 rounded p-2 max-h-[300px] overflow-y-auto" ref={el => { if (el) el.scrollTop = el.scrollHeight }}>
                 {generateLogs.map((log, i) => (
                   <div key={i} className={cn(
                     log.startsWith('✅') && 'text-foreground',
@@ -1082,7 +1082,7 @@ export function SendingTab() {
               )}
               {/* 상세 로그 */}
               {importProgress.logs.length > 0 && (
-                <div className="mt-2 space-y-0.5 font-mono text-xs text-muted-foreground bg-muted/30 rounded p-2 max-h-[150px] overflow-y-auto">
+                <div className="mt-2 space-y-0.5 font-mono text-xs text-muted-foreground bg-muted/30 rounded p-2 max-h-[300px] overflow-y-auto" ref={el => { if (el) el.scrollTop = el.scrollHeight }}>
                   {importProgress.logs.map((log, i) => (
                     <div key={i} className={cn(
                       log.startsWith('✅') && 'text-foreground',
