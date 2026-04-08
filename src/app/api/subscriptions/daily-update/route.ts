@@ -98,6 +98,7 @@ async function handleDailyUpdate(req: Request) {
           const updateFields: Record<string, unknown> = {
             status: 'live',
             paused_at: null,
+            pause_reason: null,
             resume_date: null,
             updated_at: now,
           }

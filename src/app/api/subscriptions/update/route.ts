@@ -109,6 +109,7 @@ export async function PATCH(req: Request) {
       updateData.status = updates.status
       if (updates.status === 'pause') {
         updateData.paused_at = new Date().toISOString()
+        updateData.pause_reason = 'manual'
         if (updates.resume_date) {
           updateData.resume_date = updates.resume_date
         }
@@ -120,6 +121,7 @@ export async function PATCH(req: Request) {
       if (updates.status === 'live') {
         updateData.paused_at = null
         updateData.resume_date = null
+        updateData.pause_reason = null
       }
     }
     if (updates.device_id !== undefined) updateData.device_id = updates.device_id

@@ -494,8 +494,62 @@ async function updateSubscriptionStatuses(
       for (let i = 0; i < pauseIds.length; i += 500) {
         const batch = pauseIds.slice(i, i + 500)
         await supabase.from('subscriptions')
-          .update({ status: 'pause', paused_at: now, updated_at: now })
+          .update({ status: 'pause', paused_at: now, pause_reason: 'auto_failure', updated_at: now })
           .in('id', batch)
+      }
+    }
+  }
+
+  // ─── 자동 정지 구독의 재발송 성공 감지 → 자동 재개 ───
+  const resumeTargetIds = [...subMaxSuccessDay.keys()]
+  if (resumeTargetIds.length > 0) {
+    const successSubIdArr = resumeTargetIds
+    // auto_failure로 정지된 구독 중 이번에 성공한 것 조회
+    const autoFailureSubs: { id: string; paused_at: string | null; paused_days: number; end_date: string | null }[] = []
+    for (let i = 0; i < successSubIdArr.length; i += 500) {
+      const batch = successSubIdArr.slice(i, i + 500)
+      const { data } = await supabase
+        .from('subscriptions')
+        .select('id, paused_at, paused_days, end_date')
+        .in('id', batch)
+        .eq('status', 'pause')
+        .eq('pause_reason', 'auto_failure')
+      if (data) autoFailureSubs.push(...data)
+    }
+
+    if (autoFailureSubs.length > 0) {
+      onProgress?.(`자동 정지 구독 ${autoFailureSubs.length}건 재발송 성공 → 자동 재개...`)
+      for (const sub of autoFailureSubs) {
+        // 정지 기간 계산
+        let pauseDays = 0
+        if (sub.paused_at) {
+          const pauseStart = new Date(sub.paused_at)
+          const todayMidnight = new Date(now)
+          todayMidnight.setHours(0, 0, 0, 0)
+          pauseStart.setHours(0, 0, 0, 0)
+          pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
+        }
+        const newPausedDays = (sub.paused_days ?? 0) + pauseDays
+
+        // end_date 연장
+        let newEndDate = sub.end_date
+        if (sub.end_date && pauseDays > 0) {
+          const ed = new Date(sub.end_date)
+          ed.setDate(ed.getDate() + pauseDays)
+          newEndDate = ed.toISOString().slice(0, 10)
+        }
+
+        await supabase.from('subscriptions')
+          .update({
+            status: 'live',
+            paused_at: null,
+            pause_reason: null,
+            paused_days: newPausedDays,
+            end_date: newEndDate,
+            updated_at: now,
+          })
+          .eq('id', sub.id)
+          .eq('status', 'pause') // 동시성 보호
       }
     }
   }

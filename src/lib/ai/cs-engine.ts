@@ -198,7 +198,7 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
       const today = new Date().toISOString().split('T')[0]
       const { error } = await supabase
         .from('subscriptions')
-        .update({ status: 'pause', paused_at: today })
+        .update({ status: 'pause', paused_at: today, pause_reason: 'manual' })
         .eq('id', input.subscription_id)
 
       if (error) return { success: false, error: error.message }
@@ -231,6 +231,7 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
         .update({
           status: 'live',
           paused_at: null,
+          pause_reason: null,
           resume_date: todayStr,
           paused_days: (sub.paused_days || 0) + addedDays,
         })
