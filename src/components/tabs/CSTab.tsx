@@ -804,7 +804,14 @@ export function CSTab() {
             <div className="space-y-3">
               {/* Customer info */}
               <div className="text-xs text-muted-foreground">
-                {detail.customer?.kakao_friend_name || detail.customer?.name || '고객'}
+                <span
+                  className="cursor-pointer hover:text-foreground transition-colors"
+                  onClick={() => {
+                    const name = detail.customer?.kakao_friend_name || detail.customer?.name || ''
+                    if (name) { navigator.clipboard.writeText(name); showSuccess('클립보드에 복사됨') }
+                  }}
+                  title="클릭하여 복사"
+                >{detail.customer?.kakao_friend_name || detail.customer?.name || '고객'}</span>
                 {detail.subscription && ` · ${detail.subscription.product?.title} ${detail.subscription.last_sent_day}일차`}
                 {' · '}{formatDate(detail.created_at)}
               </div>
