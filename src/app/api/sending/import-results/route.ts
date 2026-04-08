@@ -150,9 +150,29 @@ async function streamImport(date: string) {
 
           send({ type: 'db_update_done', sent: sentCount, failed: failedCount })
 
-          // 구독 상태 업데이트
+          // 구독 상태 업데이트 (실패 시 3회 재시도)
           send({ type: 'sub_update_start' })
-          await updateSubscriptionStatuses(updates, date, (msg) => send({ type: 'sub_update_progress', message: msg }))
+          let subUpdateOk = false
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              await updateSubscriptionStatuses(date, (msg) => send({ type: 'sub_update_progress', message: msg }))
+              subUpdateOk = true
+              break
+            } catch (subErr: any) {
+              send({ type: 'sub_update_progress', message: `구독 업데이트 실패 (시도 ${attempt}/3): ${subErr.message}` })
+              if (attempt === 3) {
+                send({ type: 'sub_update_progress', message: '⚠️ 구독 상태 업데이트 실패 — 다음 결과 가져오기 시 자동 보정됩니다' })
+              }
+            }
+          }
+        }
+
+        // 안전망: 이전 미반영분 자동 보정
+        send({ type: 'sub_update_progress', message: '이전 미반영분 확인 중...' })
+        try {
+          await repairMissedSubscriptionUpdates(date, (msg) => send({ type: 'sub_update_progress', message: msg }))
+        } catch (repairErr: any) {
+          send({ type: 'sub_update_progress', message: `미반영 보정 실패: ${repairErr.message}` })
         }
 
         // app_settings 업데이트
@@ -247,7 +267,20 @@ async function batchImport(date: string) {
       failedCount = rpcResult[0].failed_count ?? 0
     }
 
-    await updateSubscriptionStatuses(updates, date)
+    // 구독 상태 업데이트 (실패 시 3회 재시도)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await updateSubscriptionStatuses(date)
+        break
+      } catch (subErr: any) {
+        if (attempt === 3) console.error('[import-results] 구독 업데이트 3회 실패:', subErr.message)
+      }
+    }
+
+    // 안전망: 이전 미반영분 자동 보정
+    await repairMissedSubscriptionUpdates(date).catch(e =>
+      console.error('[import-results] 미반영 보정 실패:', e.message)
+    )
 
     const now = new Date().toISOString()
     await supabase.from('app_settings').upsert({ key: 'last_sheet_import_at', value: JSON.stringify(now), updated_at: now })
@@ -268,7 +301,6 @@ async function batchImport(date: string) {
 // ─── 구독 상태 업데이트 (공통) ──────────────────────────────
 
 async function updateSubscriptionStatuses(
-  _updates: { id: string; status: 'sent' | 'failed'; sent_at: string | null }[],
   date: string,
   onProgress?: (msg: string) => void,
 ) {
@@ -553,5 +585,112 @@ async function updateSubscriptionStatuses(
           .eq('status', 'pause') // 동시성 보호
       }
     }
+  }
+}
+
+// ─── 안전망: 이전 미반영분 자동 보정 ──────────────────────────
+
+async function repairMissedSubscriptionUpdates(
+  currentDate: string,
+  onProgress?: (msg: string) => void,
+) {
+  // 최근 3일간의 sent 큐 중 last_sent_day가 반영 안 된 건 보정
+  const d = new Date(currentDate + 'T00:00:00+09:00')
+  const dates: string[] = []
+  for (let i = 0; i < 3; i++) {
+    const dd = new Date(d)
+    dd.setDate(dd.getDate() - i)
+    dates.push(dd.toISOString().slice(0, 10))
+  }
+
+  let totalFixed = 0
+  const MAX_ROUNDS = 10 // 연쇄 전진 최대 반복
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    // sent 큐인데 last_sent_day + 1 = day_number인 구독 찾기
+    const { data: mismatched, error } = await supabase.rpc('find_unsynced_subscriptions', {
+      p_dates: dates,
+    })
+
+    // RPC가 없으면 직접 쿼리
+    if (error?.message?.includes('function') || error?.message?.includes('does not exist')) {
+      // RPC 없이 직접 쿼리 — 날짜별로
+      let fixedThisRound = 0
+      for (const checkDate of dates) {
+        const { data: rows } = await supabase
+          .from('send_queues')
+          .select('subscription_id, day_number')
+          .eq('send_date', checkDate)
+          .eq('status', 'sent')
+          .eq('is_notice', false)
+
+        if (!rows?.length) continue
+
+        // 관련 구독 조회
+        const subIds = [...new Set(rows.map(r => r.subscription_id))]
+        const subMap = new Map<string, number>()
+        for (let i = 0; i < subIds.length; i += 500) {
+          const batch = subIds.slice(i, i + 500)
+          const { data } = await supabase.from('subscriptions').select('id, last_sent_day').in('id', batch)
+          for (const s of data || []) subMap.set(s.id, s.last_sent_day ?? 0)
+        }
+
+        // 구독+Day별 그룹화
+        const groups = new Map<string, { subId: string; day: number; allSent: boolean }>()
+        for (const r of rows) {
+          const key = `${r.subscription_id}:${r.day_number}`
+          if (!groups.has(key)) groups.set(key, { subId: r.subscription_id, day: r.day_number, allSent: true })
+        }
+
+        // failed/pending 큐 확인
+        const { data: nonSent } = await supabase
+          .from('send_queues')
+          .select('subscription_id, day_number')
+          .eq('send_date', checkDate)
+          .eq('is_notice', false)
+          .in('status', ['pending', 'failed'])
+
+        for (const ns of nonSent || []) {
+          const key = `${ns.subscription_id}:${ns.day_number}`
+          const g = groups.get(key)
+          if (g) g.allSent = false
+        }
+
+        // last_sent_day + 1 = day_number인 것만 업데이트
+        const dayUpdates = new Map<number, string[]>()
+        for (const g of groups.values()) {
+          if (!g.allSent) continue
+          const lastDay = subMap.get(g.subId) ?? 0
+          if (g.day !== lastDay + 1) continue
+          const arr = dayUpdates.get(g.day) || []
+          arr.push(g.subId)
+          dayUpdates.set(g.day, arr)
+        }
+
+        const now = new Date().toISOString()
+        for (const [day, ids] of dayUpdates) {
+          for (let i = 0; i < ids.length; i += 500) {
+            const batch = ids.slice(i, i + 500)
+            await supabase.from('subscriptions')
+              .update({ last_sent_day: day, updated_at: now })
+              .in('id', batch)
+            fixedThisRound += batch.length
+          }
+        }
+      }
+
+      totalFixed += fixedThisRound
+      if (fixedThisRound === 0) break // 더 이상 보정할 게 없음
+      continue
+    }
+
+    if (error) break
+    if (!mismatched?.length) break
+
+    totalFixed += mismatched.length
+  }
+
+  if (totalFixed > 0) {
+    onProgress?.(`미반영 ${totalFixed}건 자동 보정 완료`)
   }
 }
