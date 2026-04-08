@@ -20,6 +20,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { SkeletonTable } from '@/components/ui/skeleton'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/lib/use-toast'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Radio, RefreshCw, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -95,6 +96,9 @@ export function SendingTab() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [retrying, setRetrying] = useState(false)
+
+  // 필터/탭 변경 시 선택 초기화
+  useEffect(() => { setSelectedIds(new Set()) }, [statusFilter, selectedDevice])
 
   // ─── Fetch ───
 
@@ -239,10 +243,11 @@ export function SendingTab() {
   }
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === queue.length) {
+    const failedIds = queue.filter(q => q.status === 'failed').map(q => q.id)
+    if (failedIds.length > 0 && failedIds.every(id => selectedIds.has(id))) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(queue.map(q => q.id)))
+      setSelectedIds(new Set(failedIds))
     }
   }
 
@@ -544,11 +549,9 @@ export function SendingTab() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[40px]">
-                      <input
-                        type="checkbox"
-                        checked={queue.length > 0 && selectedIds.size === queue.length}
-                        onChange={toggleSelectAll}
-                        className="rounded border-border"
+                      <Checkbox
+                        checked={queue.some(q => q.status === 'failed') && queue.filter(q => q.status === 'failed').every(q => selectedIds.has(q.id))}
+                        onCheckedChange={toggleSelectAll}
                       />
                     </TableHead>
                     <TableHead className="whitespace-nowrap">예약시간</TableHead>
@@ -574,11 +577,10 @@ export function SendingTab() {
                         selectedIds.has(item.id) && 'bg-muted/50',
                       )}>
                         <TableCell className="py-1">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={selectedIds.has(item.id)}
-                            onChange={() => toggleSelect(item.id)}
-                            className="rounded border-border"
+                            onCheckedChange={() => toggleSelect(item.id)}
+                            disabled={item.status !== 'failed'}
                           />
                         </TableCell>
                         <TableCell className="py-1 text-xs tabular-nums font-mono whitespace-nowrap">
