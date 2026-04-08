@@ -1353,9 +1353,10 @@ export function SendingTab() {
             <p className="text-sm text-muted-foreground">
               실패한 메시지를 구글시트에 다시 추가합니다. 수동으로 발송 후 결과 가져오기를 다시 눌러주세요.
             </p>
-            <p className="text-xs text-muted-foreground bg-muted rounded p-2">
-              실패한 메시지는 다음 발송 시 자동으로 함께 발송됩니다.
-            </p>
+            <div className="text-xs text-muted-foreground bg-muted rounded p-2 space-y-1">
+              <p>아무 조치를 하지 않아도 실패한 메시지는 다음 대기열 생성 시 자동으로 포함됩니다 (최대 3일치).</p>
+              <p>3일 연속 발송에 실패한 구독은 자동으로 일시정지되며, 구독 관리에서 직접 재개할 수 있습니다.</p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFailureModalDevice(null)} disabled={failureSubmitting}>
