@@ -797,7 +797,7 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
 
   const totalPages = Math.ceil(total / pageSize)
 
-  // 같은 day_number가 여러 개인지 확인
+  // 같은 day_number가 여러 개인지: 현재 페이지 내 중복 또는 sort_order > 1
   const dayCounts = new Map<number, number>()
   messages.forEach(m => {
     const d = m.day_number
@@ -846,11 +846,7 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
               <>
                 <div className="space-y-1.5 max-h-[calc(100vh-380px)] overflow-y-auto pr-1">
                   {messages.map((m) => {
-                    const hasMultiple = (dayCounts.get(m.day_number) || 0) > 1
-                    // 같은 day_number 내에서 몇 번째인지
-                    const sameDay = messages.filter(x => x.day_number === m.day_number)
-                    const partIdx = sameDay.indexOf(m) + 1
-
+                    const hasMultiple = (dayCounts.get(m.day_number) || 0) > 1 || m.sort_order > 1
                     return (
                       <div
                         key={m.id}
@@ -863,7 +859,7 @@ function FixedMessagesPanel({ products }: { products: Product[] }) {
                           </span>
                           {hasMultiple && (
                             <span className="inline-block text-[10px] font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
-                              {partIdx}
+                              {m.sort_order}
                             </span>
                           )}
                         </div>
