@@ -367,30 +367,53 @@ async function updateSubscriptionStatuses(
     onProgress?.('연쇄 Day 전진 확인 중...')
     const chainUpdates = new Map<string, number>() // subId → final chained last_sent_day
 
-    for (const u of safeSuccessUpdates) {
-      const currentLast = u.day
-      // 이 구독의 현재 last_sent_day 이후에 이미 sent인 큐가 있는지 확인
-      const { data: sentQueues } = await supabase
+    // 배치 쿼리: 성공 구독 전체의 sent 큐를 한 번에 조회
+    const successSubIds = safeSuccessUpdates.map(u => u.id)
+    const successDayMap = new Map<string, number>(safeSuccessUpdates.map(u => [u.id, u.day]))
+    const allSentQueues: { subscription_id: string; day_number: number }[] = []
+
+    for (let i = 0; i < successSubIds.length; i += 500) {
+      const batch = successSubIds.slice(i, i + 500)
+      const { data } = await supabase
         .from('send_queues')
-        .select('day_number')
-        .eq('subscription_id', u.id)
+        .select('subscription_id, day_number')
+        .in('subscription_id', batch)
         .eq('status', 'sent')
         .eq('is_notice', false)
-        .gt('day_number', currentLast)
         .order('day_number', { ascending: true })
+      if (data) allSentQueues.push(...data)
+    }
 
-      if (!sentQueues?.length) continue
+    // 구독별로 그룹화 + 정렬 보장
+    const sentBySubId = new Map<string, number[]>()
+    for (const sq of allSentQueues) {
+      const dayNum = sq.day_number
+      const currentLast = successDayMap.get(sq.subscription_id)
+      if (currentLast === undefined || dayNum <= currentLast) continue
+      const arr = sentBySubId.get(sq.subscription_id) || []
+      arr.push(dayNum)
+      sentBySubId.set(sq.subscription_id, arr)
+    }
+    // 배치 간 순서 보장: 구독별 day_number 오름차순 정렬
+    for (const [, days] of sentBySubId) {
+      days.sort((a, b) => a - b)
+    }
 
-      let chainedDay = currentLast
-      for (const sq of sentQueues) {
-        if (sq.day_number === chainedDay + 1) {
-          chainedDay = sq.day_number
+    // 구독별 연쇄 전진 계산 (메모리 내)
+    for (const u of safeSuccessUpdates) {
+      const futureDays = sentBySubId.get(u.id)
+      if (!futureDays?.length) continue
+
+      let chainedDay = u.day
+      for (const dayNum of futureDays) {
+        if (dayNum === chainedDay + 1) {
+          chainedDay = dayNum
         } else {
           break // 갭 발견 — 중단
         }
       }
 
-      if (chainedDay > currentLast) {
+      if (chainedDay > u.day) {
         chainUpdates.set(u.id, chainedDay)
       }
     }
@@ -398,7 +421,6 @@ async function updateSubscriptionStatuses(
     // 체인 전진 결과 배치 업데이트
     if (chainUpdates.size > 0) {
       onProgress?.(`연쇄 전진 ${chainUpdates.size}건 반영 중...`)
-      // day별로 그룹화하여 배치 UPDATE
       const chainDayGroups = new Map<number, string[]>()
       for (const [id, day] of chainUpdates) {
         const arr = chainDayGroups.get(day) || []
@@ -419,35 +441,46 @@ async function updateSubscriptionStatuses(
   // ─── 3일 연속 실패 감지 → 자동 일시정지 ───
   if (failureSubIds.size > 0) {
     onProgress?.('연속 실패 감지 중...')
-    const pauseIds: string[] = []
+    const failureSubIdArr = [...failureSubIds]
 
-    for (const subId of failureSubIds) {
-      // 해당 구독의 최근 3개 send_date에서의 큐 상태 확인
-      const { data: recentQueues } = await supabase
+    // 배치 쿼리: 실패 구독 전체의 최근 큐를 한 번에 조회
+    const allFailureQueues: { subscription_id: string; send_date: string; status: string }[] = []
+    for (let i = 0; i < failureSubIdArr.length; i += 500) {
+      const batch = failureSubIdArr.slice(i, i + 500)
+      const { data } = await supabase
         .from('send_queues')
-        .select('send_date, status')
-        .eq('subscription_id', subId)
+        .select('subscription_id, send_date, status')
+        .in('subscription_id', batch)
         .eq('is_notice', false)
         .order('send_date', { ascending: false })
+      if (data) allFailureQueues.push(...data)
+    }
 
-      if (!recentQueues?.length) continue
-
-      // send_date별로 그룹화
-      const dateStatusMap = new Map<string, Set<string>>()
-      for (const q of recentQueues) {
-        if (!dateStatusMap.has(q.send_date)) {
-          dateStatusMap.set(q.send_date, new Set())
-        }
-        dateStatusMap.get(q.send_date)!.add(q.status)
+    // 구독별 → 날짜별 상태 그룹화 (메모리 내)
+    const subDateStatusMap = new Map<string, Map<string, Set<string>>>()
+    for (const q of allFailureQueues) {
+      if (!subDateStatusMap.has(q.subscription_id)) {
+        subDateStatusMap.set(q.subscription_id, new Map())
       }
+      const dateMap = subDateStatusMap.get(q.subscription_id)!
+      if (!dateMap.has(q.send_date)) {
+        dateMap.set(q.send_date, new Set())
+      }
+      dateMap.get(q.send_date)!.add(q.status)
+    }
 
-      // 최근 3개 날짜 추출
-      const recentDates = [...dateStatusMap.keys()].slice(0, 3)
+    const pauseIds: string[] = []
+    for (const subId of failureSubIdArr) {
+      const dateMap = subDateStatusMap.get(subId)
+      if (!dateMap) continue
+
+      // 최근 3개 날짜 추출 (명시적 내림차순 정렬)
+      const recentDates = [...dateMap.keys()].sort((a, b) => b.localeCompare(a)).slice(0, 3)
       if (recentDates.length < 3) continue
 
       // 3개 날짜 모두 failed만 있는지 확인 (sent나 pending이 없어야 함)
       const allFailed = recentDates.every(d => {
-        const statuses = dateStatusMap.get(d)!
+        const statuses = dateMap.get(d)!
         return statuses.has('failed') && !statuses.has('sent') && !statuses.has('pending')
       })
 
