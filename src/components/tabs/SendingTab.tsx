@@ -145,7 +145,9 @@ export function SendingTab() {
     totalDevices: number
     currentIndex: number
     currentName: string
+    phase: 'sheets' | 'db' | 'subscriptions' | 'repair' | 'done'
     results: { phone: string; name: string; rows: number; error?: string }[]
+    logs: string[]
   } | null>(null)
 
   // 실패 처리
@@ -589,7 +591,7 @@ export function SendingTab() {
   const handleImportResults = async (targetDate?: string) => {
     const date = targetDate || sendDate
     setImporting(true)
-    setImportProgress({ totalDevices: 0, currentIndex: 0, currentName: '준비 중...', results: [] })
+    setImportProgress({ totalDevices: 0, currentIndex: 0, currentName: '준비 중...', phase: 'sheets', results: [], logs: [] })
     try {
       const res = await fetch('/api/sending/import-results', {
         method: 'POST',
@@ -635,16 +637,43 @@ export function SendingTab() {
                 ...prev,
                 results: [...prev.results, { phone: event.phone, name: event.name, rows: 0, error: event.error }],
               } : prev)
+            } else if (event.type === 'db_update_start') {
+              setImportProgress(prev => prev ? {
+                ...prev, phase: 'db',
+                logs: [...prev.logs, `📝 큐 상태 업데이트 중... (${event.total}건)`],
+              } : prev)
+            } else if (event.type === 'db_update_done') {
+              setImportProgress(prev => prev ? {
+                ...prev,
+                logs: [...prev.logs, `✅ 큐 업데이트 완료 — 성공 ${event.sent}건, 실패 ${event.failed}건`],
+              } : prev)
+            } else if (event.type === 'sub_update_start') {
+              setImportProgress(prev => prev ? {
+                ...prev, phase: 'subscriptions',
+                logs: [...prev.logs, '📊 구독 상태 반영 중...'],
+              } : prev)
+            } else if (event.type === 'sub_update_progress') {
+              setImportProgress(prev => prev ? {
+                ...prev,
+                logs: [...prev.logs, `   ${event.message}`],
+              } : prev)
             } else if (event.type === 'complete') {
+              setImportProgress(prev => prev ? {
+                ...prev, phase: 'done',
+                logs: [...prev.logs, `🎉 완료 — 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`],
+              } : prev)
               showSuccess(`결과 수거 완료: 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`)
               if (date && date !== sendDate) {
-                // 어제 결과 수거 완료 → 뱃지로 전환
                 setYesterdayImportResult({ sent: event.sent ?? 0, failed: event.failed ?? 0 })
                 setYesterdayPendingCount(0)
               }
               setLastImportAt(new Date().toISOString())
               fetchSummary(); fetchQueue(1)
             } else if (event.type === 'error') {
+              setImportProgress(prev => prev ? {
+                ...prev,
+                logs: [...prev.logs, `❌ 오류: ${event.error || event.message}`],
+              } : prev)
               showError(event.error || event.message || '알 수 없는 오류')
             }
           } catch (e) { if (e instanceof Error && e.message !== 'Unexpected end of JSON input') throw e }
@@ -654,7 +683,7 @@ export function SendingTab() {
       showError(err instanceof Error ? err.message : '결과 가져오기에 실패했습니다')
     }
     setImporting(false)
-    setTimeout(() => setImportProgress(null), 3000) // 3초 후 진행 상황 숨기기
+    setTimeout(() => setImportProgress(null), 10000) // 10초 후 진행 상황 숨기기
   }
 
   const handleFailureAction = async () => {
@@ -965,19 +994,27 @@ export function SendingTab() {
           {/* 결과 가져오기 진행 상황 */}
           {importProgress && (
             <div className="mt-3 pt-3 border-t space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium">
-                  {importing
-                    ? `시트 읽는 중... (${importProgress.currentIndex + 1}/${importProgress.totalDevices}) ${importProgress.currentName}`
-                    : '완료'}
-                </span>
-                {importProgress.totalDevices > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    {importProgress.results.length}/{importProgress.totalDevices}
+              {/* 시트 읽기 단계 */}
+              {importProgress.phase === 'sheets' && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">
+                    {importing
+                      ? `시트 읽는 중... (${importProgress.currentIndex + 1}/${importProgress.totalDevices}) ${importProgress.currentName}`
+                      : '완료'}
                   </span>
-                )}
-              </div>
-              {importProgress.totalDevices > 0 && (
+                  {importProgress.totalDevices > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {importProgress.results.length}/{importProgress.totalDevices}
+                    </span>
+                  )}
+                </div>
+              )}
+              {importProgress.phase !== 'sheets' && importProgress.totalDevices > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  ✅ 시트 읽기 완료 ({importProgress.totalDevices}개 PC)
+                </div>
+              )}
+              {importProgress.totalDevices > 0 && importProgress.phase === 'sheets' && (
                 <Progress value={(importProgress.results.length / importProgress.totalDevices) * 100} className="h-1.5" />
               )}
               {importProgress.results.length > 0 && (
@@ -989,6 +1026,19 @@ export function SendingTab() {
                     >
                       {r.name || r.phone} {r.error ? '✗' : `${r.rows}건`}
                     </span>
+                  ))}
+                </div>
+              )}
+              {/* 상세 로그 */}
+              {importProgress.logs.length > 0 && (
+                <div className="mt-2 space-y-0.5 font-mono text-xs text-muted-foreground bg-muted/30 rounded p-2 max-h-[150px] overflow-y-auto">
+                  {importProgress.logs.map((log, i) => (
+                    <div key={i} className={cn(
+                      log.startsWith('✅') && 'text-foreground',
+                      log.startsWith('🎉') && 'text-foreground font-medium',
+                      log.startsWith('❌') && 'text-destructive',
+                      log.startsWith('⚠️') && 'text-warning',
+                    )}>{log}</div>
                   ))}
                 </div>
               )}
