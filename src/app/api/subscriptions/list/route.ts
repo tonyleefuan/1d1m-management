@@ -13,7 +13,6 @@ export async function GET(req: Request) {
   const page = parseInt(searchParams.get('page') || '1')
   const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '50')), 200)
   const status = searchParams.get('status') || ''
-  const failureOnly = searchParams.get('failure_only') === 'true'
   const deviceId = searchParams.get('device_id') || ''
   const productId = searchParams.get('product_id') || ''
   const search = searchParams.get('search') || ''
@@ -44,7 +43,6 @@ export async function GET(req: Request) {
     .order(sortField, { ascending, nullsFirst: !ascending })
     .range((page - 1) * limit, page * limit - 1)
 
-  if (failureOnly) query = query.eq('backlog_mode', 'flagged')
   if (status) query = query.eq('status', status)
   if (deviceId) query = query.eq('device_id', deviceId)
   if (productId) query = query.eq('product_id', productId)
@@ -140,12 +138,5 @@ export async function GET(req: Request) {
     }
   })
 
-  // 발송 오류 건수 (필터와 무관하게 항상 반환)
-  const { count: failedCount } = await supabase
-    .from('subscriptions')
-    .select('id', { count: 'exact', head: true })
-    .eq('backlog_mode', 'flagged')
-    .neq('status', 'cancel')
-
-  return NextResponse.json({ data: enriched, total: count, page, limit, failedCount: failedCount ?? 0 })
+  return NextResponse.json({ data: enriched, total: count, page, limit })
 }

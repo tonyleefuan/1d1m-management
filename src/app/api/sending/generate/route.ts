@@ -34,7 +34,7 @@ export async function POST(req: Request) {
 
     // ── device_id 있으면: 해당 PC의 대기열 생성 ──
 
-    // 중복 방지
+    // 날짜+디바이스 중복 방지
     const { count: deviceExisting } = await supabase
       .from('send_queues')
       .select('id', { count: 'exact', head: true })
@@ -48,7 +48,25 @@ export async function POST(req: Request) {
       })
     }
 
-    // 1) 구독 조회 (페이지네이션) — computeSubscription에 필요한 필드 포함
+    // 0) 대기열 생성 전 pending→live 전환 (cron에만 의존하지 않도록)
+    const now = new Date().toISOString()
+    const { data: activated } = await supabase
+      .from('subscriptions')
+      .update({ status: 'live', updated_at: now })
+      .eq('status', 'pending')
+      .eq('device_id', deviceId)
+      .lte('start_date', date)
+      .select('id, last_sent_day')
+    if (activated?.length) {
+      const needInit = activated.filter(s => s.last_sent_day == null).map(s => s.id)
+      if (needInit.length > 0) {
+        await supabase.from('subscriptions')
+          .update({ last_sent_day: 0 })
+          .in('id', needInit)
+      }
+    }
+
+    // 1) 구독 조회 (페이지네이션)
     const PAGE_SIZE = 1000
     const subs: any[] = []
     let from = 0
@@ -58,7 +76,7 @@ export async function POST(req: Request) {
         .select(`
           id, customer_id, product_id, device_id, status,
           start_date, duration_days, last_sent_day, paused_days, paused_at,
-          is_cancelled, backlog_mode, send_priority,
+          is_cancelled, send_priority,
           customer:customers(kakao_friend_name),
           product:products(sku_code, message_type),
           order_item:order_items(order:orders(ordered_at))
@@ -86,7 +104,34 @@ export async function POST(req: Request) {
       return aDate.localeCompare(bDate)
     })
 
-    // 2) 구독 필터링 + pending_days 계산 (queue-generator.ts와 동일 패턴)
+    // 1.5) 기존 큐 조회 — subscription_id + day_number 중복 방지용
+    const subIds = subs.map(s => s.id)
+    const existingQueueKeys = new Set<string>()
+    for (let i = 0; i < subIds.length; i += 500) {
+      const batch = subIds.slice(i, i + 500)
+      const { data: existing } = await supabase
+        .from('send_queues')
+        .select('subscription_id, day_number, status')
+        .in('subscription_id', batch)
+        .in('status', ['pending', 'sent'])
+        .eq('is_notice', false)
+      existing?.forEach(q => existingQueueKeys.add(`${q.subscription_id}:${q.day_number}`))
+    }
+
+    // 1.6) 실패 큐가 있는 구독 조회 — 신규 vs 실패 구분용
+    const failedSubIds = new Set<string>()
+    for (let i = 0; i < subIds.length; i += 500) {
+      const batch = subIds.slice(i, i + 500)
+      const { data: failedQueues } = await supabase
+        .from('send_queues')
+        .select('subscription_id')
+        .in('subscription_id', batch)
+        .eq('status', 'failed')
+        .eq('is_notice', false)
+      failedQueues?.forEach(q => failedSubIds.add(q.subscription_id))
+    }
+
+    // 2) 구독 필터링 + pending_days 계산
     const activeSubs: (typeof subs[0] & { daysToSend: number[]; currentDay: number })[] = []
 
     for (const sub of subs) {
@@ -101,35 +146,33 @@ export async function POST(req: Request) {
 
       if (computed.computed_status !== 'active') continue
       if (computed.pending_days.length === 0) continue
-      // 4일 이상 밀린 건 backlog_mode 없으면 스킵 (관리자 확인 필요)
-      if (!sub.backlog_mode && computed.pending_days.length >= 4) continue
 
+      // 신규 vs 실패 구분: failed 큐 있으면 최대 3일치, 없으면 1일만
       let daysToSend: number[]
-      if (sub.backlog_mode === 'bulk') {
-        daysToSend = computed.pending_days
-      } else if (sub.backlog_mode === 'sequential') {
-        daysToSend = [(sub.last_sent_day ?? 0) + 1]
-      } else {
-        // 기본: 최대 3일치 (실패 재발송 포함)
+      if (failedSubIds.has(sub.id)) {
         daysToSend = computed.pending_days.slice(0, 3)
+      } else {
+        daysToSend = [computed.pending_days[0]]
       }
+
+      // subscription_id + day_number 중복 제거
+      daysToSend = daysToSend.filter(d => !existingQueueKeys.has(`${sub.id}:${d}`))
+      if (daysToSend.length === 0) continue
 
       activeSubs.push({ ...sub, daysToSend, currentDay: computed.current_day })
     }
 
     // 3) 메시지 벌크 프리페치
     const fixedKeys = new Set<string>()
-    // realtime: product_id별 필요한 날짜 수집 (밀린 Day → 해당 날짜의 콘텐츠)
-    const realtimeDateKeys = new Set<string>() // "product_id:YYYY-MM-DD"
+    const realtimeDateKeys = new Set<string>()
 
     for (const sub of activeSubs) {
       const product = sub.product as any
       for (const day of sub.daysToSend) {
         if (day < 1 || day > sub.duration_days) continue
         if (product?.message_type === 'realtime') {
-          // Day → 실제 날짜 역산: today - (currentDay - day)
           const daysAgo = sub.currentDay - day
-          const d = new Date(date) // UTC midnight 기준으로 날짜 연산
+          const d = new Date(date)
           d.setUTCDate(d.getUTCDate() - daysAgo)
           const sendDateForDay = d.toISOString().slice(0, 10)
           realtimeDateKeys.add(`${sub.product_id}:${sendDateForDay}`)
@@ -151,7 +194,6 @@ export async function POST(req: Request) {
       const minDay = Math.min(...allDays)
       const maxDay = Math.max(...allDays)
 
-      // IN(day_number, ...) 대신 range 쿼리로 최적화 (수천 개 IN 값 → 범위 2개)
       for (let i = 0; i < uniqueProductIds.length; i += 20) {
         const pidBatch = uniqueProductIds.slice(i, i + 20)
         let offset = 0
@@ -169,7 +211,6 @@ export async function POST(req: Request) {
           if (!data?.length) break
           for (const msg of data) {
             const key = `${msg.product_id}:${msg.day_number}`
-            // fixedKeys에 있는 조합만 저장 (range 쿼리로 여분 조회된 것 필터링)
             if (!fixedKeys.has(key)) continue
             if (!fixedMsgMap.has(key)) fixedMsgMap.set(key, [])
             fixedMsgMap.get(key)!.push({ content: msg.content, image_path: msg.image_path, sort_order: msg.sort_order })
@@ -180,8 +221,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // realtime 메시지 조회 — 밀린 Day의 해당 날짜 콘텐츠도 함께 조회
-    const realtimeMsgMap = new Map<string, { content: string; image_path: string | null }>() // key: "product_id:date"
+    // realtime 메시지 조회
+    const realtimeMsgMap = new Map<string, { content: string; image_path: string | null }>()
     if (realtimeDateKeys.size > 0) {
       const pairs = [...realtimeDateKeys].map(k => { const [pid, d] = k.split(':'); return { pid, date: d } })
       const uniquePids = [...new Set(pairs.map(p => p.pid))]
@@ -196,23 +237,7 @@ export async function POST(req: Request) {
       data?.forEach(dm => realtimeMsgMap.set(`${dm.product_id}:${dm.send_date}`, { content: dm.content, image_path: dm.image_path }))
     }
 
-    // 4) 실패 재발송 알림 템플릿 프리페치
-    let retryNotice: { content: string; image_path: string | null } | null = null
-    const hasFailedSubs = activeSubs.some(s => s.backlog_mode === 'flagged')
-    if (hasFailedSubs) {
-      const { data: noticeData } = await supabase
-        .from('notice_templates')
-        .select('content, image_path')
-        .eq('notice_type', 'failure_retry_next')
-        .is('product_id', null)
-        .limit(1)
-        .maybeSingle()
-      if (noticeData) {
-        retryNotice = { content: noticeData.content, image_path: noticeData.image_path || null }
-      }
-    }
-
-    // start/end 알림 템플릿 프리페치
+    // 4) start/end 알림 템플릿 프리페치
     const noticeCache = new Map<string, { content: string; image_path: string | null } | null>()
     async function getNotice(type: string): Promise<{ content: string; image_path: string | null } | null> {
       if (noticeCache.has(type)) return noticeCache.get(type)!
@@ -233,42 +258,14 @@ export async function POST(req: Request) {
     let sortOrder = 0
     let skippedNoMsg = 0
     let skippedDayRange = 0
-    const failedSubIds: string[] = []
-    // 알림 중복 방지: 같은 카톡이름에 대해 한 번만 발송
-    const retryNotifiedNames = new Set<string>()
 
     for (const sub of activeSubs) {
       const product = sub.product as any
       const customer = sub.customer as any
       const kakaoName = customer?.kakao_friend_name || '알 수 없음'
-      const isFailureRetry = sub.backlog_mode === 'flagged'
-      if (isFailureRetry) failedSubIds.push(sub.id)
-      // 밀린 Day가 있으면 (pending_days > 1 = 어제 미발송) 알림 대상
-      const hasMissedDays = sub.daysToSend.some((d: number) => d < sub.currentDay)
 
-      let retryNoticePushed = false
       for (const dayNum of sub.daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) { skippedDayRange++; continue }
-
-        // 미발송 알림 (카톡이름당 한 번만, 첫 유효 Day 앞에)
-        if (hasMissedDays && !retryNoticePushed && retryNotice && !retryNotifiedNames.has(kakaoName)) {
-          retryNoticePushed = true
-          retryNotifiedNames.add(kakaoName)
-          sortOrder++
-          queueRows.push({
-            subscription_id: sub.id,
-            device_id: deviceId,
-            send_date: date,
-            day_number: dayNum,
-            kakao_friend_name: kakaoName,
-            message_content: retryNotice.content || '',
-            image_path: retryNotice.image_path,
-            sort_order: sortOrder,
-            message_seq: null,
-            status: 'pending',
-            is_notice: true,
-          })
-        }
 
         // 시작 알림 (Day 1 앞)
         if (dayNum === 1) {
@@ -294,7 +291,6 @@ export async function POST(req: Request) {
         let messages: { content: string; image_path: string | null; sort_order: number }[] = []
 
         if (product?.message_type === 'realtime') {
-          // 밀린 Day의 실제 날짜 계산하여 해당 날짜 콘텐츠 조회
           const daysAgo = sub.currentDay - dayNum
           const d = new Date(date)
           d.setUTCDate(d.getUTCDate() - daysAgo)
@@ -377,14 +373,13 @@ export async function POST(req: Request) {
       })
     }
 
-    // 6) 배치 삽입 (500개씩) — 부분 실패 시 이미 삽입된 행 정리
+    // 6) 배치 삽입 (500개씩)
     let inserted = 0
     for (let i = 0; i < queueRows.length; i += 500) {
       const batch = queueRows.slice(i, i + 500)
       const { error } = await supabase.from('send_queues').insert(batch)
       if (error) {
         console.error(`[generate] batch ${i} insert error:`, error.message)
-        // 부분 삽입된 행 정리 — 재시도 가능하도록
         if (inserted > 0) {
           await supabase.from('send_queues').delete()
             .eq('send_date', date).eq('device_id', deviceId)
@@ -394,16 +389,12 @@ export async function POST(req: Request) {
       inserted += batch.length
     }
 
-    // 7) failure flags는 generate 시점에 클리어하지 않음
-    // import-results에서 발송 성공 확인 후 클리어됨
-
     return NextResponse.json({
       ok: true,
       generated: inserted,
       device_id: deviceId,
       subscriptions: activeSubs.length,
       skippedNoMsg, skippedDayRange,
-      failureRetried: failedSubIds.length,
       date,
     })
   } catch (err: any) {

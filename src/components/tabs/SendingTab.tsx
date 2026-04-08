@@ -150,7 +150,7 @@ export function SendingTab() {
 
   // 실패 처리
   const [failureModalDevice, setFailureModalDevice] = useState<string | null>(null)
-  const [failureAction, setFailureAction] = useState<'retry_now' | 'retry_next' | 'retry_shift' | 'skip'>('retry_next')
+  const failureAction = 'retry_now' as const
   const [failureSubmitting, setFailureSubmitting] = useState(false)
 
   // ─── Fetch ───
@@ -1134,7 +1134,6 @@ export function SendingTab() {
                         onClick={(e) => {
                           e.stopPropagation()
                           setFailureModalDevice(d.id)
-                          setFailureAction('retry_next')
                         }}
                       >
                         <span className="flex items-center gap-1.5">
@@ -1339,7 +1338,7 @@ export function SendingTab() {
       </Card>
 
       {/* 실패 처리 모달 */}
-      <Dialog open={!!failureModalDevice} onOpenChange={() => { setFailureModalDevice(null); setFailureAction('retry_next') }}>
+      <Dialog open={!!failureModalDevice} onOpenChange={() => setFailureModalDevice(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
@@ -1351,61 +1350,19 @@ export function SendingTab() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            {[
-              {
-                value: 'retry_now' as const,
-                label: '지금 다시 보내기',
-                desc: '실패한 메시지를 구글시트에 다시 추가합니다. 수동으로 발송 후 결과 가져오기를 다시 눌러주세요.',
-              },
-              {
-                value: 'retry_next' as const,
-                label: '다음 발송 시 함께 보내기',
-                desc: `실패한 메시지를 ${formatShort(addDays(sendDate, 1))} 발송 시 함께 보냅니다. ${formatShort(addDays(sendDate, 1))}에는 2일치 메시지가 발송됩니다.`,
-                isDefault: true,
-              },
-              {
-                value: 'retry_shift' as const,
-                label: '밀어서 보내기',
-                desc: `실패한 메시지를 ${formatShort(addDays(sendDate, 1))}에 발송합니다. ${formatShort(addDays(sendDate, 1))} 예정이던 메시지는 ${formatShort(addDays(sendDate, 2))}로 밀리며, 구독 종료일이 하루 연장됩니다.`,
-              },
-              {
-                value: 'skip' as const,
-                label: '무시하기',
-                desc: '실패한 메시지를 보내지 않고 넘어갑니다. 해당 고객은 이 Day의 메시지를 받지 못합니다.',
-              },
-            ].map(opt => (
-              <label
-                key={opt.value}
-                className={cn(
-                  'flex gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
-                  failureAction === opt.value ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
-                )}
-                onClick={() => setFailureAction(opt.value)}
-              >
-                <div className="pt-0.5">
-                  <div className={cn(
-                    'w-4 h-4 rounded-full border-2 flex items-center justify-center',
-                    failureAction === opt.value ? 'border-primary' : 'border-muted-foreground/40'
-                  )}>
-                    {failureAction === opt.value && <div className="w-2 h-2 rounded-full bg-primary" />}
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">
-                    {opt.label}
-                    {opt.isDefault && <span className="ml-1.5 text-xs text-muted-foreground font-normal">(기본)</span>}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
-                </div>
-              </label>
-            ))}
+            <p className="text-sm text-muted-foreground">
+              실패한 메시지를 구글시트에 다시 추가합니다. 수동으로 발송 후 결과 가져오기를 다시 눌러주세요.
+            </p>
+            <p className="text-xs text-muted-foreground bg-muted rounded p-2">
+              실패한 메시지는 다음 발송 시 자동으로 함께 발송됩니다.
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFailureModalDevice(null)} disabled={failureSubmitting}>
               취소
             </Button>
             <Button onClick={handleFailureAction} disabled={failureSubmitting}>
-              {failureSubmitting ? '처리 중...' : '적용'}
+              {failureSubmitting ? '처리 중...' : '지금 다시 보내기'}
             </Button>
           </DialogFooter>
         </DialogContent>

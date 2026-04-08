@@ -12,7 +12,6 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Skeleton, SkeletonTable } from '@/components/ui/skeleton'
 import { Toast } from '@/components/ui/Toast'
 import { useToast } from '@/lib/use-toast'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -76,9 +75,6 @@ interface SubRow {
   missed_days: number
   // New DB fields
   last_sent_day: number
-  failure_type: 'failed' | null
-  failure_date: string | null
-  recovery_mode: 'bulk' | 'sequential' | null
   paused_days: number
   is_cancelled: boolean
 }
@@ -123,10 +119,6 @@ const COMPUTED_STATUS_MAP: Record<string, { status: StatusType; label: string; c
   completed: { status: 'neutral', label: '완료' },
   paused: { status: 'neutral', label: '정지', className: 'bg-purple-100/60 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
   cancelled: { status: 'error', label: '취소' },
-}
-
-const FAILURE_BADGE_MAP: Record<string, { status: StatusType; label: string; className?: string }> = {
-  failed: { status: 'error', label: '🔴 실패' },
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const
@@ -372,30 +364,6 @@ export function SubscriptionsTab() {
       '메모가 저장되었습니다',
     )
     setDetailSub((prev) => (prev ? { ...prev, memo: memoValue } : null))
-  }
-
-  // ─── Failure resolution ─────────────────────────────
-
-  const [resolveDialogOpen, setResolveDialogOpen] = useState(false)
-  const [resolvingSub, setResolvingSub] = useState<SubRow | null>(null)
-
-  const handleResolveFailure = async (sub: SubRow, action: 'manual_sent' | 'bulk' | 'sequential') => {
-    const res = await fetch('/api/subscriptions/update', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: sub.id,
-        resolve_failure: { action },
-      }),
-    })
-    if (res.ok) {
-      showSuccess(action === 'manual_sent' ? '직접 발송 처리됨' : action === 'bulk' ? '몰아서 보내기 설정됨' : '하루씩 보내기 설정됨')
-      setResolveDialogOpen(false)
-      setResolvingSub(null)
-      fetchSubs()
-    } else {
-      showError('실패 해제 중 오류가 발생했습니다')
-    }
   }
 
   // ─── Bulk actions ────────────────────────────────────
@@ -793,29 +761,8 @@ export function SubscriptionsTab() {
                       </TableCell>
 
                       {/* 발송상태 */}
-                      <TableCell className="py-1" onClick={(e) => e.stopPropagation()}>
-                        {sub.failure_type ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto p-0 cursor-pointer"
-                            title={`${sub.failure_date || ''} 발송 실패`}
-                            onClick={() => {
-                              setResolvingSub(sub)
-                              setResolveDialogOpen(true)
-                            }}
-                          >
-                            <StatusBadge
-                              status={FAILURE_BADGE_MAP[sub.failure_type]?.status ?? 'error'}
-                              size="xs"
-                              className={FAILURE_BADGE_MAP[sub.failure_type]?.className}
-                            >
-                              {FAILURE_BADGE_MAP[sub.failure_type]?.label ?? sub.failure_type}
-                            </StatusBadge>
-                          </Button>
-                        ) : (
-                          <StatusBadge status="success" size="xs">✅ 정상</StatusBadge>
-                        )}
+                      <TableCell className="py-1">
+                        <StatusBadge status="success" size="xs">정상</StatusBadge>
                       </TableCell>
 
                       {/* PC */}
@@ -1226,31 +1173,8 @@ export function SubscriptionsTab() {
                       : '미배정'}
                   </div>
                   <div className="text-muted-foreground">발송상태</div>
-                  <div className="flex items-center gap-2">
-                    {detailSub.failure_type ? (
-                      <>
-                        <StatusBadge
-                          status={FAILURE_BADGE_MAP[detailSub.failure_type]?.status ?? 'error'}
-                          size="xs"
-                          className={FAILURE_BADGE_MAP[detailSub.failure_type]?.className}
-                        >
-                          {FAILURE_BADGE_MAP[detailSub.failure_type]?.label ?? detailSub.failure_type}
-                        </StatusBadge>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-5 text-[10px] px-1.5"
-                          onClick={() => {
-                            setResolvingSub(detailSub)
-                            setResolveDialogOpen(true)
-                          }}
-                        >
-                          해결
-                        </Button>
-                      </>
-                    ) : (
-                      <StatusBadge status="success" size="xs">✅ 정상</StatusBadge>
-                    )}
+                  <div>
+                    <StatusBadge status="success" size="xs">정상</StatusBadge>
                   </div>
                   <div className="text-muted-foreground">마지막 발송 Day</div>
                   <div className="flex items-center gap-2">
@@ -1373,67 +1297,7 @@ export function SubscriptionsTab() {
         </SheetContent>
       </Sheet>
 
-      {/* 6. Failure Resolution Dialog */}
-      <Dialog open={resolveDialogOpen && !!resolvingSub} onOpenChange={(open) => { if (!open) { setResolveDialogOpen(false); setResolvingSub(null) } }}>
-        <DialogContent className="max-w-[380px]">
-          {resolvingSub && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="text-sm">
-                  {resolvingSub.customer?.kakao_friend_name || resolvingSub.customer?.name} — {resolvingSub.product?.sku_code}
-                </DialogTitle>
-                <DialogDescription asChild>
-                  <div className="space-y-0.5">
-                    <p className="text-xs text-muted-foreground">
-                      Day {resolvingSub.last_sent_day + 1}~{resolvingSub.current_day} 미발송
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      사유: 발송 실패
-                    </p>
-                  </div>
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-2">
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start text-left h-auto px-3 py-2.5"
-                  onClick={() => handleResolveFailure(resolvingSub, 'manual_sent')}
-                >
-                  <div>
-                    <div className="text-sm font-medium">직접 보냈어요</div>
-                    <div className="text-xs text-muted-foreground">Day {resolvingSub.current_day + 1}부터 정상 진행</div>
-                  </div>
-                </Button>
-
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start text-left h-auto px-3 py-2.5"
-                  onClick={() => handleResolveFailure(resolvingSub, 'bulk')}
-                >
-                  <div>
-                    <div className="text-sm font-medium">밀린 것 몰아서 보내기</div>
-                    <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}~{resolvingSub.current_day + 1} 한번에 발송</div>
-                  </div>
-                </Button>
-
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start text-left h-auto px-3 py-2.5"
-                  onClick={() => handleResolveFailure(resolvingSub, 'sequential')}
-                >
-                  <div>
-                    <div className="text-sm font-medium">밀린 것부터 하루씩 보내기</div>
-                    <div className="text-xs text-muted-foreground">내일 Day{resolvingSub.last_sent_day + 1}, 모레 Day{resolvingSub.last_sent_day + 2}, ... 종료일 연장</div>
-                  </div>
-                </Button>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* 7. Confirm Dialog */}
+      {/* 6. Confirm Dialog */}
       {ConfirmDialogElement}
 
       {/* 7. Toast */}

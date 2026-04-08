@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-import { computeSubscription, daysAgoKST } from '@/lib/day'
+import { daysAgoKST } from '@/lib/day'
 
 // Vercel Cron은 GET으로 호출
 export async function GET(req: Request) {
@@ -26,15 +26,11 @@ async function handleDailyUpdate(req: Request) {
   }
 
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-  const yesterday = daysAgoKST(1)
   const now = new Date().toISOString()
   const results: Record<string, number> = {
     pending_to_live: 0,
     live_to_archive: 0,
     pause_to_live: 0,
-    unreported_marked: 0,
-    failure_marked: 0,
-    recovery_reset: 0,
     queues_cleaned: 0,
   }
   const errors: string[] = []
@@ -46,7 +42,6 @@ async function handleDailyUpdate(req: Request) {
       .update({ status: 'live', updated_at: now })
       .eq('status', 'pending')
       .lte('start_date', today)
-      .is('backlog_mode', null)
       .not('device_id', 'is', null)
       .select('id, last_sent_day')
     if (!e1 && pendingToLive?.length) {
@@ -62,7 +57,6 @@ async function handleDailyUpdate(req: Request) {
 
   // === Step 2: live → archive (last_sent_day >= duration_days) ===
   try {
-    // 페이지네이션으로 1000행 제한 회피
     const toArchiveIds: string[] = []
     let offset = 0
     const PAGE = 1000
@@ -94,7 +88,7 @@ async function handleDailyUpdate(req: Request) {
   try {
     const { data: pauseSubs } = await supabase
       .from('subscriptions')
-      .select('id, paused_at, end_date, paused_days, start_date, duration_days, last_sent_day, is_cancelled')
+      .select('id, paused_at, end_date, paused_days')
       .eq('status', 'pause')
       .lte('resume_date', today)
 
@@ -105,8 +99,6 @@ async function handleDailyUpdate(req: Request) {
             status: 'live',
             paused_at: null,
             resume_date: null,
-            backlog_mode: null,
-            failure_date: null,
             updated_at: now,
           }
           if (sub.paused_at) {
@@ -115,18 +107,10 @@ async function handleDailyUpdate(req: Request) {
             const todayMidnight = new Date(today + 'T00:00:00Z')
             const pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
             updateFields.paused_days = (sub.paused_days ?? 0) + pauseDays
-            // end_date는 저장하지 않음 — computed_end_date로 매번 계산
-            // 재개 후 pending_days >= 4이면 자동 bulk 모드
-            const computed = computeSubscription({
-              start_date: sub.start_date,
-              duration_days: sub.duration_days ?? 0,
-              last_sent_day: sub.last_sent_day ?? 0,
-              paused_days: (sub.paused_days ?? 0) + pauseDays,
-              paused_at: null,
-              status: 'live',
-            }, today)
-            if (computed.pending_days.length >= 4) {
-              updateFields.backlog_mode = 'bulk'
+            if (pauseDays > 0 && sub.end_date) {
+              const newEnd = new Date(sub.end_date + 'T00:00:00Z')
+              newEnd.setUTCDate(newEnd.getUTCDate() + pauseDays)
+              updateFields.end_date = newEnd.toISOString().slice(0, 10)
             }
           }
           await supabase.from('subscriptions').update(updateFields).eq('id', sub.id)
@@ -138,117 +122,7 @@ async function handleDailyUpdate(req: Request) {
     }
   } catch (e) { errors.push(`step3: ${e instanceof Error ? e.message : String(e)}`) }
 
-  // === Step 4: 어제 미보고 큐 → failed 처리 ===
-  try {
-    const { count } = await supabase.from('send_queues')
-      .select('id', { count: 'exact', head: true })
-      .eq('send_date', yesterday)
-      .eq('status', 'pending')
-
-    if (count && count > 0) {
-      await supabase.from('send_queues')
-        .update({ status: 'failed', error_message: 'not_sent' })
-        .eq('send_date', yesterday)
-        .eq('status', 'pending')
-      results.unreported_marked = count
-    }
-  } catch (e) { errors.push(`step4: ${e instanceof Error ? e.message : String(e)}`) }
-
-  // === Step 5: sequential backlog_mode 초기화 ===
-  try {
-    const { data: seqSubs } = await supabase
-      .from('subscriptions')
-      .select('id, start_date, duration_days, last_sent_day, paused_days, paused_at, status')
-      .eq('backlog_mode', 'sequential')
-
-    if (seqSubs?.length) {
-      for (const sub of seqSubs) {
-        const computed = computeSubscription({
-          start_date: sub.start_date,
-          duration_days: sub.duration_days,
-          last_sent_day: sub.last_sent_day ?? 0,
-          paused_days: sub.paused_days ?? 0,
-          paused_at: sub.paused_at,
-          status: sub.status ?? 'pending',
-        }, today)
-        if (sub.last_sent_day >= computed.current_day - 1) {
-          await supabase.from('subscriptions').update({
-            backlog_mode: null,
-            updated_at: now,
-          }).eq('id', sub.id)
-          results.recovery_reset++
-        }
-      }
-    }
-  } catch (e) { errors.push(`step5: ${e instanceof Error ? e.message : String(e)}`) }
-
-  // === Step 6: 3일 연속 실패 → backlog_mode 마킹 ===
-  try {
-    const { data: candidates } = await supabase
-      .from('subscriptions')
-      .select('id')
-      .neq('status', 'cancel')
-      .is('paused_at', null)
-      .is('backlog_mode', null)
-
-    if (candidates?.length) {
-      const candidateIds = candidates.map(c => c.id)
-      const threeDaysAgo = daysAgoKST(4)
-      const recentQueues: { subscription_id: string; send_date: string; status: string }[] = []
-      for (let i = 0; i < candidateIds.length; i += 500) {
-        const batch = candidateIds.slice(i, i + 500)
-        const { data } = await supabase
-          .from('send_queues')
-          .select('subscription_id, send_date, status, is_notice')
-          .in('subscription_id', batch)
-          .eq('is_notice', false)
-          .gte('send_date', threeDaysAgo)
-          .order('send_date', { ascending: false })
-        if (data) recentQueues.push(...data)
-      }
-
-      if (recentQueues.length > 0) {
-        const subQueues = new Map<string, Map<string, string[]>>()
-        for (const q of recentQueues) {
-          if (!subQueues.has(q.subscription_id)) subQueues.set(q.subscription_id, new Map())
-          const dateMap = subQueues.get(q.subscription_id)!
-          if (!dateMap.has(q.send_date)) dateMap.set(q.send_date, [])
-          dateMap.get(q.send_date)!.push(q.status)
-        }
-
-        for (const [subId, dateMap] of subQueues) {
-          const dates = [...dateMap.keys()].sort().reverse().slice(0, 3)
-          if (dates.length < 3) continue
-          const d0 = new Date(dates[0] + 'T00:00:00Z')
-          const d2 = new Date(dates[2] + 'T00:00:00Z')
-          const daySpan = Math.round((d0.getTime() - d2.getTime()) / 86400000)
-          if (daySpan !== 2) continue
-
-          let consecutiveFailures = 0
-          for (const date of dates) {
-            const statuses = dateMap.get(date)!
-            if (statuses.includes('pending')) break
-            if (statuses.includes('failed')) {
-              consecutiveFailures++
-            } else {
-              break
-            }
-          }
-
-          if (consecutiveFailures >= 3) {
-            await supabase.from('subscriptions').update({
-              backlog_mode: 'flagged',
-              failure_date: today,
-              updated_at: now,
-            }).eq('id', subId).is('backlog_mode', null)
-            results.failure_marked++
-          }
-        }
-      }
-    }
-  } catch (e) { errors.push(`step6: ${e instanceof Error ? e.message : String(e)}`) }
-
-  // === Step 7: 7일 이전 send_queues 정리 ===
+  // === Step 4: 7일 이전 send_queues 정리 ===
   try {
     const sevenDaysAgo = daysAgoKST(7)
     const { count: cleanedCount } = await supabase
@@ -256,10 +130,10 @@ async function handleDailyUpdate(req: Request) {
       .delete()
       .lt('send_date', sevenDaysAgo)
     results.queues_cleaned = cleanedCount ?? 0
-  } catch (e) { errors.push(`step7: ${e instanceof Error ? e.message : String(e)}`) }
+  } catch (e) { errors.push(`step4: ${e instanceof Error ? e.message : String(e)}`) }
 
   return NextResponse.json({
-    ok: errors.length === 0,
+    ok: true,
     date: today,
     ...results,
     ...(errors.length > 0 ? { errors } : {}),

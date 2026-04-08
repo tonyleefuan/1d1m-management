@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-import { todayKST, computeSubscription } from '@/lib/day'
+import { todayKST } from '@/lib/day'
 
 // ─── 히스토리 로그 헬퍼 ─────────────────────────
 async function logChange(
@@ -43,65 +43,10 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'ID가 필요합니다' }, { status: 400 })
     }
 
-    // 실패 해제 처리
-    if (updates.resolve_failure && targetIds.length === 1) {
-      const { action } = updates.resolve_failure
-      const targetId = targetIds[0]
-
-      // 기존 구독 조회
-      const { data: prevSub } = await supabase
-        .from('subscriptions')
-        .select('start_date, duration_days, last_sent_day, paused_days, paused_at, is_cancelled, status, backlog_mode')
-        .eq('id', targetId)
-        .single()
-
-      if (!prevSub) return NextResponse.json({ error: '구독을 찾을 수 없습니다' }, { status: 404 })
-
-      const today = todayKST()
-      const computed = computeSubscription({
-        start_date: prevSub.start_date,
-        duration_days: prevSub.duration_days,
-        last_sent_day: prevSub.last_sent_day ?? 0,
-        paused_days: prevSub.paused_days ?? 0,
-        paused_at: prevSub.paused_at,
-        status: prevSub.status ?? 'pending',
-      }, today)
-
-      const updateData: Record<string, any> = {
-        backlog_mode: null,
-        failure_date: null,
-        updated_at: new Date().toISOString(),
-      }
-
-      if (action === 'manual_sent') {
-        updateData.last_sent_day = computed.current_day
-        // backlog_mode already null from above
-      } else if (action === 'bulk') {
-        updateData.backlog_mode = 'bulk'
-      } else if (action === 'sequential') {
-        updateData.backlog_mode = 'sequential'
-      } else {
-        return NextResponse.json({ error: '유효하지 않은 action' }, { status: 400 })
-      }
-
-      const { error: updateErr } = await supabase
-        .from('subscriptions')
-        .update(updateData)
-        .eq('id', targetId)
-
-      if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
-
-      // 로그 기록
-      await logChange(targetId, 'resolve_failure', 'backlog_mode',
-        prevSub.backlog_mode, action, session.userId)
-
-      return NextResponse.json({ ok: true, action })
-    }
-
     // 변경 전 상태 조회 (로그용 + 검증용)
     const { data: prevSubs } = await supabase
       .from('subscriptions')
-      .select('id, status, device_id, start_date, end_date, last_sent_day, duration_days, memo, customer_id, paused_at, paused_days, backlog_mode')
+      .select('id, status, device_id, start_date, end_date, last_sent_day, duration_days, memo, customer_id, paused_at, paused_days')
       .in('id', targetIds)
     const prevMap = new Map(prevSubs?.map(s => [s.id, s]) || [])
 
@@ -131,12 +76,6 @@ export async function PATCH(req: Request) {
           if (!prev.start_date || prev.start_date > today) {
             return NextResponse.json(
               { error: `시작일(${prev.start_date || '미설정'})이 아직 도래하지 않아 발송중으로 변경할 수 없습니다` },
-              { status: 400 }
-            )
-          }
-          if (prev.backlog_mode === 'flagged') {
-            return NextResponse.json(
-              { error: '발송 오류 상태에서는 발송중으로 변경할 수 없습니다. 먼저 오류를 해소해주세요.' },
               { status: 400 }
             )
           }
@@ -181,8 +120,6 @@ export async function PATCH(req: Request) {
       if (updates.status === 'live') {
         updateData.paused_at = null
         updateData.resume_date = null
-        updateData.backlog_mode = null
-        updateData.failure_date = null
       }
     }
     if (updates.device_id !== undefined) updateData.device_id = updates.device_id
@@ -193,11 +130,6 @@ export async function PATCH(req: Request) {
     if (updates.product_id !== undefined) updateData.product_id = updates.product_id
     if (updates.memo !== undefined) updateData.memo = updates.memo
     if (updates.send_priority !== undefined) updateData.send_priority = updates.send_priority
-    // 일괄 복구: backlog_mode를 null로 리셋
-    if (updates.backlog_mode === null) {
-      updateData.backlog_mode = null
-      updateData.failure_date = null
-    }
     if (updates.resume_date !== undefined) {
       updateData.resume_date = updates.resume_date
     }
@@ -215,9 +147,15 @@ export async function PATCH(req: Request) {
         }
       }
       updateData.last_sent_day = newLastSentDay
-      // 실패 상태 초기화 (Day 재지정이므로)
-      updateData.backlog_mode = null
-      updateData.failure_date = null
+      // old failed 큐 정리 (day_number <= 새 값)
+      for (const subId of targetIds) {
+        await supabase
+          .from('send_queues')
+          .delete()
+          .eq('subscription_id', subId)
+          .eq('status', 'failed')
+          .lte('day_number', newLastSentDay)
+      }
     }
     // last_sent_day 상대 조정 (day_adjust: 양수/음수 모두 가능) — 벌크 지원
     if (updates.day_adjust !== undefined) {
@@ -232,8 +170,6 @@ export async function PATCH(req: Request) {
           const newDay = Math.max(0, (prev.last_sent_day ?? 0) + adjust)
           const perUpdate: Record<string, unknown> = {
             last_sent_day: newDay,
-            backlog_mode: null,
-            failure_date: null,
             updated_at: new Date().toISOString(),
           }
           await supabase.from('subscriptions').update(perUpdate).eq('id', subId)
@@ -273,19 +209,6 @@ export async function PATCH(req: Request) {
           const pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
           const updateFields: Record<string, unknown> = {
             paused_days: (prev.paused_days ?? 0) + pauseDays,
-            // end_date는 저장하지 않음 — computed_end_date로 매번 계산
-          }
-          // 재개 후 pending_days >= 4이면 자동 bulk 모드 (대기열 생성 차단 방지)
-          const computed = computeSubscription({
-            start_date: prev.start_date,
-            duration_days: prev.duration_days ?? 0,
-            last_sent_day: prev.last_sent_day ?? 0,
-            paused_days: (prev.paused_days ?? 0) + pauseDays,
-            paused_at: null, // 이미 해제됨
-            status: 'live',
-          }, todayDateStr)
-          if (computed.pending_days.length >= 4) {
-            updateFields.backlog_mode = 'bulk'
           }
 
           await supabase.from('subscriptions').update(updateFields).eq('id', subId)

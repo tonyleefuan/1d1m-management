@@ -304,16 +304,14 @@ async function updateSubscriptionStatuses(
 
   if (subDayGroups.size === 0) return
 
-  // 영향 받는 구독의 last_sent_day, backlog_mode 조회 (배치)
+  // 영향 받는 구독의 last_sent_day 조회 (배치)
   const affectedSubIds = [...new Set([...subDayGroups.values()].map(g => g.subscriptionId))]
   const lastSentDayMap = new Map<string, number>()
-  const backlogModeMap = new Map<string, string | null>()
   for (let i = 0; i < affectedSubIds.length; i += 500) {
     const batch = affectedSubIds.slice(i, i + 500)
-    const { data } = await supabase.from('subscriptions').select('id, last_sent_day, backlog_mode').in('id', batch)
+    const { data } = await supabase.from('subscriptions').select('id, last_sent_day').in('id', batch)
     for (const s of data || []) {
       lastSentDayMap.set(s.id, s.last_sent_day ?? 0)
-      backlogModeMap.set(s.id, s.backlog_mode ?? null)
     }
   }
 
@@ -322,7 +320,7 @@ async function updateSubscriptionStatuses(
   const sortedGroups = [...subDayGroups.values()].sort((a, b) => a.dayNumber - b.dayNumber)
 
   const failureSubIds = new Set<string>()
-  // #4: 구독별 최대 연속 성공 Day만 추적 (multi-day bulk 시 하나의 UPDATE로 통합)
+  // 구독별 최대 연속 성공 Day만 추적 (multi-day bulk 시 하나의 UPDATE로 통합)
   const subMaxSuccessDay = new Map<string, number>()
 
   for (const group of sortedGroups) {
@@ -344,20 +342,11 @@ async function updateSubscriptionStatuses(
   }
 
   const successUpdates = [...subMaxSuccessDay.entries()].map(([id, day]) => ({ id, day }))
-  onProgress?.(`구독 반영 중... (성공 ${successUpdates.length}건, 실패 ${failureSubIds.size}건)`)
+  // 같은 런에서 failure도 발생한 구독은 성공에서 제외
+  const safeSuccessUpdates = successUpdates.filter(u => !failureSubIds.has(u.id))
+  onProgress?.(`구독 반영 중... (성공 ${safeSuccessUpdates.length}건, 실패 ${failureSubIds.size}건)`)
 
-  // 배치 업데이트: 실패 구독 (500개씩)
-  const failureList = [...failureSubIds]
-  for (let i = 0; i < failureList.length; i += 500) {
-    const batch = failureList.slice(i, i + 500)
-    await supabase.from('subscriptions')
-      .update({ backlog_mode: 'flagged', failure_date: date, updated_at: now })
-      .in('id', batch)
-  }
-
-  // 배치 업데이트: 성공 구독 — 실패 Day가 있어도 그 전까지의 성공 Day는 진행
-  const safeSuccessUpdates = successUpdates
-  // 구독별 하나의 day만 있으므로 (subMaxSuccessDay) day별 그룹화 후 단일 UPDATE
+  // 배치 업데이트: 성공 구독 — day별 그룹화 후 단일 UPDATE
   const dayGroups = new Map<number, string[]>()
   for (const u of safeSuccessUpdates) {
     const arr = dayGroups.get(u.day) || []
@@ -368,21 +357,113 @@ async function updateSubscriptionStatuses(
     for (let i = 0; i < ids.length; i += 500) {
       const batch = ids.slice(i, i + 500)
       await supabase.from('subscriptions')
-        .update({ last_sent_day: day, backlog_mode: null, failure_date: null, updated_at: now })
+        .update({ last_sent_day: day, updated_at: now })
         .in('id', batch)
     }
   }
 
-  // #12: backlog_mode 자동 해제 — 성공적으로 업데이트된 구독 중 backlog_mode가 설정된 것
-  const backlogResetIds = safeSuccessUpdates
-    .filter(u => backlogModeMap.get(u.id) != null)
-    .map(u => u.id)
-  if (backlogResetIds.length > 0) {
-    for (let i = 0; i < backlogResetIds.length; i += 500) {
-      const batch = backlogResetIds.slice(i, i + 500)
-      await supabase.from('subscriptions')
-        .update({ backlog_mode: null, updated_at: now })
-        .in('id', batch)
+  // ─── Chain advancement: 이미 sent된 다음 Day들을 연쇄 전진 ───
+  if (safeSuccessUpdates.length > 0) {
+    onProgress?.('연쇄 Day 전진 확인 중...')
+    const chainUpdates = new Map<string, number>() // subId → final chained last_sent_day
+
+    for (const u of safeSuccessUpdates) {
+      const currentLast = u.day
+      // 이 구독의 현재 last_sent_day 이후에 이미 sent인 큐가 있는지 확인
+      const { data: sentQueues } = await supabase
+        .from('send_queues')
+        .select('day_number')
+        .eq('subscription_id', u.id)
+        .eq('status', 'sent')
+        .eq('is_notice', false)
+        .gt('day_number', currentLast)
+        .order('day_number', { ascending: true })
+
+      if (!sentQueues?.length) continue
+
+      let chainedDay = currentLast
+      for (const sq of sentQueues) {
+        if (sq.day_number === chainedDay + 1) {
+          chainedDay = sq.day_number
+        } else {
+          break // 갭 발견 — 중단
+        }
+      }
+
+      if (chainedDay > currentLast) {
+        chainUpdates.set(u.id, chainedDay)
+      }
+    }
+
+    // 체인 전진 결과 배치 업데이트
+    if (chainUpdates.size > 0) {
+      onProgress?.(`연쇄 전진 ${chainUpdates.size}건 반영 중...`)
+      // day별로 그룹화하여 배치 UPDATE
+      const chainDayGroups = new Map<number, string[]>()
+      for (const [id, day] of chainUpdates) {
+        const arr = chainDayGroups.get(day) || []
+        arr.push(id)
+        chainDayGroups.set(day, arr)
+      }
+      for (const [day, ids] of chainDayGroups) {
+        for (let i = 0; i < ids.length; i += 500) {
+          const batch = ids.slice(i, i + 500)
+          await supabase.from('subscriptions')
+            .update({ last_sent_day: day, updated_at: now })
+            .in('id', batch)
+        }
+      }
+    }
+  }
+
+  // ─── 3일 연속 실패 감지 → 자동 일시정지 ───
+  if (failureSubIds.size > 0) {
+    onProgress?.('연속 실패 감지 중...')
+    const pauseIds: string[] = []
+
+    for (const subId of failureSubIds) {
+      // 해당 구독의 최근 3개 send_date에서의 큐 상태 확인
+      const { data: recentQueues } = await supabase
+        .from('send_queues')
+        .select('send_date, status')
+        .eq('subscription_id', subId)
+        .eq('is_notice', false)
+        .order('send_date', { ascending: false })
+
+      if (!recentQueues?.length) continue
+
+      // send_date별로 그룹화
+      const dateStatusMap = new Map<string, Set<string>>()
+      for (const q of recentQueues) {
+        if (!dateStatusMap.has(q.send_date)) {
+          dateStatusMap.set(q.send_date, new Set())
+        }
+        dateStatusMap.get(q.send_date)!.add(q.status)
+      }
+
+      // 최근 3개 날짜 추출
+      const recentDates = [...dateStatusMap.keys()].slice(0, 3)
+      if (recentDates.length < 3) continue
+
+      // 3개 날짜 모두 failed만 있는지 확인 (sent나 pending이 없어야 함)
+      const allFailed = recentDates.every(d => {
+        const statuses = dateStatusMap.get(d)!
+        return statuses.has('failed') && !statuses.has('sent') && !statuses.has('pending')
+      })
+
+      if (allFailed) {
+        pauseIds.push(subId)
+      }
+    }
+
+    if (pauseIds.length > 0) {
+      onProgress?.(`3일 연속 실패 ${pauseIds.length}건 자동 일시정지...`)
+      for (let i = 0; i < pauseIds.length; i += 500) {
+        const batch = pauseIds.slice(i, i + 500)
+        await supabase.from('subscriptions')
+          .update({ status: 'pause', updated_at: now })
+          .in('id', batch)
+      }
     }
   }
 }
