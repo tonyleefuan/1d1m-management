@@ -202,7 +202,10 @@ export function SendingTab() {
     try {
       const params = new URLSearchParams({ date: sendDate, page: String(page), limit: String(PAGE_LIMIT) })
       if (selectedDevice) params.set('device_id', selectedDevice)
-      if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
+      if (statusFilter && statusFilter !== 'all') {
+        params.set('status', statusFilter)
+        if (statusFilter === 'failed') params.set('unresolved', 'true')
+      }
       if (debouncedSearch) params.set('search', debouncedSearch)
       const res = await fetch(`/api/sending/queue?${params}`)
       if (!res.ok) throw new Error('발송 대기열 로드 실패')
@@ -1237,7 +1240,7 @@ export function SendingTab() {
                 <SelectItem value="all">전체</SelectItem>
                 <SelectItem value="pending">대기</SelectItem>
                 <SelectItem value="sent">성공</SelectItem>
-                <SelectItem value="failed">실패</SelectItem>
+                <SelectItem value="failed">미해결 실패</SelectItem>
               </SelectContent>
             </Select>
             <div className="relative">

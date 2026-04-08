@@ -13,6 +13,7 @@ export async function GET(req: Request) {
   const date = searchParams.get('date') || todayKST()
   const status = searchParams.get('status') || ''
   const search = searchParams.get('search') || ''
+  const unresolved = searchParams.get('unresolved') === 'true'
   const page = Math.max(1, Number(searchParams.get('page')) || 1)
   const limit = Math.min(500, Math.max(1, Number(searchParams.get('limit')) || 100))
 
@@ -36,25 +37,82 @@ export async function GET(req: Request) {
   const from = (page - 1) * limit
   const to = from + limit - 1
 
-  // 쿼리 빌드
-  let query = supabase
-    .from('send_queues')
-    .select(`
-      *,
-      subscription:subscriptions(
-        id, day, duration_days, send_priority,
-        product:products(sku_code, title)
-      )
-    `, { count: 'exact' })
-    .eq('send_date', date)
-    .order('sort_order', { ascending: true })
-    .range(from, to)
+  let data: any[] | null = null
+  let error: any = null
+  let count: number | null = null
 
-  if (deviceId) query = query.eq('device_id', deviceId)
-  if (status) query = query.eq('status', status)
-  if (search) query = query.ilike('kakao_friend_name', `%${search}%`)
+  if (unresolved && status === 'failed') {
+    // ─── 미해결 실패 조회: 날짜 무관, 아직 재발송 성공 안 된 failed 큐만 ───
+    const { data: failedData, error: failedErr, count: failedCount } = await supabase
+      .from('send_queues')
+      .select(`
+        *,
+        subscription:subscriptions(
+          id, day, duration_days, send_priority,
+          product:products(sku_code, title)
+        )
+      `, { count: 'exact' })
+      .eq('status', 'failed')
+      .eq('is_notice', false)
+      .order('send_date', { ascending: false })
+      .order('sort_order', { ascending: true })
+      .range(from, to)
 
-  const { data, error, count } = await query
+    if (failedErr) return NextResponse.json({ error: failedErr.message }, { status: 500 })
+
+    // 해결된 실패 제외: 같은 subscription_id+day_number에 sent 큐가 있으면 제외
+    if (failedData?.length) {
+      const subDayKeys = [...new Set(failedData.map(q => `${q.subscription_id}:${q.day_number}`))]
+      const subIds = [...new Set(failedData.map(q => q.subscription_id))]
+
+      // sent 큐 조회
+      const resolvedKeys = new Set<string>()
+      for (let i = 0; i < subIds.length; i += 100) {
+        const batch = subIds.slice(i, i + 100)
+        const { data: sentData } = await supabase
+          .from('send_queues')
+          .select('subscription_id, day_number')
+          .in('subscription_id', batch)
+          .eq('status', 'sent')
+          .eq('is_notice', false)
+        sentData?.forEach(s => resolvedKeys.add(`${s.subscription_id}:${s.day_number}`))
+      }
+
+      data = failedData.filter(q => !resolvedKeys.has(`${q.subscription_id}:${q.day_number}`))
+      count = data.length
+      // Note: count는 이 페이지 내 필터 결과라 정확한 total이 아닐 수 있음
+      // 실패 건이 수백 건 이상이면 RPC로 전환 필요
+    } else {
+      data = []
+      count = 0
+    }
+    error = null
+  } else {
+    // ─── 기본 조회: 날짜별 큐 ───
+    let query = supabase
+      .from('send_queues')
+      .select(`
+        *,
+        subscription:subscriptions(
+          id, day, duration_days, send_priority,
+          product:products(sku_code, title)
+        )
+      `, { count: 'exact' })
+      .eq('send_date', date)
+      .order('sort_order', { ascending: true })
+      .range(from, to)
+
+    if (deviceId) query = query.eq('device_id', deviceId)
+    if (status) query = query.eq('status', status)
+    if (search) query = query.ilike('kakao_friend_name', `%${search}%`)
+
+    const result = await query
+    data = result.data
+    error = result.error
+    count = result.count
+  }
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // 예상 시간 계산 (이 페이지 항목만)

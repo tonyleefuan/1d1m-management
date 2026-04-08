@@ -528,6 +528,11 @@ async function updateSubscriptionStatuses(
         await supabase.from('subscriptions')
           .update({ status: 'pause', paused_at: now, pause_reason: 'auto_failure', updated_at: now })
           .in('id', batch)
+        // 자동 정지 시 pending+failed 큐 정리 (정지됨 = 처리 완료)
+        await supabase.from('send_queues')
+          .delete()
+          .in('subscription_id', batch)
+          .in('status', ['pending', 'failed'])
       }
     }
   }
