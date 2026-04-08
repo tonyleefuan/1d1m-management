@@ -630,14 +630,15 @@ export function SubscriptionsTab() {
                 ))}
               </SelectContent>
             </Select>
-            <Input
-              type="date"
-              value={filters.order_date}
-              onChange={(e) => setFilters((f) => ({ ...f, order_date: e.target.value, page: 1 }))}
-              className={cn('w-[150px] h-8 text-xs', !filters.order_date && 'text-muted-foreground')}
-              placeholder="주문일"
-              title="주문일 필터"
-            />
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">주문일</span>
+              <Input
+                type="date"
+                value={filters.order_date}
+                onChange={(e) => setFilters((f) => ({ ...f, order_date: e.target.value, page: 1 }))}
+                className={cn('w-[150px] h-8 text-xs', !filters.order_date && 'text-muted-foreground')}
+              />
+            </div>
           </>
         }
         layout="stacked"
