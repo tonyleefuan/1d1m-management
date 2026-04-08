@@ -416,7 +416,7 @@ async function updateSubscriptionStatuses(
       if (data) allSentQueues.push(...data)
     }
 
-    // 구독별로 그룹화 + 정렬 보장
+    // 구독별로 그룹화 + 중복 제거 + 정렬
     const sentBySubId = new Map<string, number[]>()
     for (const sq of allSentQueues) {
       const dayNum = sq.day_number
@@ -426,9 +426,9 @@ async function updateSubscriptionStatuses(
       arr.push(dayNum)
       sentBySubId.set(sq.subscription_id, arr)
     }
-    // 배치 간 순서 보장: 구독별 day_number 오름차순 정렬
-    for (const [, days] of sentBySubId) {
-      days.sort((a, b) => a - b)
+    // 중복 day 제거 + 오름차순 정렬 (중복 큐가 있어도 chain이 깨지지 않도록)
+    for (const [subId, days] of sentBySubId) {
+      sentBySubId.set(subId, [...new Set(days)].sort((a, b) => a - b))
     }
 
     // 구독별 연쇄 전진 계산 (메모리 내)

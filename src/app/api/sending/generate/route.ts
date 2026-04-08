@@ -55,7 +55,7 @@ export async function POST(req: Request) {
       .update({ status: 'live', updated_at: now })
       .eq('status', 'pending')
       .eq('device_id', deviceId)
-      .lte('start_date', date)
+      .lte('start_date', todayKST()) // body.date가 미래여도 오늘 기준으로만 활성화
       .select('id, last_sent_day')
     if (activated?.length) {
       const needInit = activated.filter(s => s.last_sent_day == null).map(s => s.id)
@@ -182,47 +182,31 @@ export async function POST(req: Request) {
       }
     }
 
-    // fixed 메시지 조회
+    // fixed 메시지 조회 — product_id+day_number 단위로 개별 조회 (cross-product 오염 방지)
     const fixedMsgMap = new Map<string, { content: string; image_path: string | null; sort_order: number }[]>()
-    const seenMsgIds = new Set<string>()
     if (fixedKeys.size > 0) {
-      const productDayPairs = [...fixedKeys].map(k => {
-        const [pid, day] = k.split(':')
-        return { pid, day: Number(day) }
-      })
-      const uniqueProductIds = [...new Set(productDayPairs.map(p => p.pid))]
-      const allDays = productDayPairs.map(p => p.day)
-      const minDay = Math.min(...allDays)
-      const maxDay = Math.max(...allDays)
+      // 상품별로 day 목록을 그룹화
+      const daysByProduct = new Map<string, number[]>()
+      for (const key of fixedKeys) {
+        const [pid, day] = key.split(':')
+        const days = daysByProduct.get(pid) || []
+        days.push(Number(day))
+        daysByProduct.set(pid, days)
+      }
 
-      for (let i = 0; i < uniqueProductIds.length; i += 20) {
-        const pidBatch = uniqueProductIds.slice(i, i + 20)
-        let offset = 0
-        const BATCH_SIZE = 1000
-        while (true) {
-          const { data, error } = await supabase
-            .from('messages')
-            .select('id, product_id, day_number, content, image_path, sort_order')
-            .in('product_id', pidBatch)
-            .gte('day_number', minDay)
-            .lte('day_number', maxDay)
-            .order('product_id', { ascending: true })
-            .order('day_number', { ascending: true })
-            .order('sort_order', { ascending: true })
-            .order('id', { ascending: true })
-            .range(offset, offset + BATCH_SIZE - 1)
-          if (error) return NextResponse.json({ error: `고정 메시지 조회 실패: ${error.message}` }, { status: 500 })
-          if (!data?.length) break
-          for (const msg of data) {
-            if (seenMsgIds.has(msg.id)) continue
-            seenMsgIds.add(msg.id)
-            const key = `${msg.product_id}:${msg.day_number}`
-            if (!fixedKeys.has(key)) continue
-            if (!fixedMsgMap.has(key)) fixedMsgMap.set(key, [])
-            fixedMsgMap.get(key)!.push({ content: msg.content, image_path: msg.image_path, sort_order: msg.sort_order })
-          }
-          if (data.length < BATCH_SIZE) break
-          offset += BATCH_SIZE
+      for (const [pid, days] of daysByProduct) {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('product_id, day_number, content, image_path, sort_order')
+          .eq('product_id', pid)
+          .in('day_number', days)
+          .order('day_number', { ascending: true })
+          .order('sort_order', { ascending: true })
+        if (error) return NextResponse.json({ error: `고정 메시지 조회 실패: ${error.message}` }, { status: 500 })
+        for (const msg of data || []) {
+          const key = `${msg.product_id}:${msg.day_number}`
+          if (!fixedMsgMap.has(key)) fixedMsgMap.set(key, [])
+          fixedMsgMap.get(key)!.push({ content: msg.content, image_path: msg.image_path, sort_order: msg.sort_order })
         }
       }
     }
@@ -379,16 +363,30 @@ export async function POST(req: Request) {
       })
     }
 
-    // 6) 배치 삽입 (500개씩)
+    // 6) 배치 삽입 (500개씩) — 유니크 제약(uq_send_queues_sub_day_date)으로 중복 방어
     let inserted = 0
     for (let i = 0; i < queueRows.length; i += 500) {
       const batch = queueRows.slice(i, i + 500)
       const { error } = await supabase.from('send_queues').insert(batch)
       if (error) {
+        // 유니크 제약 위반 (23505) = 동시 호출로 인한 중복 → 이미 생성된 것이므로 스킵
+        if (error.code === '23505') {
+          console.warn(`[generate] 유니크 제약 위반 (중복 요청): device=${deviceId}, date=${date}`)
+          // 이번 배치에서 삽입된 것 정리
+          if (inserted > 0) {
+            await supabase.from('send_queues').delete()
+              .eq('send_date', date).eq('device_id', deviceId)
+          }
+          return NextResponse.json({
+            ok: true, generated: 0, device_id: deviceId, skipped: true,
+            message: '동시 요청으로 인한 중복 — 이미 생성된 대기열이 존재합니다',
+          })
+        }
         console.error(`[generate] batch ${i} insert error:`, error.message)
         if (inserted > 0) {
-          await supabase.from('send_queues').delete()
+          const { error: rollbackErr } = await supabase.from('send_queues').delete()
             .eq('send_date', date).eq('device_id', deviceId)
+          if (rollbackErr) console.error(`[generate] 롤백 실패:`, rollbackErr.message)
         }
         return NextResponse.json({ error: `대기열 삽입 실패: ${error.message}` }, { status: 500 })
       }

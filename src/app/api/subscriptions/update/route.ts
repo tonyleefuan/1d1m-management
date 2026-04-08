@@ -168,12 +168,18 @@ export async function PATCH(req: Request) {
       for (const subId of targetIds) {
         const prev = prevMap.get(subId)
         if (prev) {
-          const newDay = Math.max(0, (prev.last_sent_day ?? 0) + adjust)
+          const newDay = Math.max(0, Math.min((prev.last_sent_day ?? 0) + adjust, prev.duration_days))
           const perUpdate: Record<string, unknown> = {
             last_sent_day: newDay,
             updated_at: new Date().toISOString(),
           }
           await supabase.from('subscriptions').update(perUpdate).eq('id', subId)
+          // 큐 초기화: pending + failed 큐 모두 삭제 → 다음 generate에서 재생성
+          await supabase
+            .from('send_queues')
+            .delete()
+            .eq('subscription_id', subId)
+            .in('status', ['pending', 'failed'])
           await logChange(subId, 'day_adjust', 'last_sent_day', String(prev.last_sent_day ?? 0), String(newDay), session.userId, `Day 조정: ${adjust > 0 ? '+' : ''}${adjust}`)
         }
       }
@@ -181,12 +187,35 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, count: targetIds.length })
     }
 
-    const { error } = await supabase
-      .from('subscriptions')
-      .update(updateData)
-      .in('id', targetIds)
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // pause→live 전환: paused_days를 미리 계산해서 메인 update에 포함 (atomic)
+    // 벌크일 때 구독마다 paused_days가 다를 수 있으므로 개별 처리
+    if (updates.status === 'live') {
+      const todayDateStr = todayKST()
+      const pauseResumeIds: string[] = []
+      for (const subId of targetIds) {
+        const prev = prevMap.get(subId)
+        if (prev?.status === 'pause' && prev.paused_at) {
+          pauseResumeIds.push(subId)
+          const pausedAtKST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(prev.paused_at))
+          const pauseStart = new Date(pausedAtKST + 'T00:00:00Z')
+          const todayMidnight = new Date(todayDateStr + 'T00:00:00Z')
+          const pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
+          await supabase.from('subscriptions').update({
+            ...updateData,
+            paused_days: (prev.paused_days ?? 0) + pauseDays,
+          }).eq('id', subId)
+        }
+      }
+      // pause→live가 아닌 나머지는 공통 업데이트
+      const remainingIds = targetIds.filter((id: string) => !pauseResumeIds.includes(id))
+      if (remainingIds.length > 0) {
+        const { error } = await supabase.from('subscriptions').update(updateData).in('id', remainingIds)
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+    } else {
+      const { error } = await supabase.from('subscriptions').update(updateData).in('id', targetIds)
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    }
 
     // 취소 시 당일 이후 pending 큐 삭제 (발송 방지)
     if (updates.status === 'cancel') {
@@ -195,26 +224,6 @@ export async function PATCH(req: Request) {
         .delete()
         .in('subscription_id', targetIds)
         .eq('status', 'pending')
-    }
-
-    // Fix end_date + paused_days individually for pause→live transitions
-    if (updates.status === 'live') {
-      const todayDateStr = todayKST()
-      for (const subId of targetIds) {
-        const prev = prevMap.get(subId)
-        if (prev?.status === 'pause' && prev.paused_at) {
-          // KST 자정 기준 일수 계산 (daily-update와 통일)
-          const pausedAtKST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(prev.paused_at))
-          const pauseStart = new Date(pausedAtKST + 'T00:00:00Z')
-          const todayMidnight = new Date(todayDateStr + 'T00:00:00Z')
-          const pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
-          const updateFields: Record<string, unknown> = {
-            paused_days: (prev.paused_days ?? 0) + pauseDays,
-          }
-
-          await supabase.from('subscriptions').update(updateFields).eq('id', subId)
-        }
-      }
     }
 
     // kakao_friend_name 업데이트
