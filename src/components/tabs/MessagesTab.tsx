@@ -431,7 +431,22 @@ function MessageEditModal({
   const [dayNumber, setDayNumber] = useState(msg?.day_number?.toString() || '')
   const [sendDate, setSendDate] = useState((msg?.send_date as string) || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()))
   const [content, setContent] = useState((msg?.content as string) || '')
+  const [loadingContent, setLoadingContent] = useState(false)
   const { showSuccess, showError } = useToast()
+
+  // 고정 메시지 수정 시 전체 content 로드 (목록에서 200자로 잘림)
+  useEffect(() => {
+    if (!isFixed || !msg?.id) return
+    const contentLength = (msg as Record<string, unknown>)?.content_length as number | undefined
+    const currentContent = (msg?.content as string) || ''
+    if (contentLength && contentLength > currentContent.length) {
+      setLoadingContent(true)
+      fetch(`/api/messages/detail?id=${msg.id}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.content) setContent(data.content) })
+        .finally(() => setLoadingContent(false))
+    }
+  }, [])
 
   // AI features state (daily messages only)
   const isDailyMessage = !isFixed && !!msg?.send_date
@@ -575,11 +590,12 @@ function MessageEditModal({
         <div className="space-y-1.5">
           <Label>메시지 내용</Label>
           <Textarea
-            value={content}
+            value={loadingContent ? '내용 로딩 중...' : content}
             onChange={e => setContent(e.target.value)}
             className="font-mono min-h-[60vh]"
             rows={30}
             placeholder="메시지 내용을 입력하세요"
+            disabled={loadingContent}
           />
         </div>
 
