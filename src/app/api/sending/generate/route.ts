@@ -15,6 +15,7 @@ export const maxDuration = 300
 export async function POST(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const body = await req.json().catch(() => ({}))
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
       const { data: page, error: subErr } = await supabase
         .from('subscriptions')
         .select(`
-          id, customer_id, product_id, device_id,
+          id, customer_id, product_id, device_id, status,
           start_date, duration_days, last_sent_day, paused_days, paused_at,
           is_cancelled, send_priority,
           customer:customers(kakao_friend_name),
@@ -140,7 +141,7 @@ export async function POST(req: Request) {
         last_sent_day: sub.last_sent_day ?? 0,
         paused_days: sub.paused_days ?? 0,
         paused_at: sub.paused_at,
-        is_cancelled: sub.is_cancelled ?? false,
+        status: sub.status ?? 'live',
       }, date)
 
       if (computed.computed_status !== 'active') continue

@@ -133,6 +133,7 @@ export function SendingTab() {
   // 어제 결과 수거
   const [yesterdayPendingCount, setYesterdayPendingCount] = useState(0)
   const [yesterdayDate, setYesterdayDate] = useState('')
+  const [yesterdayImportResult, setYesterdayImportResult] = useState<{ sent: number; failed: number } | null>(null)
 
   // 구글시트 연동
   const [exporting, setExporting] = useState(false)
@@ -182,8 +183,10 @@ export function SendingTab() {
       setFileDelay(Number(s.send_file_delay) || 6)
       setLastExportAt(s.last_sheet_export_at || null)
       setLastImportAt(s.last_sheet_import_at || null)
+      setSettingsDirty(false)
       setYesterdayPendingCount(json.yesterdayPendingCount ?? 0)
       setYesterdayDate(json.yesterdayDate ?? '')
+      setYesterdayImportResult(null)
     } catch (err) {
       showError(err instanceof Error ? err.message : '요약을 불러오는데 실패했습니다')
     }
@@ -569,7 +572,7 @@ export function SendingTab() {
               const data = JSON.parse(line.slice(6))
               if (data.type === 'complete') lastResult = data
               else if (data.type === 'error') throw new Error(data.error)
-            } catch (e) { if (e instanceof Error && e.message !== 'error') throw e }
+            } catch (e) { if (e instanceof Error && e.message !== 'Unexpected end of JSON input') throw e }
           }
         }
         showSuccess(`선택 내보내기 완료: ${lastResult.total ?? 0}건 (${lastResult.devices ?? 0}개 PC)`)
@@ -633,18 +636,18 @@ export function SendingTab() {
                 results: [...prev.results, { phone: event.phone, name: event.name, rows: 0, error: event.error }],
               } : prev)
             } else if (event.type === 'complete') {
-              const label = date !== sendDate ? `어제 결과 수거` : '결과 가져오기'
-              showSuccess(`${label} 완료: 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`)
-              if (date !== sendDate) {
+              showSuccess(`결과 수거 완료: 성공 ${event.sent}건, 실패 ${event.failed}건, 미처리 ${event.skipped}건`)
+              if (date && date !== sendDate) {
+                // 어제 결과 수거 완료 → 뱃지로 전환
+                setYesterdayImportResult({ sent: event.sent ?? 0, failed: event.failed ?? 0 })
                 setYesterdayPendingCount(0)
-              } else {
-                setLastImportAt(new Date().toISOString())
               }
+              setLastImportAt(new Date().toISOString())
               fetchSummary(); fetchQueue(1)
             } else if (event.type === 'error') {
-              showError(event.message)
+              showError(event.error || event.message || '알 수 없는 오류')
             }
-          } catch { /* 파싱 실패 무시 */ }
+          } catch (e) { if (e instanceof Error && e.message !== 'Unexpected end of JSON input') throw e }
         }
       }
     } catch (err) {
@@ -735,7 +738,8 @@ export function SendingTab() {
   const kstToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
   const kstYesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
   const kstTomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) })()
-  const formatShort = (d: string) => { const [, m, day] = d.split('-'); return `${Number(m)}/${Number(day)}` }
+  const formatShort = (d: string) => { if (!d || !d.includes('-')) return d || '-'; const [, m, day] = d.split('-'); return `${Number(m)}/${Number(day)}` }
+  const addDays = (dateStr: string, days: number) => { if (!dateStr || !dateStr.includes('-')) return dateStr || ''; const d = new Date(dateStr + 'T00:00:00+09:00'); d.setDate(d.getDate() + days); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d) }
 
   // 스텝 정의
   const STEPS = [
@@ -761,9 +765,9 @@ export function SendingTab() {
         <p className="text-sm text-muted-foreground mt-1">PC별 발송 현황과 성공률을 모니터링합니다</p>
         <div className="flex gap-1 mt-3">
           {[
-            { date: kstYesterday, label: `어제 (${formatShort(kstYesterday)})` },
-            { date: kstToday, label: `오늘 (${formatShort(kstToday)})` },
-            { date: kstTomorrow, label: `내일 (${formatShort(kstTomorrow)})` },
+            { date: kstYesterday, label: formatShort(kstYesterday) },
+            { date: kstToday, label: formatShort(kstToday) },
+            { date: kstTomorrow, label: formatShort(kstTomorrow) },
           ].map(tab => (
             <Button
               key={tab.date}
@@ -823,19 +827,20 @@ export function SendingTab() {
               <>
                 <div className="flex-1 h-px mx-1 bg-foreground" />
                 <div className="flex items-center gap-2">
-                  <div className="flex items-center justify-center w-7 h-7 rounded-full bg-emerald-600 text-white">
+                  <div className="flex items-center justify-center w-7 h-7 rounded-full bg-foreground text-background">
                     <CheckCircle2 className="h-4 w-4" />
                   </div>
-                  <p className="text-sm font-medium text-emerald-600">완료</p>
+                  <p className="text-sm font-medium text-foreground">완료</p>
                 </div>
               </>
             )}
           </div>
 
-          {/* 현재 스텝 액션 영역 */}
+          {/* 현재 스텝 액션 영역 — 5단계 플로우 */}
           <div className="flex flex-wrap items-center gap-3 pt-3 border-t">
-            {/* STEP 0: 어제 결과 수거 (pending 있을 때만) */}
-            {yesterdayPendingCount > 0 && (
+
+            {/* STEP 0: 어제 결과 수거 */}
+            {yesterdayPendingCount > 0 && !yesterdayImportResult && (
               <>
                 <Button
                   size="sm"
@@ -845,8 +850,18 @@ export function SendingTab() {
                   className="h-9"
                 >
                   {importing ? <Spinner size="xs" className="mr-1.5" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
-                  어제 결과 수거 ({yesterdayPendingCount}건)
+                  {formatShort(yesterdayDate)} 결과 수거 ({yesterdayPendingCount.toLocaleString()}건)
                 </Button>
+                <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
+              </>
+            )}
+            {yesterdayImportResult && (
+              <>
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-muted text-xs">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                  <span>{formatShort(yesterdayDate)} 수거 완료</span>
+                  <span className="text-muted-foreground">— 성공 {yesterdayImportResult.sent.toLocaleString()} · 실패 {yesterdayImportResult.failed.toLocaleString()}</span>
+                </div>
                 <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
               </>
             )}
@@ -860,35 +875,48 @@ export function SendingTab() {
               className="h-9"
             >
               {generating ? <Spinner size="xs" className="mr-1.5" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-              대기열 생성
+              {formatShort(sendDate)} 대기열 생성
             </Button>
 
             <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
 
-            {/* STEP 2: 시트 내보내기 */}
+            {/* STEP 2: 시트 초기화 */}
+            <Button
+              size="sm"
+              onClick={handleClearSheet}
+              disabled={exporting}
+              variant="outline"
+              className="h-9"
+            >
+              시트 초기화
+            </Button>
+
+            <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
+
+            {/* STEP 3: 시트 내보내기 */}
             <Button
               size="sm"
               onClick={handleExportSheet}
-              disabled={exporting}
+              disabled={exporting || importing}
               variant={actionPhase === 'export' ? 'default' : 'outline'}
               className="h-9"
             >
               {exporting ? <Spinner size="xs" className="mr-1.5" /> : <Upload className="mr-1.5 h-3.5 w-3.5" />}
-              시트 내보내기
+              {formatShort(sendDate)} 시트 내보내기
             </Button>
 
             <ChevronRight className="h-4 w-4 text-muted-foreground hidden sm:block" />
 
-            {/* STEP 3: 결과 가져오기 */}
+            {/* STEP 4: 결과 가져오기 */}
             <Button
               size="sm"
               onClick={() => handleImportResults()}
-              disabled={importing}
+              disabled={importing || exporting}
               variant={actionPhase === 'import' ? 'default' : 'outline'}
               className="h-9"
             >
               {importing ? <Spinner size="xs" className="mr-1.5" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
-              결과 가져오기
+              {formatShort(sendDate)} 결과 가져오기
             </Button>
 
             {/* 진행 상황 텍스트 */}
@@ -921,16 +949,13 @@ export function SendingTab() {
             </div>
           </div>
 
-          {/* 내보내기/수거 타임스탬프 + 시트 초기화 */}
+          {/* 내보내기/수거 타임스탬프 */}
           <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t">
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>마지막 내보내기: {formatTime(lastExportAt)}</span>
               <span>마지막 결과 수거: {formatTime(lastImportAt)}</span>
             </div>
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="ghost" onClick={handleClearSheet} disabled={exporting} className="h-7 text-xs text-destructive hover:text-destructive">
-                시트 초기화
-              </Button>
               {(totalSummary.sent > 0 || totalSummary.failed > 0) && (
                 <span className="text-xs text-muted-foreground">결과가 있어 재생성 불가</span>
               )}

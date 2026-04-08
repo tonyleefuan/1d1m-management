@@ -100,6 +100,7 @@ export interface Subscription {
   // --- Day 시스템 새 필드 ---
   last_sent_day: number
   paused_days: number
+  /** @deprecated DB 컬럼 잔존 — 코드 로직에서는 status === 'cancel' 사용 */
   is_cancelled: boolean
   created_at: string
   updated_at: string

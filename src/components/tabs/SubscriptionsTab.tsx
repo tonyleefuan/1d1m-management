@@ -182,6 +182,7 @@ export function SubscriptionsTab() {
     status: '',
     device_id: '',
     product_id: '',
+    order_date: '',
     search: '',
     page: 1,
     pageSize: 50 as number,
@@ -248,6 +249,7 @@ export function SubscriptionsTab() {
     if (filters.status) params.set('status', filters.status)
     if (filters.device_id) params.set('device_id', filters.device_id)
     if (filters.product_id) params.set('product_id', filters.product_id)
+    if (filters.order_date) params.set('order_date', filters.order_date)
     if (filters.search) params.set('search', filters.search)
     params.set('sort', filters.sort)
     params.set('order', filters.order)
@@ -608,6 +610,14 @@ export function SubscriptionsTab() {
                 ))}
               </SelectContent>
             </Select>
+            <Input
+              type="date"
+              value={filters.order_date}
+              onChange={(e) => setFilters((f) => ({ ...f, order_date: e.target.value, page: 1 }))}
+              className={cn('w-[150px] h-8 text-xs', !filters.order_date && 'text-muted-foreground')}
+              placeholder="주문일"
+              title="주문일 필터"
+            />
           </>
         }
         layout="stacked"

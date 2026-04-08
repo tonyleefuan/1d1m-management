@@ -73,7 +73,6 @@ export async function PATCH(
       .from('subscriptions')
       .update({
         status: 'cancel',
-        is_cancelled: true,
         cancelled_at: today,
         cancel_reason: '고객 환불 요청',
       })

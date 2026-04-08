@@ -49,33 +49,33 @@ describe('calcCurrentDay', () => {
 })
 
 describe('calcComputedStatus', () => {
-  it('is_cancelled이면 cancelled', () => {
+  it('status가 cancel이면 cancelled', () => {
     expect(calcComputedStatus({
-      is_cancelled: true, paused_at: null, current_day: 10, last_sent_day: 5, duration_days: 365,
+      status: 'cancel', paused_at: null, current_day: 10, last_sent_day: 5, duration_days: 365,
     })).toBe('cancelled')
   })
 
   it('paused_at이 있으면 paused', () => {
     expect(calcComputedStatus({
-      is_cancelled: false, paused_at: '2026-03-20', current_day: 10, last_sent_day: 5, duration_days: 365,
+      status: 'live', paused_at: '2026-03-20', current_day: 10, last_sent_day: 5, duration_days: 365,
     })).toBe('paused')
   })
 
   it('current_day < 1이면 pending', () => {
     expect(calcComputedStatus({
-      is_cancelled: false, paused_at: null, current_day: -2, last_sent_day: 0, duration_days: 365,
+      status: 'live', paused_at: null, current_day: -2, last_sent_day: 0, duration_days: 365,
     })).toBe('pending')
   })
 
   it('last_sent_day >= duration_days이면 completed', () => {
     expect(calcComputedStatus({
-      is_cancelled: false, paused_at: null, current_day: 370, last_sent_day: 365, duration_days: 365,
+      status: 'live', paused_at: null, current_day: 370, last_sent_day: 365, duration_days: 365,
     })).toBe('completed')
   })
 
   it('그 외에는 active', () => {
     expect(calcComputedStatus({
-      is_cancelled: false, paused_at: null, current_day: 37, last_sent_day: 36, duration_days: 365,
+      status: 'live', paused_at: null, current_day: 37, last_sent_day: 36, duration_days: 365,
     })).toBe('active')
   })
 })
@@ -124,7 +124,7 @@ describe('computeSubscription', () => {
       last_sent_day: 20,
       paused_days: 0,
       paused_at: null,
-      is_cancelled: false,
+      status: 'live',
     }, '2026-03-22')
 
     expect(result.current_day).toBe(22)
@@ -140,7 +140,7 @@ describe('computeSubscription', () => {
       last_sent_day: 9,
       paused_days: 0,
       paused_at: '2026-03-10',
-      is_cancelled: false,
+      status: 'live',
     }, '2026-03-22')
 
     expect(result.current_day).toBe(10)
@@ -154,7 +154,7 @@ describe('computeSubscription', () => {
       last_sent_day: 0,
       paused_days: 0,
       paused_at: null,
-      is_cancelled: false,
+      status: 'live',
     })
 
     expect(result.computed_status).toBe('pending')

@@ -63,6 +63,25 @@ export async function POST(req: Request) {
       }
     }
 
+    // kakao_friend_name 업데이트 — 재주문 시 이름이 변경된 경우
+    for (const [phone, item] of phoneToItem) {
+      const customerId = phoneToId.get(phone)
+      if (!customerId) continue
+      const expectedKakaoName = item.customer_name + '/' + phone.slice(-4)
+      // 기존 고객의 kakao_friend_name을 확인하여 다르면 업데이트
+      const { data: existing } = await supabase
+        .from('customers')
+        .select('kakao_friend_name')
+        .eq('id', customerId)
+        .single()
+      if (existing && existing.kakao_friend_name !== expectedKakaoName) {
+        await supabase
+          .from('customers')
+          .update({ kakao_friend_name: expectedKakaoName })
+          .eq('id', customerId)
+      }
+    }
+
     // 새 고객 일괄 생성 (phone도 kakao도 매칭 안 된 고객만)
     const newCustomerRows = phones
       .filter(phone => !phoneToId.has(phone))
@@ -225,6 +244,7 @@ export async function POST(req: Request) {
         .select('customer_id, product_id')
         .in('customer_id', subCustomerIds)
         .in('product_id', subProductIds)
+        .not('status', 'in', '("cancel","archive")')
 
       const existingSubSet = new Set(
         existingSubs?.map(s => `${s.customer_id}::${s.product_id}`) || []

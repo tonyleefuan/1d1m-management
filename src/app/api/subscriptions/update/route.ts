@@ -32,6 +32,7 @@ const STATUS_LABELS: Record<string, string> = {
 export async function PATCH(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     const body = await req.json()
@@ -115,7 +116,6 @@ export async function PATCH(req: Request) {
       if (updates.status === 'cancel') {
         updateData.cancelled_at = new Date().toISOString()
         updateData.cancel_reason = updates.cancel_reason || null
-        updateData.is_cancelled = true  // #7: computeSubscription에서 cancelled 판단 가능하도록
       }
       if (updates.status === 'live') {
         updateData.paused_at = null
@@ -125,19 +125,7 @@ export async function PATCH(req: Request) {
     if (updates.device_id !== undefined) updateData.device_id = updates.device_id
     if (updates.start_date !== undefined) {
       updateData.start_date = updates.start_date
-      if (updates.start_date && targetIds.length === 1) {
-        const { data: sub } = await supabase
-          .from('subscriptions')
-          .select('duration_days')
-          .eq('id', targetIds[0])
-          .single()
-        if (sub) {
-          const startDate = new Date(updates.start_date)
-          const endDate = new Date(startDate)
-          endDate.setDate(endDate.getDate() + sub.duration_days - 1)
-          updateData.end_date = endDate.toISOString().slice(0, 10)
-        }
-      }
+      // end_date는 저장하지 않음 — computed_end_date로 매번 계산
     }
     if (updates.product_id !== undefined) updateData.product_id = updates.product_id
     if (updates.memo !== undefined) updateData.memo = updates.memo
@@ -145,45 +133,51 @@ export async function PATCH(req: Request) {
     if (updates.resume_date !== undefined) {
       updateData.resume_date = updates.resume_date
     }
-    // last_sent_day 직접 지정 (Day 수동 지정)
-    if (updates.last_sent_day !== undefined && targetIds.length === 1) {
+    // last_sent_day 직접 지정 (Day 수동 지정) — 벌크 지원
+    if (updates.last_sent_day !== undefined) {
       const newLastSentDay = Number(updates.last_sent_day)
-      const prev = prevMap.get(targetIds[0])
-      if (prev) {
-        if (newLastSentDay < 0 || newLastSentDay > prev.duration_days) {
-          return NextResponse.json({ error: `last_sent_day는 0~${prev.duration_days} 범위여야 합니다` }, { status: 400 })
+      if (newLastSentDay < 0) {
+        return NextResponse.json({ error: 'last_sent_day는 0 이상이어야 합니다' }, { status: 400 })
+      }
+      // 각 구독의 duration_days 범위 체크
+      for (const subId of targetIds) {
+        const prev = prevMap.get(subId)
+        if (prev && newLastSentDay > prev.duration_days) {
+          return NextResponse.json({ error: `last_sent_day는 ${prev.duration_days} 이하여야 합니다` }, { status: 400 })
         }
-        updateData.last_sent_day = newLastSentDay
-
-        // Clean up old failed queues for days already past
+      }
+      updateData.last_sent_day = newLastSentDay
+      // old failed 큐 정리 (day_number <= 새 값)
+      for (const subId of targetIds) {
         await supabase
           .from('send_queues')
           .delete()
-          .eq('subscription_id', targetIds[0])
+          .eq('subscription_id', subId)
           .eq('status', 'failed')
           .lte('day_number', newLastSentDay)
       }
     }
-    // last_sent_day 수동 조정 (+1 또는 -1)
-    if (updates.day_adjust !== undefined && targetIds.length === 1) {
-      const adjust = updates.day_adjust // +1 또는 -1
-      if (adjust !== 1 && adjust !== -1) {
-        return NextResponse.json({ error: 'last_sent_day 조정은 +1 또는 -1만 가능합니다' }, { status: 400 })
+    // last_sent_day 상대 조정 (day_adjust: 양수/음수 모두 가능) — 벌크 지원
+    if (updates.day_adjust !== undefined) {
+      const adjust = Number(updates.day_adjust)
+      if (!Number.isInteger(adjust) || adjust === 0) {
+        return NextResponse.json({ error: 'day_adjust는 0이 아닌 정수여야 합니다' }, { status: 400 })
       }
-      const prev = prevMap.get(targetIds[0])
-      if (prev) {
-        const newDay = (prev.last_sent_day ?? 0) + adjust
-        if (newDay < 0) {
-          return NextResponse.json({ error: 'last_sent_day는 0 미만이 될 수 없습니다' }, { status: 400 })
-        }
-        updateData.last_sent_day = newDay
-        // end_date도 같이 조정
-        if (prev.end_date) {
-          const newEnd = new Date(prev.end_date)
-          newEnd.setDate(newEnd.getDate() - adjust) // last_sent_day +1이면 end_date -1, last_sent_day -1이면 end_date +1
-          updateData.end_date = newEnd.toISOString().slice(0, 10)
+      // 벌크: 각 구독별로 개별 업데이트 필요 (현재 last_sent_day가 다르므로)
+      for (const subId of targetIds) {
+        const prev = prevMap.get(subId)
+        if (prev) {
+          const newDay = Math.max(0, (prev.last_sent_day ?? 0) + adjust)
+          const perUpdate: Record<string, unknown> = {
+            last_sent_day: newDay,
+            updated_at: new Date().toISOString(),
+          }
+          await supabase.from('subscriptions').update(perUpdate).eq('id', subId)
+          await logChange(subId, 'day_adjust', 'last_sent_day', String(prev.last_sent_day ?? 0), String(newDay), session.userId, `Day 조정: ${adjust > 0 ? '+' : ''}${adjust}`)
         }
       }
+      // day_adjust는 개별 처리했으므로 공통 update 건너뛰기
+      return NextResponse.json({ success: true, count: targetIds.length })
     }
 
     const { error } = await supabase
@@ -191,25 +185,32 @@ export async function PATCH(req: Request) {
       .update(updateData)
       .in('id', targetIds)
 
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // 취소 시 당일 이후 pending 큐 삭제 (발송 방지)
+    if (updates.status === 'cancel') {
+      await supabase
+        .from('send_queues')
+        .delete()
+        .in('subscription_id', targetIds)
+        .eq('status', 'pending')
+    }
+
     // Fix end_date + paused_days individually for pause→live transitions
     if (updates.status === 'live') {
-      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+      const todayDateStr = todayKST()
       for (const subId of targetIds) {
         const prev = prevMap.get(subId)
         if (prev?.status === 'pause' && prev.paused_at) {
-          // #11: KST 자정 기준 일수 계산 (daily-update와 통일, Math.floor)
-          const pauseStart = new Date(new Date(prev.paused_at).toISOString().slice(0, 10) + 'T00:00:00Z')
-          const todayMidnight = new Date(todayStr + 'T00:00:00Z')
+          // KST 자정 기준 일수 계산 (daily-update와 통일)
+          const pausedAtKST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(prev.paused_at))
+          const pauseStart = new Date(pausedAtKST + 'T00:00:00Z')
+          const todayMidnight = new Date(todayDateStr + 'T00:00:00Z')
           const pauseDays = Math.max(0, Math.floor((todayMidnight.getTime() - pauseStart.getTime()) / 86400000))
           const updateFields: Record<string, unknown> = {
-            // #6: paused_days 누적
             paused_days: (prev.paused_days ?? 0) + pauseDays,
           }
-          if (pauseDays > 0 && prev.end_date) {
-            const newEnd = new Date(prev.end_date + 'T00:00:00Z')
-            newEnd.setUTCDate(newEnd.getUTCDate() + pauseDays)
-            updateFields.end_date = newEnd.toISOString().slice(0, 10)
-          }
+
           await supabase.from('subscriptions').update(updateFields).eq('id', subId)
         }
       }
@@ -225,8 +226,6 @@ export async function PATCH(req: Request) {
           .eq('id', prev.customer_id)
       }
     }
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     // ─── 히스토리 로그 기록 ─────────────────────────
     for (const subId of targetIds) {
@@ -263,10 +262,10 @@ export async function PATCH(req: Request) {
         await logChange(subId, 'product_change', 'product_id',
           null, updates.product_id, session.userId)
       }
-      if (updates.day_adjust !== undefined) {
-        await logChange(subId, 'day_adjust', 'last_sent_day',
-          String(prev.last_sent_day ?? 0), String((prev.last_sent_day ?? 0) + updates.day_adjust),
-          session.userId)
+      if (updates.last_sent_day !== undefined && prev.last_sent_day !== updates.last_sent_day) {
+        await logChange(subId, 'day_set', 'last_sent_day',
+          String(prev.last_sent_day ?? 0), String(updates.last_sent_day),
+          session.userId, `Day 직접 설정`)
       }
     }
 

@@ -11,10 +11,22 @@ function diffDays(a: string, b: string): number {
   return Math.floor((new Date(a).getTime() - new Date(b).getTime()) / msPerDay)
 }
 
-// 날짜에 일수 더하기
+// KST 기준 N일 전 날짜 (YYYY-MM-DD) — yesterday, N days ago 등에 사용
+export function daysAgoKST(n: number): string {
+  const d = new Date(Date.now() - n * 86400000)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d)
+}
+
+// 특정 KST 날짜의 전날 (YYYY-MM-DD)
+export function prevDateKST(dateStr: string): string {
+  const ms = new Date(dateStr + 'T00:00:00+09:00').getTime() - 86400000
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(ms))
+}
+
+// 날짜에 일수 더하기 (UTC-safe)
 function addDays(date: string, days: number): string {
-  const d = new Date(date)
-  d.setDate(d.getDate() + days)
+  const d = new Date(date + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString().slice(0, 10)
 }
 
@@ -38,7 +50,7 @@ export function calcCurrentDay(input: CalcCurrentDayInput): number {
 }
 
 interface CalcStatusInput {
-  is_cancelled: boolean
+  status: string
   paused_at: string | null
   current_day: number
   last_sent_day: number
@@ -46,7 +58,7 @@ interface CalcStatusInput {
 }
 
 export function calcComputedStatus(input: CalcStatusInput): ComputedStatus {
-  if (input.is_cancelled) return 'cancelled'
+  if (input.status === 'cancel') return 'cancelled'
   if (input.paused_at) return 'paused'
   if (input.current_day < 1) return 'pending'
   if (input.last_sent_day >= input.duration_days) return 'completed'
@@ -86,7 +98,7 @@ export function computeSubscription(sub: {
   last_sent_day: number
   paused_days: number
   paused_at: string | null
-  is_cancelled: boolean
+  status: string
 }, today?: string) {
   const t = today || todayKST()
 
@@ -114,7 +126,7 @@ export function computeSubscription(sub: {
   })
 
   const computedStatus = calcComputedStatus({
-    is_cancelled: sub.is_cancelled,
+    status: sub.status,
     paused_at: sub.paused_at,
     current_day: currentDay,
     last_sent_day: sub.last_sent_day,

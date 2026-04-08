@@ -63,6 +63,72 @@ export async function POST(req: Request) {
         }
       }
       autoImported = true
+
+      // --- auto-import 후 last_sent_day 갱신 ---
+      // 이전 날짜의 pending → sent/failed 전환 후, 모든 큐가 'sent'인 Day에 대해 last_sent_day 전진
+      const { data: prevQueues } = await supabase
+        .from('send_queues')
+        .select('subscription_id, day_number, status, is_notice')
+        .lt('send_date', date)
+        .not('subscription_id', 'is', null)
+
+      if (prevQueues && prevQueues.length > 0) {
+        // 구독+Day별 상태 그룹화
+        const subDayGroups = new Map<string, { dayNumber: number; statuses: string[] }>()
+        for (const q of prevQueues) {
+          if (!q.subscription_id || !q.day_number || q.is_notice) continue
+          const key = `${q.subscription_id}:${q.day_number}`
+          if (!subDayGroups.has(key)) {
+            subDayGroups.set(key, { dayNumber: q.day_number, statuses: [] })
+          }
+          subDayGroups.get(key)!.statuses.push(q.status)
+        }
+
+        // 영향받는 구독 ID 수집
+        const affectedSubIds = [...new Set(prevQueues.filter(q => q.subscription_id).map(q => q.subscription_id!))]
+        const lastSentDayMap = new Map<string, number>()
+        for (let i = 0; i < affectedSubIds.length; i += 500) {
+          const batch = affectedSubIds.slice(i, i + 500)
+          const { data: subs } = await supabase.from('subscriptions').select('id, last_sent_day').in('id', batch)
+          for (const s of subs || []) {
+            lastSentDayMap.set(s.id, s.last_sent_day ?? 0)
+          }
+        }
+
+        // Day 순서대로 정렬하여 연속 성공 Day 찾기
+        const sortedEntries = [...subDayGroups.entries()].sort((a, b) => a[1].dayNumber - b[1].dayNumber)
+        const subMaxSuccessDay = new Map<string, number>()
+
+        for (const [key, group] of sortedEntries) {
+          const subscriptionId = key.split(':')[0]
+          // pending이 남아있으면 보류
+          if (group.statuses.includes('pending')) continue
+          if (group.statuses.every(s => s === 'sent')) {
+            const lastSentDay = lastSentDayMap.get(subscriptionId) ?? 0
+            if (group.dayNumber === lastSentDay + 1) {
+              lastSentDayMap.set(subscriptionId, group.dayNumber)
+              subMaxSuccessDay.set(subscriptionId, group.dayNumber)
+            }
+          }
+        }
+
+        // 배치 업데이트
+        const now = new Date().toISOString()
+        const dayUpdateGroups = new Map<number, string[]>()
+        for (const [subId, day] of subMaxSuccessDay) {
+          const arr = dayUpdateGroups.get(day) || []
+          arr.push(subId)
+          dayUpdateGroups.set(day, arr)
+        }
+        for (const [day, ids] of dayUpdateGroups) {
+          for (let i = 0; i < ids.length; i += 500) {
+            const batch = ids.slice(i, i + 500)
+            await supabase.from('subscriptions')
+              .update({ last_sent_day: day, updated_at: now })
+              .in('id', batch)
+          }
+        }
+      }
     }
 
     // --- 이어 붙이기 vs 초기화 판단 ---

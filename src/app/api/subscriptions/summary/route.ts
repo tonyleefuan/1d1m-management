@@ -8,15 +8,15 @@ export async function GET() {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // 1 query: status별 건수
-  const { data: statusRows } = await supabase
-    .from('subscriptions')
-    .select('status')
-
+  // status별 건수 (개별 count 쿼리 — PostgREST 1000행 제한 회피)
+  const statuses = ['live', 'pending', 'pause', 'archive', 'cancel'] as const
+  const countResults = await Promise.all(
+    statuses.map(s =>
+      supabase.from('subscriptions').select('id', { count: 'exact', head: true }).eq('status', s)
+    )
+  )
   const counts: Record<string, number> = { live: 0, pending: 0, pause: 0, archive: 0, cancel: 0 }
-  statusRows?.forEach(r => {
-    if (counts[r.status] !== undefined) counts[r.status]++
-  })
+  statuses.forEach((s, i) => { counts[s] = countResults[i].count ?? 0 })
 
   // 오늘 발송 수
   const today = todayKST()
