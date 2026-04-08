@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils'
 import { PC_COLORS, type SubscriptionStatus } from '@/lib/constants'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Timeline } from '@/components/ui/timeline'
-import { Send, Pause, FileText, RefreshCw, Upload } from 'lucide-react'
+import { Play, Pause, FileText, RefreshCw, Upload } from 'lucide-react'
 import { FloatingChatButton } from '@/components/ui/floating-chat'
 // CSV import removed — use scripts/import-subscriptions.ts for bulk import
 
@@ -630,12 +630,12 @@ export function SubscriptionsTab() {
             {selectedIds.size}건 선택
           </Badge>
           <Button size="sm" variant="outline" onClick={() => handleBulkStatus('live')}>
-            <Send className="mr-1 h-3 w-3" />
-            발송 시작
+            <Play className="mr-1 h-3 w-3" />
+            재개
           </Button>
           <Button size="sm" variant="outline" onClick={() => handleBulkStatus('pause')}>
             <Pause className="mr-1 h-3 w-3" />
-            일시정지
+            정지
           </Button>
           <Select onValueChange={(v) => handleBulkDevice(v === '__none__' ? '' : v)}>
             <SelectTrigger className="h-8 w-[160px] text-xs">
