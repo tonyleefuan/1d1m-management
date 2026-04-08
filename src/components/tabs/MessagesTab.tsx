@@ -540,7 +540,7 @@ function MessageEditModal({
       open
       onClose={onClose}
       title={msg ? '메시지 수정' : '메시지 추가'}
-      size="lg"
+      size="xl"
       submitLabel="저장"
       validate={() => {
         if (!content.trim()) return '내용을 입력해주세요'
@@ -577,8 +577,8 @@ function MessageEditModal({
           <Textarea
             value={content}
             onChange={e => setContent(e.target.value)}
-            className="font-mono"
-            rows={24}
+            className="font-mono min-h-[60vh]"
+            rows={30}
             placeholder="메시지 내용을 입력하세요"
           />
         </div>
