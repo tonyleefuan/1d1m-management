@@ -363,26 +363,14 @@ export async function POST(req: Request) {
       })
     }
 
-    // 6) 배치 삽입 (500개씩) — 유니크 제약(uq_send_queues_sub_day_date)으로 중복 방어
+    // 6) 배치 삽입 (500개씩) — 중복 방어는 코드 레벨(existingQueueKeys + deviceExisting 체크)
     let inserted = 0
     for (let i = 0; i < queueRows.length; i += 500) {
       const batch = queueRows.slice(i, i + 500)
       const { error } = await supabase.from('send_queues').insert(batch)
       if (error) {
-        // 유니크 제약 위반 (23505) = 동시 호출로 인한 중복 → 이미 생성된 것이므로 스킵
-        if (error.code === '23505') {
-          console.warn(`[generate] 유니크 제약 위반 (중복 요청): device=${deviceId}, date=${date}`)
-          // 이번 배치에서 삽입된 것 정리
-          if (inserted > 0) {
-            await supabase.from('send_queues').delete()
-              .eq('send_date', date).eq('device_id', deviceId)
-          }
-          return NextResponse.json({
-            ok: true, generated: 0, device_id: deviceId, skipped: true,
-            message: '동시 요청으로 인한 중복 — 이미 생성된 대기열이 존재합니다',
-          })
-        }
         console.error(`[generate] batch ${i} insert error:`, error.message)
+        // 부분 삽입된 것 정리
         if (inserted > 0) {
           const { error: rollbackErr } = await supabase.from('send_queues').delete()
             .eq('send_date', date).eq('device_id', deviceId)
