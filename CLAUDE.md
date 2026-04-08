@@ -156,6 +156,9 @@ if (!res.ok) throw new Error('실패')
 - `pending_days`: current_day - last_sent_day 사이의 미발송 Day 목록. 대기열 생성 기준.
 - 환불 이용일수는 current_day 사용 (last_sent_day 아닌).
 - 매크로 연동 폐기 → 구글 시트 기반으로 전환 완료.
+- **큐 유니크 제약**: `send_queues(subscription_id, day_number, send_date)` WHERE is_notice=false — 중복 큐 물리적 차단.
+- **큐 정리 정책**: last_sent_day 변경, day_adjust, 자동 정지, 취소 시 pending+failed 큐 삭제 → 다음 generate에서 재생성.
+- **미해결 실패 조회**: 발송 모니터링 "미해결 실패" 필터 — 재발송 성공/자동 정지/Day 변경으로 해결되지 않은 실패만 표시.
 
 ## 보안 필수사항
 - Vercel Cron 인증: `!!envSecret && cronSecret === \`Bearer ${envSecret}\`` (Bearer undefined 우회 방지)

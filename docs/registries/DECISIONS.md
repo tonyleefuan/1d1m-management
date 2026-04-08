@@ -40,4 +40,33 @@
 
 ### 2차 기능 (이번에 미구현)
 - 특정 구독자만 선택해서 내보내기
-- Day 수동 지정 (last_sent_day 직접 수정)
+- ~~Day 수동 지정 (last_sent_day 직접 수정)~~ → 구현 완료 (2026-04-08)
+
+## 발송 파이프라인 안전장치 강화 (2026-04-09)
+
+### DB 레벨 안전장치
+25. `send_queues(subscription_id, day_number, send_date)` 유니크 인덱스 추가 (WHERE is_notice = false)
+    — 코드 버그와 무관하게 중복 큐 물리적 차단
+26. generate API에서 유니크 제약 위반(23505) 시 graceful skip 처리
+
+### 큐 정리 정책 (SSOT)
+모든 경로에서 일관된 큐 정리:
+27. `last_sent_day` 직접 변경 시 → pending+failed 큐 전부 삭제
+28. `day_adjust` 상대 조정 시 → pending+failed 큐 전부 삭제 + duration_days 상한 체크
+29. 3일 연속 실패 자동 정지 시 → pending+failed 큐 전부 삭제 (정지됨 = 처리 완료)
+30. 구독 취소 시 → pending 큐 삭제
+
+### 메시지 조회 단순화
+31. 기존: 20개 상품 배치 + 글로벌 minDay/maxDay + 페이지네이션 → cross-product 오염 + 불안정 페이지네이션 발생
+32. 변경: 상품별 개별 조회 (product_id + day_number[] 단위) — 정확성 보장
+
+### chain advancement 안전장치
+33. futureDays 배열 중복 day 제거 후 chain walk — 중복 큐 잔존 시에도 chain이 조기 중단되지 않음
+
+### 미해결 실패 모니터링
+34. 발송 모니터링 탭 "미해결 실패" 필터: 날짜 무관, sent 큐가 없는 failed 큐만 조회
+35. 실패 큐 생애주기: 재발송 성공 시 목록에서 제외, 자동 정지 시 큐 삭제로 제외, Day 수동 변경 시 큐 삭제로 제외
+
+### generate race condition 방어
+36. pending→live 전환 시 body.date가 아닌 todayKST() 기준 — 미래 날짜 활성화 방지
+37. pause→live 전환 시 paused_days를 메인 update에 포함 (atomic) — 2단계 race 제거

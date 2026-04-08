@@ -34,8 +34,10 @@
 - 탭 클릭 → 테이블 필터
 
 ### 6. 필터 바
-- 상태 필터: 전체 / 대기 / 성공 / 실패 / 미처리
-- 요약 뱃지: 전체 N, 대기 N, 성공 N, 실패 N, 미처리 N
+- 상태 필터: 전체 / 대기 / 성공 / 미해결 실패
+  - "미해결 실패" 선택 시: 날짜 무관, 아직 재발송 성공하지 않은 failed 큐만 조회
+  - 해결 조건: 같은 subscription_id+day_number에 sent 큐 존재, 또는 자동 정지/Day 변경으로 큐 삭제
+- 요약 뱃지: 전체 N, 대기 N, 성공 N, 실패 N
 
 ### 7. 대기열 테이블
 | 열 | 데이터 | 비고 |
@@ -56,7 +58,7 @@
 | UI 요소 | DB 테이블 | 필드 |
 |---------|----------|------|
 | 발송 설정 | app_settings | send_start_time, send_message_delay, send_file_delay |
-| 대기열 | send_queues | 전체 필드 |
+| 대기열 | send_queues | 전체 필드, UNIQUE(subscription_id, day_number, send_date) WHERE is_notice=false |
 | PC 목록 | send_devices | id, phone_number, color, is_active |
 | 구독 정보 | subscriptions | last_sent_day, failure_type, recovery_mode |
 
