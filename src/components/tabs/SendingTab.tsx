@@ -117,6 +117,8 @@ export function SendingTab() {
   const [generating, setGenerating] = useState(false)
   const generatingRef = useRef(false)
   const [generatingProgress, setGeneratingProgress] = useState<string | null>(null)
+  const [generateLogs, setGenerateLogs] = useState<string[]>([])
+  const addGenLog = (msg: string) => setGenerateLogs(prev => [...prev, msg])
   const [statusFilter, setStatusFilter] = useState('all')
 
   // 페이지네이션
@@ -265,7 +267,9 @@ export function SendingTab() {
     if (generatingRef.current) return
     generatingRef.current = true
     setGenerating(true)
+    setGenerateLogs([])
     setGeneratingProgress('PC 목록 조회 중...')
+    addGenLog('📋 PC 목록 조회 중...')
 
     try {
       // 1단계: PC 목록 가져오기
@@ -279,12 +283,14 @@ export function SendingTab() {
 
       const deviceList = listJson.devices || []
       if (!deviceList.length) {
+        addGenLog('⚠️ 활성 PC가 없습니다')
         showSuccess('발송 대상이 없습니다')
         generatingRef.current = false
         setGenerating(false)
         setGeneratingProgress(null)
         return
       }
+      addGenLog(`✅ PC ${deviceList.length}대 확인`)
 
       // 2단계: PC별 순차 생성 (개별 PC 실패해도 나머지 계속 진행)
       let totalGenerated = 0
@@ -303,37 +309,50 @@ export function SendingTab() {
           })
           const devJson = await devRes.json()
           if (!devRes.ok) {
-            failedDevices.push(`${device.phone_number}: ${devJson.error || '생성 실패'}`)
+            const errMsg = `${device.phone_number}: ${devJson.error || '생성 실패'}`
+            failedDevices.push(errMsg)
+            addGenLog(`❌ ${errMsg}`)
             continue
           }
-          totalGenerated += devJson.generated || 0
-          if (devJson.skipped) { skippedDevices++; continue }
-          // 0건 생성 시 원인 추적
-          if ((devJson.generated || 0) === 0) {
+          const gen = devJson.generated || 0
+          totalGenerated += gen
+          if (devJson.skipped) {
+            skippedDevices++
+            addGenLog(`   ${device.phone_number} — 스킵 (이미 존재)`)
+            continue
+          }
+          if (gen === 0) {
             const reason = devJson.reason === 'no_live_subscriptions' ? '활성 구독 없음'
-              : devJson.reason === 'all_skipped' ? `구독 ${devJson.subscriptions}건 중 메시지 없음 ${devJson.skippedNoMsg}건, Day범위초과 ${devJson.skippedDayRange}건`
+              : devJson.reason === 'all_skipped' ? `메시지 없음 ${devJson.skippedNoMsg}건, Day초과 ${devJson.skippedDayRange}건`
               : '원인 불명'
             zeroDevices.push(`${device.phone_number}: ${reason}`)
+            addGenLog(`   ${device.phone_number} — 0건 (${reason})`)
+          } else {
+            addGenLog(`   ${device.phone_number} — ${gen}건 생성 (구독 ${devJson.subscriptions}건)`)
           }
         } catch (err) {
-          failedDevices.push(`${device.phone_number}: ${err instanceof Error ? err.message : '네트워크 오류'}`)
+          const errMsg = `${device.phone_number}: ${err instanceof Error ? err.message : '네트워크 오류'}`
+          failedDevices.push(errMsg)
+          addGenLog(`❌ ${errMsg}`)
         }
       }
 
-      // 결과 알림
+      // 결과 요약 로그
+      addGenLog('')
       if (failedDevices.length > 0) {
+        addGenLog(`⚠️ 실패 ${failedDevices.length}개 PC`)
         showError(`${failedDevices.length}개 PC 실패:\n${failedDevices.join('\n')}`)
       }
-      if (zeroDevices.length > 0) {
-        showError(`${zeroDevices.length}개 PC 0건 생성:\n${zeroDevices.join('\n')}`)
-      }
       if (skippedDevices === deviceList.length && failedDevices.length === 0) {
+        addGenLog('⚠️ 모든 PC에 이미 대기열이 존재합니다')
         showError('모든 PC에 이미 대기열이 존재합니다. 삭제 후 재생성하세요.')
       } else if (totalGenerated > 0) {
-        showSuccess(`대기열 ${totalGenerated}건 생성 완료 (${deviceList.length}개 PC${skippedDevices > 0 ? `, ${skippedDevices}개 스킵` : ''}${failedDevices.length > 0 ? `, ${failedDevices.length}개 실패` : ''})`)
+        addGenLog(`🎉 완료 — 총 ${totalGenerated}건 생성 (${deviceList.length}개 PC${skippedDevices > 0 ? `, ${skippedDevices}개 스킵` : ''}${failedDevices.length > 0 ? `, ${failedDevices.length}개 실패` : ''})`)
+        showSuccess(`대기열 ${totalGenerated}건 생성 완료`)
       }
       fetchSummary(); fetchQueue(1)
     } catch (err) {
+      addGenLog(`❌ 오류: ${err instanceof Error ? err.message : '대기열 생성 실패'}`)
       showError(err instanceof Error ? err.message : '대기열 생성 실패')
     }
 
@@ -378,7 +397,9 @@ export function SendingTab() {
     if (generatingRef.current) return
     generatingRef.current = true
     setGenerating(true)
+    setGenerateLogs([])
     setGeneratingProgress('기존 대기열 삭제 중...')
+    addGenLog('🗑️ 기존 대기열 삭제 중...')
     try {
       const clearRes = await fetch('/api/sending/clear', {
         method: 'POST',
@@ -389,9 +410,11 @@ export function SendingTab() {
         const clearJson = await clearRes.json().catch(() => ({}))
         throw new Error(clearJson.error || '기존 대기열 삭제 실패')
       }
+      addGenLog('✅ 기존 대기열 삭제 완료')
 
       // PC별 순차 생성 (generateQueue와 동일 로직)
       setGeneratingProgress('PC 목록 조회 중...')
+      addGenLog('📋 PC 목록 조회 중...')
       const listRes = await fetch('/api/sending/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -401,6 +424,7 @@ export function SendingTab() {
       if (!listRes.ok) throw new Error(listJson.error || '대기열 재생성 실패')
 
       const deviceList = listJson.devices || []
+      addGenLog(`✅ PC ${deviceList.length}대 확인`)
       let totalGenerated = 0
       const failedDevices: string[] = []
       for (let i = 0; i < deviceList.length; i++) {
@@ -414,25 +438,36 @@ export function SendingTab() {
           })
           const devJson = await devRes.json()
           if (!devRes.ok) {
-            failedDevices.push(`${device.phone_number}: ${devJson.error || '생성 실패'}`)
+            const errMsg = `${device.phone_number}: ${devJson.error || '생성 실패'}`
+            failedDevices.push(errMsg)
+            addGenLog(`❌ ${errMsg}`)
             continue
           }
-          totalGenerated += devJson.generated || 0
+          const gen = devJson.generated || 0
+          totalGenerated += gen
+          addGenLog(`   ${device.phone_number} — ${gen > 0 ? `${gen}건 생성` : '0건'}`)
         } catch (err) {
-          failedDevices.push(`${device.phone_number}: ${err instanceof Error ? err.message : '네트워크 오류'}`)
+          const errMsg = `${device.phone_number}: ${err instanceof Error ? err.message : '네트워크 오류'}`
+          failedDevices.push(errMsg)
+          addGenLog(`❌ ${errMsg}`)
         }
       }
 
+      addGenLog('')
       if (failedDevices.length > 0) {
+        addGenLog(`⚠️ 실패 ${failedDevices.length}개 PC`)
         showError(`재생성 중 ${failedDevices.length}개 PC 실패:\n${failedDevices.join('\n')}`)
       }
       if (totalGenerated > 0) {
-        showSuccess(`대기열 재생성 완료: ${totalGenerated}건 (${deviceList.length}개 PC${failedDevices.length > 0 ? `, ${failedDevices.length}개 실패` : ''})`)
+        addGenLog(`🎉 재생성 완료 — 총 ${totalGenerated}건 (${deviceList.length}개 PC${failedDevices.length > 0 ? `, ${failedDevices.length}개 실패` : ''})`)
+        showSuccess(`대기열 재생성 완료: ${totalGenerated}건`)
       } else if (failedDevices.length === 0) {
+        addGenLog('✅ 재생성 완료 (발송 대상 없음)')
         showSuccess('재생성 완료 (발송 대상 없음)')
       }
       fetchSummary(); fetchQueue(1)
     } catch (err) {
+      addGenLog(`❌ 오류: ${err instanceof Error ? err.message : '대기열 재생성 실패'}`)
       showError(err instanceof Error ? err.message : '대기열 재생성 실패')
     }
     generatingRef.current = false
@@ -954,6 +989,19 @@ export function SendingTab() {
             {/* 진행 상황 텍스트 */}
             {generating && generatingProgress && (
               <span className="text-sm font-medium text-primary animate-pulse">{generatingProgress}</span>
+            )}
+            {/* 대기열 생성 상세 로그 */}
+            {generateLogs.length > 0 && (
+              <div className="w-full mt-2 font-mono text-xs text-muted-foreground bg-muted/30 rounded p-2 max-h-[150px] overflow-y-auto">
+                {generateLogs.map((log, i) => (
+                  <div key={i} className={cn(
+                    log.startsWith('✅') && 'text-foreground',
+                    log.startsWith('🎉') && 'text-foreground font-medium',
+                    log.startsWith('❌') && 'text-destructive',
+                    log.startsWith('⚠️') && 'text-warning',
+                  )}>{log}</div>
+                ))}
+              </div>
             )}
             {exportProgress && (
               <span className="text-xs text-muted-foreground animate-pulse">{exportProgress}</span>
