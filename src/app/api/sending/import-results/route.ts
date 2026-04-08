@@ -461,7 +461,7 @@ async function updateSubscriptionStatuses(
       for (let i = 0; i < pauseIds.length; i += 500) {
         const batch = pauseIds.slice(i, i + 500)
         await supabase.from('subscriptions')
-          .update({ status: 'pause', updated_at: now })
+          .update({ status: 'pause', paused_at: now, updated_at: now })
           .in('id', batch)
       }
     }

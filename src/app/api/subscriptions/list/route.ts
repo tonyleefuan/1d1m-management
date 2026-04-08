@@ -47,13 +47,14 @@ export async function GET(req: Request) {
   if (deviceId) query = query.eq('device_id', deviceId)
   if (productId) query = query.eq('product_id', productId)
   if (orderDate) {
-    // ordered_at은 orders 테이블에 있으므로 join 경로로 필터
-    const nextDate = (() => { const d = new Date(orderDate + 'T00:00:00+09:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) })()
+    // ordered_at은 UTC로 저장 — KST 날짜 범위로 변환하여 필터
+    const kstStart = orderDate + 'T00:00:00+09:00' // KST 자정 = UTC 전날 15:00
+    const kstEnd = (() => { const d = new Date(orderDate + 'T00:00:00+09:00'); d.setDate(d.getDate() + 1); return d.toISOString() })()
     const { data: orderItems } = await supabase
       .from('order_items')
       .select('id, order:orders!inner(ordered_at)')
-      .gte('order.ordered_at', orderDate)
-      .lt('order.ordered_at', nextDate)
+      .gte('order.ordered_at', kstStart)
+      .lt('order.ordered_at', kstEnd)
       .limit(1000)
     if (orderItems?.length) {
       query = query.in('order_item_id', orderItems.map(oi => oi.id))
