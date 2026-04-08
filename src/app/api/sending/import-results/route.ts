@@ -605,89 +605,91 @@ async function repairMissedSubscriptionUpdates(
 
   let totalFixed = 0
   const MAX_ROUNDS = 10 // 연쇄 전진 최대 반복
+  const PAGE = 1000
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    // sent 큐인데 last_sent_day + 1 = day_number인 구독 찾기
-    const { data: mismatched, error } = await supabase.rpc('find_unsynced_subscriptions', {
-      p_dates: dates,
-    })
+    let fixedThisRound = 0
 
-    // RPC가 없으면 직접 쿼리
-    if (error?.message?.includes('function') || error?.message?.includes('does not exist')) {
-      // RPC 없이 직접 쿼리 — 날짜별로
-      let fixedThisRound = 0
-      for (const checkDate of dates) {
-        const { data: rows } = await supabase
+    for (const checkDate of dates) {
+      // 페이지네이션으로 전체 sent 큐 조회
+      const allRows: { subscription_id: string; day_number: number }[] = []
+      let offset = 0
+      while (true) {
+        const { data } = await supabase
           .from('send_queues')
           .select('subscription_id, day_number')
           .eq('send_date', checkDate)
           .eq('status', 'sent')
           .eq('is_notice', false)
+          .range(offset, offset + PAGE - 1)
+        if (!data?.length) break
+        allRows.push(...data)
+        if (data.length < PAGE) break
+        offset += PAGE
+      }
+      if (!allRows.length) continue
 
-        if (!rows?.length) continue
+      // 관련 구독의 last_sent_day 조회 (배치)
+      const subIds = [...new Set(allRows.map(r => r.subscription_id))]
+      const subMap = new Map<string, number>()
+      for (let i = 0; i < subIds.length; i += 500) {
+        const batch = subIds.slice(i, i + 500)
+        const { data } = await supabase.from('subscriptions').select('id, last_sent_day').in('id', batch)
+        for (const s of data || []) subMap.set(s.id, s.last_sent_day ?? 0)
+      }
 
-        // 관련 구독 조회
-        const subIds = [...new Set(rows.map(r => r.subscription_id))]
-        const subMap = new Map<string, number>()
-        for (let i = 0; i < subIds.length; i += 500) {
-          const batch = subIds.slice(i, i + 500)
-          const { data } = await supabase.from('subscriptions').select('id, last_sent_day').in('id', batch)
-          for (const s of data || []) subMap.set(s.id, s.last_sent_day ?? 0)
-        }
+      // 구독+Day별 그룹화
+      const groups = new Map<string, { subId: string; day: number; allSent: boolean }>()
+      for (const r of allRows) {
+        const key = `${r.subscription_id}:${r.day_number}`
+        if (!groups.has(key)) groups.set(key, { subId: r.subscription_id, day: r.day_number, allSent: true })
+      }
 
-        // 구독+Day별 그룹화
-        const groups = new Map<string, { subId: string; day: number; allSent: boolean }>()
-        for (const r of rows) {
-          const key = `${r.subscription_id}:${r.day_number}`
-          if (!groups.has(key)) groups.set(key, { subId: r.subscription_id, day: r.day_number, allSent: true })
-        }
-
-        // failed/pending 큐 확인
+      // failed/pending 큐 확인 (페이지네이션)
+      let nsOffset = 0
+      while (true) {
         const { data: nonSent } = await supabase
           .from('send_queues')
           .select('subscription_id, day_number')
           .eq('send_date', checkDate)
           .eq('is_notice', false)
           .in('status', ['pending', 'failed'])
-
-        for (const ns of nonSent || []) {
+          .range(nsOffset, nsOffset + PAGE - 1)
+        if (!nonSent?.length) break
+        for (const ns of nonSent) {
           const key = `${ns.subscription_id}:${ns.day_number}`
           const g = groups.get(key)
           if (g) g.allSent = false
         }
-
-        // last_sent_day + 1 = day_number인 것만 업데이트
-        const dayUpdates = new Map<number, string[]>()
-        for (const g of groups.values()) {
-          if (!g.allSent) continue
-          const lastDay = subMap.get(g.subId) ?? 0
-          if (g.day !== lastDay + 1) continue
-          const arr = dayUpdates.get(g.day) || []
-          arr.push(g.subId)
-          dayUpdates.set(g.day, arr)
-        }
-
-        const now = new Date().toISOString()
-        for (const [day, ids] of dayUpdates) {
-          for (let i = 0; i < ids.length; i += 500) {
-            const batch = ids.slice(i, i + 500)
-            await supabase.from('subscriptions')
-              .update({ last_sent_day: day, updated_at: now })
-              .in('id', batch)
-            fixedThisRound += batch.length
-          }
-        }
+        if (nonSent.length < PAGE) break
+        nsOffset += PAGE
       }
 
-      totalFixed += fixedThisRound
-      if (fixedThisRound === 0) break // 더 이상 보정할 게 없음
-      continue
+      // last_sent_day + 1 = day_number인 것만 업데이트
+      const dayUpdates = new Map<number, string[]>()
+      for (const g of groups.values()) {
+        if (!g.allSent) continue
+        const lastDay = subMap.get(g.subId) ?? 0
+        if (g.day !== lastDay + 1) continue
+        const arr = dayUpdates.get(g.day) || []
+        arr.push(g.subId)
+        dayUpdates.set(g.day, arr)
+      }
+
+      const now = new Date().toISOString()
+      for (const [day, ids] of dayUpdates) {
+        for (let i = 0; i < ids.length; i += 500) {
+          const batch = ids.slice(i, i + 500)
+          await supabase.from('subscriptions')
+            .update({ last_sent_day: day, updated_at: now })
+            .in('id', batch)
+          fixedThisRound += batch.length
+        }
+      }
     }
 
-    if (error) break
-    if (!mismatched?.length) break
-
-    totalFixed += mismatched.length
+    totalFixed += fixedThisRound
+    if (fixedThisRound === 0) break // 더 이상 보정할 게 없음
   }
 
   if (totalFixed > 0) {
