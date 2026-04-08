@@ -24,7 +24,15 @@ export async function POST(req: Request) {
         .eq('product_id', product_id)
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     } else {
-      const sort_order = body.sort_order ?? 1
+      // 같은 Day의 다음 sort_order 자동 계산
+      const { data: existing } = await supabase
+        .from('messages')
+        .select('sort_order')
+        .eq('product_id', product_id)
+        .eq('day_number', day_number)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+      const sort_order = body.sort_order ?? ((existing?.[0]?.sort_order ?? 0) + 1)
       const { error } = await supabase
         .from('messages')
         .upsert({ product_id, day_number, content, image_path: image_path || null, sort_order }, { onConflict: 'product_id,day_number,sort_order' })
