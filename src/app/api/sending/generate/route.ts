@@ -164,18 +164,16 @@ export async function POST(req: Request) {
 
     // 3) 메시지 벌크 프리페치
     const fixedKeys = new Set<string>()
-    const realtimeDateKeys = new Set<string>()
+    // realtime: product_id별 오늘 날짜 콘텐츠만 사용 (밀린 Day도 항상 오늘 콘텐츠)
+    const realtimeDateKeys = new Set<string>() // "product_id:YYYY-MM-DD"
 
     for (const sub of activeSubs) {
       const product = sub.product as any
       for (const day of sub.daysToSend) {
         if (day < 1 || day > sub.duration_days) continue
         if (product?.message_type === 'realtime') {
-          const daysAgo = sub.currentDay - day
-          const d = new Date(date)
-          d.setUTCDate(d.getUTCDate() - daysAgo)
-          const sendDateForDay = d.toISOString().slice(0, 10)
-          realtimeDateKeys.add(`${sub.product_id}:${sendDateForDay}`)
+          // 실시간 메시지는 항상 대기열 날짜(오늘)의 콘텐츠 사용
+          realtimeDateKeys.add(`${sub.product_id}:${date}`)
         } else {
           fixedKeys.add(`${sub.product_id}:${day}`)
         }
@@ -281,11 +279,8 @@ export async function POST(req: Request) {
         let messages: { content: string; image_path: string | null; sort_order: number }[] = []
 
         if (product?.message_type === 'realtime') {
-          const daysAgo = sub.currentDay - dayNum
-          const d = new Date(date)
-          d.setUTCDate(d.getUTCDate() - daysAgo)
-          const sendDateForDay = d.toISOString().slice(0, 10)
-          const dm = realtimeMsgMap.get(`${sub.product_id}:${sendDateForDay}`)
+          // 실시간 메시지는 항상 대기열 날짜(오늘)의 콘텐츠 사용
+          const dm = realtimeMsgMap.get(`${sub.product_id}:${date}`)
           if (dm) messages = [{ content: dm.content, image_path: dm.image_path, sort_order: 1 }]
         } else {
           const key = `${sub.product_id}:${dayNum}`
