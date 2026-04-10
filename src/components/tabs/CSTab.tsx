@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty-state'
+import { CollapsibleCard } from '@/components/ui/collapsible'
 import { PageHeader } from '@/components/ui/page-header'
 import { Spinner } from '@/components/ui/spinner'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -52,7 +53,7 @@ interface InquiryDetail {
   status: string
   created_at: string
   customer?: { name: string; kakao_friend_name: string }
-  subscription?: { product: { title: string }; last_sent_day: number; duration_days: number }
+  subscription?: { id: string; product: { title: string }; last_sent_day: number; duration_days: number }
   cs_replies: Reply[]
 }
 
@@ -121,6 +122,66 @@ const REFUND_STATUS_MAP: Record<string, StatusType> = {
   rejected: 'error',
 }
 
+// ─── Send History Table (reused in detail card + lookup dialog) ───
+function SendHistoryTable({ entries, anomalies }: { entries: any[]; anomalies?: any }) {
+  const dupSet = new Set(
+    (anomalies?.duplicates || []).map((d: any) => `${d.send_date}|${d.day_number}`),
+  )
+  const failSet = new Set(
+    (anomalies?.unresolved_failures || []).map((f: any) => `${f.send_date}|${f.day_number}`),
+  )
+  const hasAnomalies = (anomalies?.duplicates?.length || 0) + (anomalies?.gaps?.length || 0) + (anomalies?.unresolved_failures?.length || 0) > 0
+
+  return (
+    <div className="space-y-2">
+      {hasAnomalies && (
+        <div className="text-xs space-y-0.5 p-2 rounded bg-destructive/10 text-destructive">
+          {anomalies?.duplicates?.map((d: any, i: number) => (
+            <p key={`dup-${i}`}>⚠ 중복: {d.send_date} Day {d.day_number} ({d.count}건 발송)</p>
+          ))}
+          {anomalies?.gaps?.map((g: number, i: number) => (
+            <p key={`gap-${i}`}>⚠ 누락: Day {g}</p>
+          ))}
+          {anomalies?.unresolved_failures?.map((f: any, i: number) => (
+            <p key={`fail-${i}`}>⚠ 미해결 실패: {f.send_date} Day {f.day_number}</p>
+          ))}
+        </div>
+      )}
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-muted-foreground border-b">
+            <th className="text-left py-1 font-medium">날짜</th>
+            <th className="text-left py-1 font-medium">Day</th>
+            <th className="text-center py-1 font-medium">상태</th>
+            <th className="text-right py-1 font-medium">발송시간</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e: any, i: number) => (
+            <tr
+              key={i}
+              className={cn(
+                'border-b border-border/50',
+                dupSet.has(`${e.send_date}|${e.day_number}`) && 'bg-yellow-50 dark:bg-yellow-900/20',
+                failSet.has(`${e.send_date}|${e.day_number}`) && 'bg-orange-50 dark:bg-orange-900/20',
+              )}
+            >
+              <td className="py-1">{e.send_date?.slice(5)}</td>
+              <td className="py-1">Day {e.day_number}</td>
+              <td className="text-center py-1">
+                {e.status === 'sent' ? '✅' : e.status === 'failed' ? '❌' : '⏳'}
+              </td>
+              <td className="text-right py-1 text-muted-foreground">
+                {e.sent_at ? new Date(e.sent_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function CSTab() {
   const { toast, showSuccess, showError, clearToast } = useToast()
   const [section, setSection] = useState<Section>('escalated')
@@ -158,6 +219,19 @@ export function CSTab() {
   const [generalDetailLoading, setGeneralDetailLoading] = useState(false)
   const [generalReplyContent, setGeneralReplyContent] = useState('')
   const [generalReplySubmitting, setGeneralReplySubmitting] = useState(false)
+
+  // Send history state (inquiry detail)
+  const [sendHistory, setSendHistory] = useState<any>(null)
+  const [sendHistoryLoading, setSendHistoryLoading] = useState(false)
+
+  // Send history lookup dialog
+  const [historyLookupOpen, setHistoryLookupOpen] = useState(false)
+  const [historySearch, setHistorySearch] = useState('')
+  const [historySearchResults, setHistorySearchResults] = useState<any[]>([])
+  const [historySearchLoading, setHistorySearchLoading] = useState(false)
+  const [lookupSubId, setLookupSubId] = useState<string | null>(null)
+  const [lookupHistory, setLookupHistory] = useState<any>(null)
+  const [lookupHistoryLoading, setLookupHistoryLoading] = useState(false)
 
   // Refund detail dialog
   const [selectedRefund, setSelectedRefund] = useState<RefundRow | null>(null)
@@ -304,11 +378,21 @@ export function CSTab() {
     setSelectedId(id)
     setDetailLoading(true)
     setReplyContent('')
+    setSendHistory(null)
     try {
       const res = await fetch(`/api/admin/cs/inquiries/${id}`)
       if (!res.ok) throw new Error('로드 실패')
       const data = await res.json()
       setDetail(data.data)
+      // 구독 정보가 있으면 발송 이력도 가져옴
+      if (data.data?.subscription?.id) {
+        setSendHistoryLoading(true)
+        fetch(`/api/admin/cs/send-history?subscription_id=${data.data.subscription.id}&days=14`)
+          .then(r => r.ok ? r.json() : null)
+          .then(d => { if (d) setSendHistory(d.data) })
+          .catch(() => {})
+          .finally(() => setSendHistoryLoading(false))
+      }
     } catch (err: any) {
       showError(err.message)
     } finally {
@@ -493,7 +577,11 @@ export function CSTab() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="CS" description="고객 문의 관리 및 운영 정책" />
+      <PageHeader title="CS" description="고객 문의 관리 및 운영 정책">
+        <Button variant="outline" size="sm" onClick={() => { setHistoryLookupOpen(true); setHistorySearch(''); setHistorySearchResults([]); setLookupSubId(null); setLookupHistory(null) }}>
+          발송 이력 조회
+        </Button>
+      </PageHeader>
 
       {/* Sub-tabs */}
       <div className="flex gap-1 border-b">
@@ -823,6 +911,23 @@ export function CSTab() {
                   <p className="text-sm whitespace-pre-wrap">{detail.content}</p>
                 </CardContent>
               </Card>
+
+              {/* Send History Diagnosis */}
+              {detail.subscription?.id && (
+                <CollapsibleCard
+                  title="발송 이력"
+                  badge={sendHistory ? `${sendHistory.entries?.length || 0}건` : undefined}
+                  defaultOpen={!!(sendHistory?.anomalies?.duplicates?.length || sendHistory?.anomalies?.gaps?.length || sendHistory?.anomalies?.unresolved_failures?.length)}
+                >
+                  {sendHistoryLoading ? (
+                    <div className="flex justify-center py-4"><Spinner /></div>
+                  ) : sendHistory?.entries?.length > 0 ? (
+                    <SendHistoryTable entries={sendHistory.entries} anomalies={sendHistory.anomalies} />
+                  ) : (
+                    <p className="text-xs text-muted-foreground py-2">발송 이력 없음</p>
+                  )}
+                </CollapsibleCard>
+              )}
 
               {/* Replies */}
               {detail.cs_replies?.map(r => (
@@ -1177,6 +1282,88 @@ export function CSTab() {
               </Button>
             </DialogFooter>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Send History Lookup Dialog */}
+      <Dialog open={historyLookupOpen} onOpenChange={setHistoryLookupOpen}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>발송 이력 조회</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {/* Search */}
+            <form onSubmit={async (e) => {
+              e.preventDefault()
+              if (!historySearch.trim()) return
+              setHistorySearchLoading(true)
+              setLookupSubId(null)
+              setLookupHistory(null)
+              try {
+                const res = await fetch(`/api/admin/cs/send-history?search=${encodeURIComponent(historySearch.trim())}`)
+                if (!res.ok) throw new Error('검색 실패')
+                const data = await res.json()
+                setHistorySearchResults(data.data || [])
+              } catch { setHistorySearchResults([]) }
+              finally { setHistorySearchLoading(false) }
+            }} className="flex gap-2">
+              <Input
+                placeholder="고객명 또는 전화번호 뒷4자리"
+                value={historySearch}
+                onChange={e => setHistorySearch(e.target.value)}
+                className="text-sm"
+              />
+              <Button type="submit" size="sm" disabled={historySearchLoading}>
+                {historySearchLoading ? <Spinner /> : '검색'}
+              </Button>
+            </form>
+
+            {/* Search Results */}
+            {historySearchResults.length > 0 && !lookupSubId && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">{historySearchResults.length}개 구독</p>
+                {historySearchResults.map((s: any) => (
+                  <button
+                    key={s.id}
+                    className="w-full text-left p-2 rounded border border-border hover:bg-muted/50 transition-colors text-sm"
+                    onClick={async () => {
+                      setLookupSubId(s.id)
+                      setLookupHistoryLoading(true)
+                      try {
+                        const res = await fetch(`/api/admin/cs/send-history?subscription_id=${s.id}&days=14`)
+                        if (res.ok) {
+                          const data = await res.json()
+                          setLookupHistory(data.data)
+                        }
+                      } catch {} finally { setLookupHistoryLoading(false) }
+                    }}
+                  >
+                    <span className="font-medium">{s.customer?.kakao_friend_name || s.customer?.name || '-'}</span>
+                    <span className="text-muted-foreground ml-2">{s.product?.title}</span>
+                    <span className="text-muted-foreground ml-2">Day {s.last_sent_day}/{s.duration_days}</span>
+                    <StatusBadge status={(s.status === 'live' ? 'success' : s.status === 'pause' ? 'warning' : 'neutral') as StatusType} className="ml-2">{s.status}</StatusBadge>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Selected Subscription History */}
+            {lookupSubId && (
+              <div className="space-y-2">
+                <Button variant="ghost" size="sm" onClick={() => { setLookupSubId(null); setLookupHistory(null) }}>
+                  ← 목록으로
+                </Button>
+                {lookupHistoryLoading ? (
+                  <div className="flex justify-center py-4"><Spinner /></div>
+                ) : lookupHistory?.entries?.length > 0 ? (
+                  <SendHistoryTable entries={lookupHistory.entries} anomalies={lookupHistory.anomalies} />
+                ) : (
+                  <p className="text-xs text-muted-foreground py-2">발송 이력 없음</p>
+                )}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

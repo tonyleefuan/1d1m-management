@@ -143,7 +143,7 @@ async function handleCron(req: Request) {
               inquiry_id: inquiry.id,
               author_type: 'system',
               author_name: null,
-              content: '담당자가 직접 확인 후 답변 드리겠습니다. 조금만 기다려 주세요!',
+              content: '담당자가 확인 후 영업일 1일 이내에 답변 드리겠습니다.',
             })
           }
         }

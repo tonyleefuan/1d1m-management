@@ -2,7 +2,8 @@ import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/supabase'
 import { calculateRefund, formatRefundSummary } from '@/lib/refund'
-import { computeSubscription, todayKST } from '@/lib/day'
+import { computeSubscription, todayKST, daysAgoKST } from '@/lib/day'
+import { querySendHistory, detectAnomalies } from '@/lib/send-history'
 import { getSystemSettings } from '@/lib/settings'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -88,6 +89,19 @@ const CS_TOOLS: Anthropic.Tool[] = [
         account_holder: { type: 'string', description: '예금주 (계좌 환불 시 필수)' },
       },
       required: ['subscription_id', 'payment_method'],
+    },
+  },
+  {
+    name: 'query_send_history',
+    description: '구독의 최근 발송 이력을 조회하고 이상(중복, 누락, 실패)을 감지합니다. 고객이 발송 문제를 신고할 때 먼저 호출하세요.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        subscription_id: { type: 'string', description: '구독 UUID (선택 — 고객 구독이 1개면 자동 선택)' },
+        from_date: { type: 'string', description: '조회 시작일 YYYY-MM-DD (기본: 7일 전)' },
+        to_date: { type: 'string', description: '조회 종료일 YYYY-MM-DD (기본: 오늘)' },
+      },
+      required: [],
     },
   },
   {
@@ -534,6 +548,59 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
       }
     }
 
+    case 'query_send_history': {
+      // 보안: subscription → customer_id 검증
+      let subscriptionId = input.subscription_id as string | undefined
+      if (!subscriptionId) {
+        const { data: subs } = await supabase
+          .from('subscriptions')
+          .select('id')
+          .eq('customer_id', customerId)
+          .in('status', ['live', 'pause'])
+        if (!subs || subs.length === 0) return { success: false, error: '활성 구독이 없습니다.' }
+        if (subs.length > 1) return { success: false, error: `구독이 ${subs.length}개입니다. subscription_id를 지정해 주세요.` }
+        subscriptionId = subs[0].id
+      } else {
+        // 지정된 subscription이 이 고객 소유인지 검증
+        const { data: sub } = await supabase
+          .from('subscriptions')
+          .select('id')
+          .eq('id', subscriptionId)
+          .eq('customer_id', customerId)
+          .single()
+        if (!sub) return { success: false, error: '해당 구독을 찾을 수 없습니다.' }
+      }
+
+      const fromDate = (input.from_date as string) || daysAgoKST(7)
+      const toDate = (input.to_date as string) || todayKST()
+
+      const { data: entries, error } = await querySendHistory(subscriptionId!, fromDate, toDate)
+      if (error || !entries) return { success: false, error: error || '발송 이력 조회 실패' }
+
+      const anomalies = detectAnomalies(entries)
+      const hasAnomalies = anomalies.duplicates.length > 0 || anomalies.gaps.length > 0 || anomalies.unresolved_failures.length > 0
+
+      return {
+        success: true,
+        data: {
+          entries: entries.map(e => ({
+            send_date: e.send_date,
+            day_number: e.day_number,
+            status: e.status,
+            sent_at: e.sent_at,
+            message_snippet: e.message_snippet,
+          })),
+          anomalies,
+          has_anomalies: hasAnomalies,
+          summary: hasAnomalies
+            ? `이상 감지: 중복 ${anomalies.duplicates.length}건, 누락 Day ${anomalies.gaps.join(',')||'없음'}, 미해결 실패 ${anomalies.unresolved_failures.length}건`
+            : '이상 없음',
+          from_date: fromDate,
+          to_date: toDate,
+        },
+      }
+    }
+
     case 'escalate_to_admin': {
       return { success: true, data: { escalated: true, reason: input.reason } }
     }
@@ -632,6 +699,9 @@ ${policyTexts}
 9. 프로모션/가격 보상 요구 불가.
 10. 카톡 장애 시 문자 대체 발송 가능.
 11. 발송 시간/결제/이용기간 — 기본 안내 후 추가 요청 시 에스컬레이션.
+12. 전화 상담은 운영하지 않습니다. 고객이 전화 문의/전화 연락을 요청하면 "전화 상담은 운영하지 않고 있으며, 이 채널을 통해 답변드리고 있습니다. 담당자가 확인 후 영업일 1일 이내에 답변 드리겠습니다."라고 정중하게 안내하세요.
+13. 소비자원/신고/고소/법적 조치 등 위협성 발언 — 위협 자체에 반응하거나 언급하지 말고, 간결하게 사과 후 실질적 해결 옵션(환불, 기간 연장 등)을 안내하세요. 예: "불편을 드려 죄송합니다. 고객님께서 원하시는 부분을 해결해 드리겠습니다. 환불 및 이용기간 연장이 가능하니, 어떤 방향으로 도움 드릴지 말씀해 주세요."
+14. 발송 문제 신고(안 왔어요, 중복으로 왔어요, 특정 날짜 문제 등): query_send_history를 먼저 호출하여 실제 발송 이력을 확인하세요. 단순 케이스(시스템이 이미 처리 또는 재발송 성공)는 상태를 정상적으로 안내. 복잡 케이스(중복 발송, 미해결 실패 등)는 확인된 사실만 기술 후 에스컬레이션. 재발송이나 기간 연장을 약속하지 마세요.
 
 ## 응답 형식
 - 순수 텍스트만 (마크다운 금지). 절차 안내는 "1.", "2.", "3." 형태.
