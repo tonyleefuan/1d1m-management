@@ -50,7 +50,7 @@ export async function POST(
     if (inquiry.customer_id !== session.customerId) {
       return NextResponse.json({ error: '해당 문의를 찾을 수 없습니다.' }, { status: 404 }) // 403 대신 404 (정보 은닉)
     }
-    if (inquiry.status === 'closed' || inquiry.status === 'dismissed') {
+    if (inquiry.status === 'dismissed') {
       return NextResponse.json({ error: '이미 종료된 문의입니다. 추가 문의가 필요하시면 새 문의를 등록해 주세요.' }, { status: 400 })
     }
 
@@ -80,6 +80,12 @@ export async function POST(
           .from('cs_inquiries')
           .update({ status: 'escalated' })
           .eq('id', params.id)
+      } else if (inquiry.status === 'closed') {
+        // closed → pending (reopening, AI 재처리)
+        await supabase
+          .from('cs_inquiries')
+          .update({ status: 'pending' })
+          .eq('id', params.id)
       } else {
         // AI 답변 횟수 확인
         const { count: aiCount } = await supabase
@@ -89,13 +95,11 @@ export async function POST(
           .eq('author_type', 'ai')
 
         if ((aiCount ?? 0) < escalationThreshold) {
-          // AI 재응답 가능 → pending으로 되돌림 (다음 Cron에서 handleCsReply 호출)
           await supabase
             .from('cs_inquiries')
             .update({ status: 'pending' })
             .eq('id', params.id)
         } else {
-          // AI 응답 N회 초과 → 에스컬레이션
           await supabase
             .from('cs_inquiries')
             .update({ status: 'escalated' })

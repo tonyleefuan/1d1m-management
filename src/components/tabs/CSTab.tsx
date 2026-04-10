@@ -21,7 +21,13 @@ import {
 import { useToast } from '@/lib/use-toast'
 import { Toast } from '@/components/ui/Toast'
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import {
   CS_CATEGORY_LABELS,
+  CS_STATUS_LABELS,
   REFUND_STATUS_LABELS,
   PAYMENT_METHOD_LABELS,
 } from '@/lib/constants'
@@ -113,7 +119,18 @@ interface GeneralDetail extends GeneralInquiryRow {
   cs_general_replies: GeneralReply[]
 }
 
-type Section = 'escalated' | 'ai_answered' | 'refunds' | 'general' | 'policies'
+interface HistoryInquiry {
+  id: string
+  category: string
+  title: string
+  status: string
+  content: string
+  created_at: string
+  updated_at: string
+  cs_replies: Reply[]
+}
+
+type Section = 'escalated' | 'ai_answered' | 'refunds' | 'general' | 'closed' | 'policies'
 
 const REFUND_STATUS_MAP: Record<string, StatusType> = {
   pending: 'warning',
@@ -207,6 +224,15 @@ export function CSTab() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [replyContent, setReplyContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  // History state
+  const [history, setHistory] = useState<HistoryInquiry[]>([])
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null)
+
+  // AI suggested replies state
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  const [polishing, setPolishing] = useState(false)
 
   // Policy edit dialog
   const [editPolicy, setEditPolicy] = useState<Policy | null>(null)
@@ -379,6 +405,9 @@ export function CSTab() {
     setDetailLoading(true)
     setReplyContent('')
     setSendHistory(null)
+    setHistory([])
+    setExpandedHistoryId(null)
+    setSuggestions([])
     try {
       const res = await fetch(`/api/admin/cs/inquiries/${id}`)
       if (!res.ok) throw new Error('로드 실패')
@@ -392,6 +421,22 @@ export function CSTab() {
           .then(d => { if (d) setSendHistory(d.data) })
           .catch(() => {})
           .finally(() => setSendHistoryLoading(false))
+      }
+
+      // 과거 문의 내역 로드 (비동기)
+      fetch(`/api/admin/cs/inquiries/${id}/history`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => setHistory(d?.data || []))
+        .catch(() => {})
+
+      // AI 추천 답변 로드 (escalated일 때만)
+      if (data.data?.status === 'escalated') {
+        setSuggestionsLoading(true)
+        fetch(`/api/admin/cs/inquiries/${id}/suggestions`, { method: 'POST' })
+          .then(r => r.ok ? r.json() : null)
+          .then(d => setSuggestions(d?.suggestions || []))
+          .catch(() => {})
+          .finally(() => setSuggestionsLoading(false))
       }
     } catch (err: any) {
       showError(err.message)
@@ -419,6 +464,25 @@ export function CSTab() {
       showError(err.message)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handlePolish = async () => {
+    if (!replyContent.trim() || !selectedId || polishing) return
+    setPolishing(true)
+    try {
+      const res = await fetch(`/api/admin/cs/inquiries/${selectedId}/suggestions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'polish', draft: replyContent.trim() }),
+      })
+      if (!res.ok) throw new Error('다듬기 실패')
+      const data = await res.json()
+      if (data.polished) setReplyContent(data.polished)
+    } catch (err: any) {
+      showError(err.message)
+    } finally {
+      setPolishing(false)
     }
   }
 
@@ -590,6 +654,7 @@ export function CSTab() {
           { key: 'ai_answered' as Section, label: 'AI 응대', count: aiCount },
           { key: 'refunds' as Section, label: '환불 요청', count: refundPendingCount },
           { key: 'general' as Section, label: '기타 문의', count: generalUnreadCount },
+          { key: 'closed' as Section, label: '종료됨', count: 0 },
           { key: 'policies' as Section, label: '운영 정책', count: 0 },
         ]).map(t => (
           <Button
@@ -830,7 +895,11 @@ export function CSTab() {
         )
       ) : inquiries.length === 0 ? (
         <EmptyState
-          title={section === 'escalated' ? '확인이 필요한 문의가 없습니다' : 'AI 응대 문의가 없습니다'}
+          title={
+            section === 'escalated' ? '확인이 필요한 문의가 없습니다'
+            : section === 'closed' ? '종료된 문의가 없습니다'
+            : 'AI 응대 문의가 없습니다'
+          }
         />
       ) : (
         /* Inquiries List */
@@ -903,6 +972,67 @@ export function CSTab() {
                 {detail.subscription && ` · ${detail.subscription.product?.title} ${detail.subscription.last_sent_day}일차`}
                 {' · '}{formatDate(detail.created_at)}
               </div>
+
+              {/* Past inquiries (collapsible) */}
+              {history.length > 0 && (
+                <Collapsible>
+                  <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full py-1">
+                    <span className="text-[10px]">▶</span>
+                    <span>과거 문의 {history.length}건</span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="space-y-1.5 mt-1.5 mb-2">
+                      {history.map(h => (
+                        <Card key={h.id} className="bg-muted/30">
+                          <CardContent
+                            className="p-2.5 cursor-pointer"
+                            onClick={() => setExpandedHistoryId(expandedHistoryId === h.id ? null : h.id)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                                  {CS_CATEGORY_LABELS[h.category] || h.category}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {new Date(h.created_at).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {CS_STATUS_LABELS[h.status] || h.status}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground">
+                                {expandedHistoryId === h.id ? '▼' : '▶'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1 truncate">{h.content}</p>
+
+                            {expandedHistoryId === h.id && (
+                              <div className="mt-2 space-y-1.5 border-t pt-2">
+                                {h.cs_replies.map(r => (
+                                  <div key={r.id} className={cn('text-xs p-2 rounded', r.author_type !== 'customer' ? 'bg-background' : 'bg-muted/50')}>
+                                    <div className="flex items-center justify-between mb-0.5">
+                                      <span className="font-medium text-[10px]">
+                                        {r.author_type === 'customer' ? '고객' : r.author_type === 'ai' ? 'AI' : `관리자 (${r.author_name || ''})`}
+                                      </span>
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {new Date(r.created_at).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })}
+                                      </span>
+                                    </div>
+                                    <p className="whitespace-pre-wrap">{r.content}</p>
+                                  </div>
+                                ))}
+                                {h.cs_replies.length === 0 && (
+                                  <p className="text-[10px] text-muted-foreground">답변 없음</p>
+                                )}
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
 
               {/* Original */}
               <Card>
@@ -978,13 +1108,42 @@ export function CSTab() {
               {/* Admin reply */}
               {detail.status === 'escalated' && (
                 <div className="space-y-2 pt-2 border-t">
+                  {/* AI suggested replies */}
+                  {suggestionsLoading ? (
+                    <p className="text-xs text-muted-foreground">AI 추천 답변 생성 중...</p>
+                  ) : suggestions.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted-foreground">추천 답변 (클릭하여 사용)</p>
+                      {suggestions.map((s, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          className="w-full text-left text-xs p-2 rounded border border-border hover:bg-muted/50 transition-colors line-clamp-2"
+                          onClick={() => setReplyContent(s)}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <Textarea
                     placeholder="답변 내용을 입력하세요"
                     rows={3}
                     value={replyContent}
                     onChange={e => setReplyContent(e.target.value)}
-                    disabled={submitting}
+                    disabled={submitting || polishing}
                   />
+                  {replyContent.trim() && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePolish}
+                      disabled={polishing || submitting}
+                      className="text-xs"
+                    >
+                      {polishing ? 'AI 다듬는 중...' : 'AI 다듬기'}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>

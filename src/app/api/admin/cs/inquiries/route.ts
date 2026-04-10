@@ -18,7 +18,11 @@ export async function GET(req: Request) {
     .limit(100)
 
   if (status) {
-    query = query.eq('status', status)
+    if (status === 'closed') {
+      query = query.in('status', ['closed', 'dismissed'])
+    } else {
+      query = query.eq('status', status)
+    }
   }
 
   const { data, error } = await query

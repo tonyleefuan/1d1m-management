@@ -203,7 +203,23 @@ async function handleCron(req: Request) {
       .delete()
       .lt('attempted_at', oneDayAgo)
 
-    // ── 2.5. 종료 문의 자동 삭제 (CS_POLICY 데이터 보존 정책) ──
+    // ── 2.5. admin_answered 24시간 경과 → 자동 종료 ──
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const { data: staleAnswered } = await supabase
+      .from('cs_inquiries')
+      .select('id')
+      .eq('status', 'admin_answered')
+      .lt('updated_at', twentyFourHoursAgo)
+
+    if (staleAnswered && staleAnswered.length > 0) {
+      const staleIds = staleAnswered.map(i => i.id)
+      await supabase
+        .from('cs_inquiries')
+        .update({ status: 'closed' })
+        .in('id', staleIds)
+    }
+
+    // ── 2.6. 종료 문의 자동 삭제 (CS_POLICY 데이터 보존 정책) ──
     const retentionDays = Number(settings.cs_data_retention_days) || 7
     const sevenDaysAgo = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString()
     // 먼저 해당 문의의 답글 삭제
@@ -229,7 +245,7 @@ async function handleCron(req: Request) {
         .in('id', oldIds)
     }
 
-    // ── 2.6. Cron 로그 정리 ──
+    // ── 2.7. Cron 로그 정리 ──
     const logRetention = Number(settings.cron_log_retention_days) || 30
     const thirtyDaysAgo = new Date(Date.now() - logRetention * 24 * 60 * 60 * 1000).toISOString()
     await supabase
