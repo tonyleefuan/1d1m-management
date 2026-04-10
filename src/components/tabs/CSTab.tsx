@@ -171,6 +171,7 @@ export function CSTab() {
   // AI suggested replies state
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  const [polishing, setPolishing] = useState(false)
 
   // Policy edit dialog
   const [editPolicy, setEditPolicy] = useState<Policy | null>(null)
@@ -379,6 +380,25 @@ export function CSTab() {
       showError(err.message)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handlePolish = async () => {
+    if (!replyContent.trim() || !selectedId || polishing) return
+    setPolishing(true)
+    try {
+      const res = await fetch(`/api/admin/cs/inquiries/${selectedId}/suggestions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'polish', draft: replyContent.trim() }),
+      })
+      if (!res.ok) throw new Error('다듬기 실패')
+      const data = await res.json()
+      if (data.polished) setReplyContent(data.polished)
+    } catch (err: any) {
+      showError(err.message)
+    } finally {
+      setPolishing(false)
     }
   }
 
@@ -1006,8 +1026,19 @@ export function CSTab() {
                     rows={3}
                     value={replyContent}
                     onChange={e => setReplyContent(e.target.value)}
-                    disabled={submitting}
+                    disabled={submitting || polishing}
                   />
+                  {replyContent.trim() && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePolish}
+                      disabled={polishing || submitting}
+                      className="text-xs"
+                    >
+                      {polishing ? 'AI 다듬는 중...' : 'AI 다듬기'}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
