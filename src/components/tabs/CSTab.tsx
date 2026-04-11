@@ -271,7 +271,11 @@ export function CSTab() {
       const res = await fetch(`/api/admin/cs/inquiries?status=${status}`)
       if (!res.ok) throw new Error('로드 실패')
       const data = await res.json()
-      setInquiries(data.data || [])
+      const items = data.data || []
+      setInquiries(items)
+      // 뱃지 카운트도 실제 리스트와 동기화
+      if (status === 'escalated') setEscalatedCount(items.length)
+      else if (status === 'ai_answered') setAiCount(data.unreadAiCount ?? items.length)
     } catch (err: any) {
       showError(err.message || '문의 목록 로드 실패')
     } finally {
@@ -285,7 +289,10 @@ export function CSTab() {
       const res = await fetch('/api/admin/cs/refunds')
       if (!res.ok) throw new Error('로드 실패')
       const data = await res.json()
-      setRefunds(data.data || [])
+      const items = data.data || []
+      setRefunds(items)
+      // pending 환불만 카운트 (전체 환불 목록에서 pending 필터)
+      setRefundPendingCount(items.filter((r: any) => r.status === 'pending').length)
     } catch (err: any) {
       showError(err.message || '환불 목록 로드 실패')
     } finally {
@@ -299,7 +306,10 @@ export function CSTab() {
       const res = await fetch('/api/admin/cs/general-inquiries')
       if (!res.ok) throw new Error('로드 실패')
       const data = await res.json()
-      setGeneralInquiries(data.data || [])
+      const items = data.data || []
+      setGeneralInquiries(items)
+      // unread 카운트 동기화
+      setGeneralUnreadCount(items.filter((g: any) => !g.admin_read_at).length)
     } catch (err: any) {
       showError(err.message || '기타 문의 로드 실패')
     } finally {

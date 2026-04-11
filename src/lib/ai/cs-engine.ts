@@ -580,6 +580,12 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
       const anomalies = detectAnomalies(entries)
       const hasAnomalies = anomalies.duplicates.length > 0 || anomalies.gaps.length > 0 || anomalies.unresolved_failures.length > 0
 
+      // sent_at을 KST로 변환 (DB는 UTC로 저장, AI에게는 한국 시간으로 전달)
+      const toKST = (utc: string | null): string | null => {
+        if (!utc) return null
+        return new Date(utc).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })
+      }
+
       return {
         success: true,
         data: {
@@ -587,7 +593,7 @@ async function executeTool(name: string, input: Record<string, any>, customerIdO
             send_date: e.send_date,
             day_number: e.day_number,
             status: e.status,
-            sent_at: e.sent_at,
+            sent_at: toKST(e.sent_at),
             message_snippet: e.message_snippet,
           })),
           anomalies,
