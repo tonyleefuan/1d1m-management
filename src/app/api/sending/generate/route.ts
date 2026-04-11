@@ -147,24 +147,33 @@ export async function POST(req: Request) {
       if (computed.computed_status !== 'active') continue
       if (computed.pending_days.length === 0) continue
 
+      // 이미 큐가 있는 Day를 먼저 제거 (중복 제거 → 일수 제한 순서)
+      // 반대로 하면: import-results 지연 시 이미 보낸 Day만 선택되어 스킵되는 버그 발생
+      const availableDays = computed.pending_days.filter(d => !existingQueueKeys.has(`${sub.id}:${d}`))
+      if (availableDays.length === 0) continue
+
       // 신규 vs 실패 구분: failed 큐 있으면 최대 3일치, 없으면 1일만
       let daysToSend: number[]
       if (failedSubIds.has(sub.id)) {
-        daysToSend = computed.pending_days.slice(0, 3)
+        daysToSend = availableDays.slice(0, 3)
       } else {
-        daysToSend = [computed.pending_days[0]]
+        daysToSend = [availableDays[0]]
       }
-
-      // subscription_id + day_number 중복 제거
-      daysToSend = daysToSend.filter(d => !existingQueueKeys.has(`${sub.id}:${d}`))
-      if (daysToSend.length === 0) continue
 
       activeSubs.push({ ...sub, daysToSend, currentDay: computed.current_day })
     }
 
     // 3) 메시지 벌크 프리페치
+
+    // day_number → 실제 캘린더 날짜 역산 헬퍼
+    const dayToDate = (startDate: string, dayNum: number, pausedDays: number): string => {
+      const d = new Date(startDate + 'T00:00:00Z')
+      d.setUTCDate(d.getUTCDate() + (dayNum - 1) + pausedDays)
+      return d.toISOString().slice(0, 10)
+    }
+
     const fixedKeys = new Set<string>()
-    // realtime: product_id별 오늘 날짜 콘텐츠만 사용 (밀린 Day도 항상 오늘 콘텐츠)
+    // realtime: day_number별로 해당 날짜의 콘텐츠를 매핑 (밀린 Day는 과거 날짜 콘텐츠)
     const realtimeDateKeys = new Set<string>() // "product_id:YYYY-MM-DD"
 
     for (const sub of activeSubs) {
@@ -172,8 +181,9 @@ export async function POST(req: Request) {
       for (const day of sub.daysToSend) {
         if (day < 1 || day > sub.duration_days) continue
         if (product?.message_type === 'realtime') {
-          // 실시간 메시지는 항상 대기열 날짜(오늘)의 콘텐츠 사용
-          realtimeDateKeys.add(`${sub.product_id}:${date}`)
+          // 실시간 메시지: day_number에 해당하는 실제 날짜의 콘텐츠 사용
+          const targetDate = dayToDate(sub.start_date, day, sub.paused_days ?? 0)
+          realtimeDateKeys.add(`${sub.product_id}:${targetDate}`)
         } else {
           fixedKeys.add(`${sub.product_id}:${day}`)
         }
@@ -279,8 +289,9 @@ export async function POST(req: Request) {
         let messages: { content: string; image_path: string | null; sort_order: number }[] = []
 
         if (product?.message_type === 'realtime') {
-          // 실시간 메시지는 항상 대기열 날짜(오늘)의 콘텐츠 사용
-          const dm = realtimeMsgMap.get(`${sub.product_id}:${date}`)
+          // 실시간 메시지: day_number에 해당하는 실제 날짜의 콘텐츠 사용
+          const targetDate = dayToDate(sub.start_date, dayNum, sub.paused_days ?? 0)
+          const dm = realtimeMsgMap.get(`${sub.product_id}:${targetDate}`)
           if (dm) messages = [{ content: dm.content, image_path: dm.image_path, sort_order: 1 }]
         } else {
           const key = `${sub.product_id}:${dayNum}`
