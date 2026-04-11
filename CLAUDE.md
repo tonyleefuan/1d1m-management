@@ -1,5 +1,7 @@
 # 1D1M Management
 
+@docs/guides/MANYFAST_FEATURE_FORMAT.md
+
 > 1Day1Message 구독 서비스 운영 대시보드
 
 ## 개요
