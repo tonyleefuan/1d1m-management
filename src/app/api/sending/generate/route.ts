@@ -153,8 +153,12 @@ export async function POST(req: Request) {
       if (availableDays.length === 0) continue
 
       // 신규 vs 실패 구분: failed 큐 있으면 최대 3일치, 없으면 1일만
+      // realtime은 항상 오늘 콘텐츠 1건만 (밀려도 같은 콘텐츠이므로 중복 발송 방지)
+      const isRealtime = (sub.product as any)?.message_type === 'realtime'
       let daysToSend: number[]
-      if (failedSubIds.has(sub.id)) {
+      if (isRealtime) {
+        daysToSend = [availableDays[0]]
+      } else if (failedSubIds.has(sub.id)) {
         daysToSend = availableDays.slice(0, 3)
       } else {
         daysToSend = [availableDays[0]]
