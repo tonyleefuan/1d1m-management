@@ -165,25 +165,17 @@ export async function POST(req: Request) {
 
     // 3) 메시지 벌크 프리페치
 
-    // realtime 날짜 계산: 발송일(date) 기준으로 밀린 일수만큼 빼기
-    // date=4/12, currentDay=5, day=3 → 4/12 - 2 = 4/10
-    const realtimeTargetDate = (currentDay: number, day: number): string => {
-      const diff = currentDay - day  // 0이면 오늘, 양수면 밀린 일수
-      const d = new Date(date + 'T00:00:00Z')
-      d.setUTCDate(d.getUTCDate() - diff)
-      return d.toISOString().slice(0, 10)
-    }
-
     const fixedKeys = new Set<string>()
-    const realtimeDateKeys = new Set<string>() // "product_id:YYYY-MM-DD"
+    // realtime: 상품별 필요한 최대 건수를 모아서 최근 날짜순으로 조회
+    const realtimeMaxCount = new Map<string, number>() // product_id → 필요한 최대 건수
 
     for (const sub of activeSubs) {
       const product = sub.product as any
       for (const day of sub.daysToSend) {
         if (day < 1 || day > sub.duration_days) continue
         if (product?.message_type === 'realtime') {
-          const targetDate = realtimeTargetDate(sub.currentDay, day)
-          realtimeDateKeys.add(`${sub.product_id}:${targetDate}`)
+          const cur = realtimeMaxCount.get(sub.product_id) || 0
+          realtimeMaxCount.set(sub.product_id, Math.max(cur, sub.daysToSend.length))
         } else {
           fixedKeys.add(`${sub.product_id}:${day}`)
         }
@@ -219,20 +211,20 @@ export async function POST(req: Request) {
       }
     }
 
-    // realtime 메시지 조회
-    const realtimeMsgMap = new Map<string, { content: string; image_path: string | null }>()
-    if (realtimeDateKeys.size > 0) {
-      const pairs = [...realtimeDateKeys].map(k => { const [pid, d] = k.split(':'); return { pid, date: d } })
-      const uniquePids = [...new Set(pairs.map(p => p.pid))]
-      const uniqueDates = [...new Set(pairs.map(p => p.date))]
+    // realtime 메시지 조회: 상품별로 오늘(date)부터 역순으로 필요한 만큼 가져오기
+    // realtimeMsgList[product_id] = [오늘 콘텐츠, 어제 콘텐츠, 그제 콘텐츠, ...] (최신순)
+    const realtimeMsgList = new Map<string, { content: string; image_path: string | null }[]>()
+    for (const [pid, maxCount] of realtimeMaxCount) {
       const { data, error } = await supabase
         .from('daily_messages')
         .select('product_id, send_date, content, image_path')
-        .in('product_id', uniquePids)
-        .in('send_date', uniqueDates)
+        .eq('product_id', pid)
+        .lte('send_date', date)
         .eq('status', 'approved')
+        .order('send_date', { ascending: false })
+        .limit(maxCount)
       if (error) return NextResponse.json({ error: `실시간 메시지 조회 실패: ${error.message}` }, { status: 500 })
-      data?.forEach(dm => realtimeMsgMap.set(`${dm.product_id}:${dm.send_date}`, { content: dm.content, image_path: dm.image_path }))
+      realtimeMsgList.set(pid, (data || []).map(dm => ({ content: dm.content, image_path: dm.image_path })))
     }
 
     // 4) start/end 알림 템플릿 프리페치
@@ -261,6 +253,10 @@ export async function POST(req: Request) {
       const product = sub.product as any
       const customer = sub.customer as any
       const kakaoName = customer?.kakao_friend_name || '알 수 없음'
+      // realtime: 최신순 리스트를 복사해서 하나씩 꺼냄 (오늘→어제→그제 순)
+      const rtMessages = product?.message_type === 'realtime'
+        ? [...(realtimeMsgList.get(sub.product_id) || [])]
+        : null
 
       for (const dayNum of sub.daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) { skippedDayRange++; continue }
@@ -288,9 +284,9 @@ export async function POST(req: Request) {
 
         let messages: { content: string; image_path: string | null; sort_order: number }[] = []
 
-        if (product?.message_type === 'realtime') {
-          const targetDate = realtimeTargetDate(sub.currentDay, dayNum)
-          const dm = realtimeMsgMap.get(`${sub.product_id}:${targetDate}`)
+        if (product?.message_type === 'realtime' && rtMessages) {
+          // 밀린 Day(오래된 것)부터 처리 → 리스트 끝(오래된 날짜)에서 꺼냄
+          const dm = rtMessages.pop()
           if (dm) messages = [{ content: dm.content, image_path: dm.image_path, sort_order: 1 }]
         } else {
           const key = `${sub.product_id}:${dayNum}`
