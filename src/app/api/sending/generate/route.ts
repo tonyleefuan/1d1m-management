@@ -153,12 +153,8 @@ export async function POST(req: Request) {
       if (availableDays.length === 0) continue
 
       // 신규 vs 실패 구분: failed 큐 있으면 최대 3일치, 없으면 1일만
-      // realtime은 항상 오늘 콘텐츠 1건만 (밀려도 같은 콘텐츠이므로 중복 발송 방지)
-      const isRealtime = (sub.product as any)?.message_type === 'realtime'
       let daysToSend: number[]
-      if (isRealtime) {
-        daysToSend = [availableDays[0]]
-      } else if (failedSubIds.has(sub.id)) {
+      if (failedSubIds.has(sub.id)) {
         daysToSend = availableDays.slice(0, 3)
       } else {
         daysToSend = [availableDays[0]]
@@ -169,8 +165,16 @@ export async function POST(req: Request) {
 
     // 3) 메시지 벌크 프리페치
 
+    // realtime 날짜 계산: 발송일(date) 기준으로 밀린 일수만큼 빼기
+    // date=4/12, currentDay=5, day=3 → 4/12 - 2 = 4/10
+    const realtimeTargetDate = (currentDay: number, day: number): string => {
+      const diff = currentDay - day  // 0이면 오늘, 양수면 밀린 일수
+      const d = new Date(date + 'T00:00:00Z')
+      d.setUTCDate(d.getUTCDate() - diff)
+      return d.toISOString().slice(0, 10)
+    }
+
     const fixedKeys = new Set<string>()
-    // realtime: 밀렸든 안 밀렸든 항상 오늘(date) 날짜 콘텐츠 사용
     const realtimeDateKeys = new Set<string>() // "product_id:YYYY-MM-DD"
 
     for (const sub of activeSubs) {
@@ -178,7 +182,8 @@ export async function POST(req: Request) {
       for (const day of sub.daysToSend) {
         if (day < 1 || day > sub.duration_days) continue
         if (product?.message_type === 'realtime') {
-          realtimeDateKeys.add(`${sub.product_id}:${date}`)
+          const targetDate = realtimeTargetDate(sub.currentDay, day)
+          realtimeDateKeys.add(`${sub.product_id}:${targetDate}`)
         } else {
           fixedKeys.add(`${sub.product_id}:${day}`)
         }
@@ -284,7 +289,8 @@ export async function POST(req: Request) {
         let messages: { content: string; image_path: string | null; sort_order: number }[] = []
 
         if (product?.message_type === 'realtime') {
-          const dm = realtimeMsgMap.get(`${sub.product_id}:${date}`)
+          const targetDate = realtimeTargetDate(sub.currentDay, dayNum)
+          const dm = realtimeMsgMap.get(`${sub.product_id}:${targetDate}`)
           if (dm) messages = [{ content: dm.content, image_path: dm.image_path, sort_order: 1 }]
         } else {
           const key = `${sub.product_id}:${dayNum}`
