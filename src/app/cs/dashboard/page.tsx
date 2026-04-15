@@ -29,7 +29,7 @@ import { CS_CATEGORIES, CS_CATEGORY_LABELS, CS_CATEGORY_GUIDES } from '@/lib/con
 interface Sub {
   id: string
   product_id: string
-  product: { title: string } | null
+  product: { title: string; message_type?: 'fixed' | 'realtime' } | null
   duration_days: number
   current_day: number
   computed_status: string
@@ -161,11 +161,17 @@ export default function CSDashboard() {
 
     const parts: string[] = []
 
-    // 복수 선택된 구독 정보 추가
+    // 복수 선택된 구독 정보 추가 (상품 타입 포함 — AI가 고정/실시간 분기 판단에 사용)
     if (needsSubSelection && formSubIds.length > 0) {
       const subNames = formSubIds.map(sid => {
         const s = subs.find(sub => sub.id === sid)
-        return s ? `${s.product?.title || '상품'} (${s.current_day}일차)` : sid
+        if (!s) return sid
+        const typeLabel = s.product?.message_type === 'realtime'
+          ? '실시간 메시지'
+          : s.product?.message_type === 'fixed'
+            ? '고정 메시지'
+            : '타입 미상'
+        return `${s.product?.title || '상품'} [${typeLabel}] (${s.current_day}일차)`
       })
       parts.push(`[해당 구독]\n${subNames.map(n => `- ${n}`).join('\n')}`)
     }
