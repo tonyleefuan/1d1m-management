@@ -495,66 +495,89 @@ export function SendingTab() {
     setGenerateLogs([])
     addGenLog('📤 시트 내보내기 시작...')
     try {
-      const res = await fetch('/api/sending/export-sheet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: sendDate, force: true }),
-      })
-
-      if (!res.ok) {
-        const json = await res.json()
-        throw new Error(json.error || '시트 내보내기 실패')
+      const activeDevices = devices.filter(d => d.is_active)
+      if (!activeDevices.length) {
+        addGenLog('⚠️ 활성 PC가 없습니다')
+        showError('활성 PC가 없습니다')
+        setExporting(false)
+        setExportProgress('')
+        return
       }
 
-      // SSE 스트리밍 응답 처리
-      const reader = res.body?.getReader()
-      const decoder = new TextDecoder()
-      let lastResult: { total?: number; devices?: number; autoImported?: boolean } = {}
+      const totalDevices = activeDevices.length
+      let totalWritten = 0
+      let devicesWritten = 0
+      const failedDevices: string[] = []
 
-      if (reader) {
-        let buffer = ''
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buffer += decoder.decode(value, { stream: true })
+      addGenLog(`📋 PC ${totalDevices}대 순차 내보내기 시작`)
 
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
+      // PC 단위 순차 호출 — Vercel 함수 120초 한도 회피
+      for (let i = 0; i < activeDevices.length; i++) {
+        const device = activeDevices[i]
+        setExportProgress(`${device.phone_number} 쓰는 중... (${i + 1}/${totalDevices} PC)`)
 
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            try {
-              const data = JSON.parse(line.slice(6))
-              if (data.type === 'clearing') {
-                setExportProgress('시트 초기화 중...')
-                addGenLog('🗑️ 시트 초기화 중...')
-              } else if (data.type === 'start') {
-                setExportProgress(`${data.totalItems}건 내보내기 시작 (${data.totalDevices}개 PC)`)
-                addGenLog(`📋 ${data.totalItems}건 내보내기 시작 (${data.totalDevices}개 PC)`)
-              } else if (data.type === 'device_start') {
-                setExportProgress(`${data.device} 쓰는 중... (${data.deviceIndex}/${data.totalDevices} PC, ${data.items}건)`)
-              } else if (data.type === 'device_done') {
-                setExportProgress(`${data.device} 완료 (${data.deviceIndex}/${data.totalDevices} PC, 누적 ${data.totalWritten}건)`)
-                addGenLog(`   ${data.device} — ${data.items}건 완료`)
-              } else if (data.type === 'complete') {
-                lastResult = data
-              } else if (data.type === 'error') {
-                throw new Error(data.error)
+        try {
+          const res = await fetch('/api/sending/export-sheet', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: sendDate, device_id: device.id }),
+          })
+
+          if (!res.ok) {
+            const json = await res.json().catch(() => ({}))
+            throw new Error(json.error || '시트 내보내기 실패')
+          }
+
+          // SSE 스트리밍 응답 처리
+          const reader = res.body?.getReader()
+          const decoder = new TextDecoder()
+          let pcWritten = 0
+
+          if (reader) {
+            let buffer = ''
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              buffer += decoder.decode(value, { stream: true })
+
+              const lines = buffer.split('\n')
+              buffer = lines.pop() || ''
+
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue
+                try {
+                  const data = JSON.parse(line.slice(6))
+                  if (data.type === 'complete') {
+                    pcWritten = data.total ?? 0
+                  } else if (data.type === 'error') {
+                    throw new Error(data.error)
+                  }
+                } catch (e) {
+                  if (e instanceof Error && e.message !== 'Unexpected end of JSON input') throw e
+                }
               }
-            } catch (e) {
-              if (e instanceof Error && e.message !== 'Unexpected end of JSON input') throw e
             }
           }
+
+          totalWritten += pcWritten
+          devicesWritten++
+          setExportProgress(`${device.phone_number} 완료 (${i + 1}/${totalDevices} PC, 누적 ${totalWritten}건)`)
+          addGenLog(`   ${device.phone_number} — ${pcWritten}건 완료`)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : '알 수 없는 오류'
+          failedDevices.push(`${device.phone_number} (${msg})`)
+          addGenLog(`   ❌ ${device.phone_number} — 실패: ${msg}`)
         }
       }
 
-      let msg = `구글시트 내보내기 완료: ${lastResult.total ?? 0}건 (${lastResult.devices ?? 0}개 PC)`
-      if (lastResult.autoImported) {
-        msg += '\n(이전 미수거 결과를 자동으로 가져왔습니다)'
-        addGenLog('ℹ️ 이전 미수거 결과 자동 가져오기 완료')
+      if (failedDevices.length > 0) {
+        addGenLog(`⚠️ ${failedDevices.length}개 PC 실패:\n${failedDevices.join('\n')}`)
+        showError(`${failedDevices.length}개 PC 실패:\n${failedDevices.join('\n')}`)
       }
-      addGenLog(`🎉 시트 내보내기 완료 — ${lastResult.total ?? 0}건 (${lastResult.devices ?? 0}개 PC)`)
-      showSuccess(msg)
+      addGenLog(`🎉 시트 내보내기 완료 — ${totalWritten}건 (${devicesWritten}/${totalDevices}개 PC)`)
+      if (devicesWritten > 0) {
+        showSuccess(`구글시트 내보내기 완료: ${totalWritten}건 (${devicesWritten}/${totalDevices}개 PC)`)
+      }
       setLastExportAt(new Date().toISOString())
       fetchSummary(); fetchQueue(1)
     } catch (err) {
