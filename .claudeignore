@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+.next/
+dist/
+out/
+
+# Vercel
+.vercel/
+
+# Lock files (large, not useful for Claude)
+package-lock.json
+
+# Claude worktrees
+.claude/worktrees/
+
+# Coverage
+coverage/
+
+# Logs
+*.log
+
+# Archive docs (not SSOT)
+docs/archive/
