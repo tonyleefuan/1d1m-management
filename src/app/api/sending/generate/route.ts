@@ -131,6 +131,27 @@ export async function POST(req: Request) {
       failedQueues?.forEach(q => failedSubIds.add(q.subscription_id))
     }
 
+    // 1.7) 전일(date-1) 실패 구독 조회 — 다음날 안내 주입 판단용
+    // 고정 메시지: failure_retry_next ("함께 발송")
+    // 실시간 메시지: failure_retry_shift ("기간 연장") — 루프 내에서 상품 타입별로 분기
+    const yesterdayDate = (() => {
+      const d = new Date(`${date}T00:00:00.000Z`)
+      d.setUTCDate(d.getUTCDate() - 1)
+      return d.toISOString().slice(0, 10)
+    })()
+    const prevDayFailedSubIds = new Set<string>()
+    for (let i = 0; i < subIds.length; i += 500) {
+      const batch = subIds.slice(i, i + 500)
+      const { data: prevFailed } = await supabase
+        .from('send_queues')
+        .select('subscription_id')
+        .in('subscription_id', batch)
+        .eq('send_date', yesterdayDate)
+        .eq('status', 'failed')
+        .eq('is_notice', false)
+      prevFailed?.forEach(q => prevDayFailedSubIds.add(q.subscription_id))
+    }
+
     // 2) 구독 필터링 + pending_days 계산
     const activeSubs: (typeof subs[0] & { daysToSend: number[]; currentDay: number })[] = []
 
@@ -256,11 +277,43 @@ export async function POST(req: Request) {
       // realtime: 오늘 메시지 1건만 → currentDay(최신 Day)만 큐 생성, 나머지 밀린 Day는 스킵
       const realtimeDayToSend = isRealtime ? sub.daysToSend[sub.daysToSend.length - 1] : null
 
+      // 전일 실패 시 안내 주입 — 구독당 1회
+      // 고정: failure_retry_next (함께 발송)
+      // 실시간: failure_retry_shift (기간 연장) — "밀려도 하루 1건" 원칙으로 이미 자동 연장됨
+      const needFailureNotice = prevDayFailedSubIds.has(sub.id)
+      const failureNoticeType = isRealtime ? 'failure_retry_shift' : 'failure_retry_next'
+      let failureNoticeInjected = false
+
       for (const dayNum of sub.daysToSend) {
         if (dayNum < 1 || dayNum > sub.duration_days) { skippedDayRange++; continue }
 
         // realtime: 최신 Day만 큐 생성, 나머지는 스킵 (기간 연장으로 처리)
         if (isRealtime && dayNum !== realtimeDayToSend) continue
+
+        // 실패 재발송 안내 (이 구독의 첫 day 메시지 앞에 1회)
+        // 템플릿 없으면 스킵(관리자가 DB에서 제어), 재시도 방지 위해 성공/실패와 무관하게 플래그 세팅
+        if (needFailureNotice && !failureNoticeInjected) {
+          failureNoticeInjected = true
+          const failureNotice = await getNotice(failureNoticeType)
+          if (failureNotice?.content) {
+            sortOrder++
+            queueRows.push({
+              subscription_id: sub.id,
+              device_id: deviceId,
+              send_date: date,
+              day_number: 0,
+              kakao_friend_name: kakaoName,
+              message_content: failureNotice.content,
+              image_path: failureNotice.image_path,
+              sort_order: sortOrder,
+              message_seq: null,
+              status: 'pending',
+              is_notice: true,
+            })
+          } else {
+            console.warn(`[generate] ${failureNoticeType} 템플릿 없음 — 안내 주입 스킵`)
+          }
+        }
 
         // 시작 알림 (Day 1 앞)
         if (dayNum === 1) {

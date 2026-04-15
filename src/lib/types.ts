@@ -156,7 +156,7 @@ export interface ProductPrompt {
 
 export interface NoticeTemplate {
   id: string
-  notice_type: 'start' | 'end' | 'failure_retry_now' | 'failure_retry_next'
+  notice_type: 'start' | 'end' | 'failure_retry_now' | 'failure_retry_next' | 'failure_retry_shift'
   product_id: string | null
   content: string
   image_path: string | null

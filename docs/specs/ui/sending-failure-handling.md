@@ -1,5 +1,22 @@
 # 발송 실패 처리 + 모니터링 UX 개선 — UI 스펙
 
+## 전일 실패 → 다음날 자동 안내 주입 (2026-04-15 추가)
+
+4월 N일 결과 가져오기(`/api/sending/import-results`)로 실패가 확정된 뒤, 4월 N+1일 `POST /api/sending/generate` 실행 시 해당 구독의 그날 큐 **맨 앞**에 안내가 자동 주입된다.
+
+상품 타입별 템플릿 분기:
+- **고정 메시지 상품**: `failure_retry_next` ("함께 발송") — 어제치 + 오늘치 메시지가 함께 나감.
+- **실시간 메시지 상품**: `failure_retry_shift` ("기간 연장") — "밀려도 하루 1건" 원칙상 어제치는 기간 연장으로 처리, 오늘은 오늘 메시지 1건만.
+
+공통 조건:
+- `send_queues.send_date = date - 1일 AND status='failed' AND is_notice=false` 를 만족하는 구독이 대상.
+- 구독당 1회 주입(`is_notice=true, day_number=0, sort_order` 최소).
+- `notice_templates` 의 글로벌 템플릿(`product_id IS NULL`) 사용. 없거나 content 비면 스킵(경고 로그).
+- 자동 정지(3일 연속 실패)는 해당 구독을 `live` 필터에서 제외하므로 큐 생성 자체가 없음 → 자연 종료.
+- 운영 순서 전제: **발송 완료 → 결과 가져오기 → 다음날 generate**. 이 순서가 지켜지지 않으면 전일 실패가 `pending`으로 남아 감지되지 않는다.
+
+수동 "즉시 재발송"(`/api/sending/handle-failures`) 경로는 별개로 `failure_retry_now` 템플릿을 사용한다.
+
 ## 큐 정리 정책 (2026-04-09 추가)
 
 실패 큐는 다음 조건에서 삭제됨:
