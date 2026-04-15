@@ -22,16 +22,23 @@ export async function POST(req: Request) {
     const date = body.date || todayKST()
     const force = body.force === true
     const queueIds: string[] | null = body.queue_ids || null // 선택 내보내기용
+    const deviceIdFilter: string | null = body.device_id || null // PC 단위 분할 호출용 (queue_ids와 상호 배타 — 현재 클라이언트는 둘 중 하나만 전달)
 
     // --- 이전 미수집 결과 자동 import ---
-    const { count: pendingPrevCount } = await supabase
-      .from('send_queues')
-      .select('id', { count: 'exact', head: true })
-      .lt('send_date', date)
-      .eq('status', 'pending')
+    // device_id 단위 호출(PC 분할)에서는 auto-import/시트 초기화를 건너뜀
+    // (시트 초기화는 사용자가 별도 버튼으로 먼저 실행)
+    const skipPrepare = !!deviceIdFilter
+
+    const { count: pendingPrevCount } = skipPrepare
+      ? { count: 0 }
+      : await supabase
+          .from('send_queues')
+          .select('id', { count: 'exact', head: true })
+          .lt('send_date', date)
+          .eq('status', 'pending')
 
     let autoImported = false
-    if (pendingPrevCount && pendingPrevCount > 0) {
+    if (!skipPrepare && pendingPrevCount && pendingPrevCount > 0) {
       const { readSheetData: readSheet } = await import('@/lib/google-sheets')
       const { data: prevDevices } = await supabase
         .from('send_devices').select('phone_number').eq('is_active', true)
@@ -144,8 +151,9 @@ export async function POST(req: Request) {
           : String(lastExportSetting.value))
       : null
 
-    // #14: 선택 내보내기(queueIds)는 항상 이어 붙이기, force 전체 재내보내기 = 초기화
-    const isAppend = !!queueIds || (lastExportDate === date && !force)
+    // #14: 선택 내보내기(queueIds) 또는 PC 단위 분할(device_id)은 항상 이어 붙이기
+    //      force 전체 재내보내기 = 초기화
+    const isAppend = !!queueIds || !!deviceIdFilter || (lastExportDate === date && !force)
 
     // --- 발송 설정 조회 ---
     const { data: settingsData } = await supabase
@@ -187,6 +195,10 @@ export async function POST(req: Request) {
         query = query.in('id', queueIds)
       } else {
         query = query.eq('status', 'pending')
+      }
+
+      if (deviceIdFilter) {
+        query = query.eq('device_id', deviceIdFilter)
       }
 
       const { data: page, error: queueErr } = await query
