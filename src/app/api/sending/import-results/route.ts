@@ -4,8 +4,73 @@ import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { todayKST } from '@/lib/day'
 import { readSheetData } from '@/lib/google-sheets'
+import { sendSlackNotification } from '@/lib/slack'
 
 export const maxDuration = 120
+
+/**
+ * Vercel Cron 인증 확인 (Bearer undefined 우회 방지)
+ */
+function isCronRequest(req: Request): boolean {
+  const auth = req.headers.get('authorization')
+  const envSecret = process.env.CRON_SECRET
+  return !!envSecret && auth === `Bearer ${envSecret}`
+}
+
+/**
+ * 대시보드와 동일한 누적 집계를 Slack으로 발송
+ * get_queue_summary RPC로 device별 pending/sent/failed 조회 (대시보드 PC카드와 동일)
+ */
+async function sendCumulativeSlack(
+  date: string,
+  devices: { id: string; phone_number: string; name?: string | null }[]
+) {
+  const deviceLabelMap = new Map<string, string>()
+  devices.forEach(d => deviceLabelMap.set(d.id, d.name || d.phone_number))
+
+  // 대시보드가 쓰는 동일 RPC
+  const { data: counts, error } = await supabase.rpc('get_queue_summary', { p_date: date })
+  if (error) throw new Error(`누적 집계 조회 실패: ${error.message}`)
+
+  const summary: Record<string, { pending: number; sent: number; failed: number; total: number }> = {}
+  ;(counts || []).forEach((row: { device_id: string; status: string; cnt: number }) => {
+    const label = deviceLabelMap.get(row.device_id) || row.device_id
+    if (!summary[label]) summary[label] = { pending: 0, sent: 0, failed: 0, total: 0 }
+    const key = row.status as 'pending' | 'sent' | 'failed'
+    if (key in summary[label]) summary[label][key] += row.cnt
+    summary[label].total += row.cnt
+  })
+
+  // 활성 디바이스는 0건이어도 표시 (대시보드와 동일)
+  devices.forEach(d => {
+    const label = d.name || d.phone_number
+    if (!summary[label]) summary[label] = { pending: 0, sent: 0, failed: 0, total: 0 }
+  })
+
+  const totals = Object.values(summary).reduce(
+    (acc, s) => ({
+      pending: acc.pending + s.pending,
+      sent: acc.sent + s.sent,
+      failed: acc.failed + s.failed,
+      total: acc.total + s.total,
+    }),
+    { pending: 0, sent: 0, failed: 0, total: 0 }
+  )
+
+  const deviceLines = Object.entries(summary)
+    .map(([label, s]) => {
+      const rate = s.total > 0 ? Math.round((s.sent / s.total) * 100) : 0
+      const flag = s.failed > 0 ? `⚠️ 실패 ${s.failed.toLocaleString()}` : '✅'
+      return `${label}: 대기 ${s.pending.toLocaleString()} · 성공 ${s.sent.toLocaleString()}(${rate}%) · ${flag}`
+    })
+    .join('\n')
+
+  await sendSlackNotification(
+    `📊 *발송 현황* — ${date}\n` +
+    `총 ${totals.total.toLocaleString()}건 | 대기 ${totals.pending.toLocaleString()} · 성공 ${totals.sent.toLocaleString()} · 실패 ${totals.failed.toLocaleString()}\n` +
+    `\n${deviceLines}`
+  )
+}
 
 /**
  * 처리일시 파싱: "26.04.02 04:00:01" → "2026-04-02T04:00:01+09:00"
@@ -31,6 +96,14 @@ function mapResultStatus(result: string): 'sent' | 'failed' | null {
   return 'failed'  // 성공이 아닌 모든 값은 실패
 }
 
+// Vercel Cron은 GET으로 호출 (KST 11/13/15시 자동 결과 수거)
+export async function GET(req: Request) {
+  if (!isCronRequest(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return batchImport(todayKST(), { notifySlack: true })
+}
+
 export async function POST(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -46,7 +119,7 @@ export async function POST(req: Request) {
     return streamImport(date)
   }
 
-  // 기존 방식 (하위 호환)
+  // 관리자 수동 호출 — Slack 알림 안 감 (cron 전용)
   return batchImport(date)
 }
 
@@ -199,15 +272,21 @@ async function streamImport(date: string) {
 
 // ─── 기존 배치 방식 (하위 호환) ──────────────────────────────
 
-async function batchImport(date: string) {
+async function batchImport(date: string, opts: { notifySlack?: boolean } = {}) {
   try {
     const { data: devices, error: devErr } = await supabase
       .from('send_devices')
-      .select('id, phone_number, is_active')
+      .select('id, phone_number, name, is_active')
       .eq('is_active', true)
 
     if (devErr) throw new Error(`디바이스 조회 실패: ${devErr.message}`)
     if (!devices?.length) {
+      // cron 실행 중 활성 디바이스 0대는 운영상 이상 징후 — Slack 경고
+      if (opts.notifySlack) {
+        try {
+          await sendSlackNotification(`⚠️ *자동 결과 수거 스킵* — ${date}\n활성 디바이스가 없습니다 (send_devices.is_active = true 없음)`)
+        } catch {}
+      }
       return NextResponse.json({ ok: true, processed: 0, sent: 0, failed: 0, skipped: 0, message: '활성 디바이스가 없습니다' })
     }
 
@@ -216,11 +295,13 @@ async function batchImport(date: string) {
     const sheetErrors: string[] = []
 
     for (const device of devices) {
+      const deviceLabel = device.name || device.phone_number
+
       let rows: string[][]
       try {
         rows = await readSheetData(device.phone_number)
       } catch (err: any) {
-        sheetErrors.push(`${device.phone_number}: ${err?.message || '시트 읽기 실패'}`)
+        sheetErrors.push(`${deviceLabel}: ${err?.message || '시트 읽기 실패'}`)
         continue
       }
       if (rows.length <= 1) continue
@@ -285,6 +366,16 @@ async function batchImport(date: string) {
     const now = new Date().toISOString()
     await supabase.from('app_settings').upsert({ key: 'last_sheet_import_at', value: JSON.stringify(now), updated_at: now })
 
+    // Slack 알림 — cron 경로에서만, 실제 처리분이 있을 때
+    // get_queue_summary RPC로 대시보드와 동일한 누적 집계 조회
+    if (opts.notifySlack && (sentCount + failedCount) > 0) {
+      try {
+        await sendCumulativeSlack(date, devices)
+      } catch (slackErr: any) {
+        console.error('[import-results] Slack 알림 실패:', slackErr?.message)
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       processed: sentCount + failedCount,
@@ -294,6 +385,12 @@ async function batchImport(date: string) {
       sheetErrors: sheetErrors.length > 0 ? sheetErrors : undefined,
     })
   } catch (err: any) {
+    // cron 실패 시에도 Slack으로 알림 (관리자 조기 감지)
+    if (opts.notifySlack) {
+      try {
+        await sendSlackNotification(`⚠️ *자동 결과 수거 실패* — ${date}\n${err?.message || '알 수 없는 오류'}`)
+      } catch {}
+    }
     return NextResponse.json({ error: err.message || '결과 가져오기 중 오류가 발생했습니다' }, { status: 500 })
   }
 }
