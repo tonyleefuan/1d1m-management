@@ -171,6 +171,7 @@ function SendHistoryTable({ entries, anomalies }: { entries: any[]; anomalies?: 
             <th className="text-left py-1 font-medium">Day</th>
             <th className="text-center py-1 font-medium">상태</th>
             <th className="text-right py-1 font-medium">발송시간</th>
+            <th className="text-left py-1 pl-3 font-medium">미리보기</th>
           </tr>
         </thead>
         <tbody>
@@ -190,6 +191,12 @@ function SendHistoryTable({ entries, anomalies }: { entries: any[]; anomalies?: 
               </td>
               <td className="text-right py-1 text-muted-foreground">
                 {e.sent_at ? new Date(e.sent_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}
+              </td>
+              <td
+                className="py-1 pl-3 text-muted-foreground max-w-[240px] truncate"
+                title={e.message_snippet || undefined}
+              >
+                {e.message_snippet || '—'}
               </td>
             </tr>
           ))}

@@ -26,6 +26,14 @@ export interface SendHistoryResult {
   to_date: string
 }
 
+// ─── Helpers ────────────────────────────────────────
+
+function extractFirstLine(content: string | null | undefined): string {
+  if (!content) return ''
+  const firstLine = content.split(/\r?\n/)[0].trim()
+  return firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
+}
+
 // ─── Query ──────────────────────────────────────────
 
 export async function querySendHistory(
@@ -64,7 +72,7 @@ export async function querySendHistory(
         day_number: row.day_number,
         status: row.status,
         sent_at: row.sent_at,
-        message_snippet: (row.message_content || '').slice(0, 30),
+        message_snippet: extractFirstLine(row.message_content),
       })
     } else {
       // worst status 유지
@@ -74,6 +82,10 @@ export async function querySendHistory(
       // sent_at은 가장 빠른 것 유지
       if (row.sent_at && (!existing.sent_at || row.sent_at < existing.sent_at)) {
         existing.sent_at = row.sent_at
+      }
+      // snippet이 비어있고 이 행에 본문이 있으면 덮어쓰기 (이미지 행이 먼저 온 경우 대응)
+      if (!existing.message_snippet && row.message_content) {
+        existing.message_snippet = extractFirstLine(row.message_content)
       }
     }
   }
