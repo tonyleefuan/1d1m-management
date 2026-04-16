@@ -19,8 +19,7 @@ export async function GET() {
     .from('cs_inquiries')
     .select('*, cs_replies(id)')
     .eq('customer_id', session.customerId)
-    .neq('status', 'closed')
-    .gte('created_at', sevenDaysAgo)
+    .or(`status.neq.closed,created_at.gte.${sevenDaysAgo}`)
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
