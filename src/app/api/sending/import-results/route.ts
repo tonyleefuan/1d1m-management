@@ -12,6 +12,7 @@ export const maxDuration = 120
  * Vercel Cron 인증 확인 (Bearer undefined 우회 방지)
  */
 function isCronRequest(req: Request): boolean {
+  if (req.headers.get('x-vercel-cron') === '1') return true
   const auth = req.headers.get('authorization')
   const envSecret = process.env.CRON_SECRET
   return !!envSecret && auth === `Bearer ${envSecret}`

@@ -15,9 +15,8 @@ export async function POST(req: Request) {
 
 async function handleDailyUpdate(req: Request) {
   // Vercel Cron 또는 admin 세션 인증
-  const cronSecret = req.headers.get('authorization')
-  const envSecret = process.env.CRON_SECRET
-  const isVercelCron = !!envSecret && cronSecret === `Bearer ${envSecret}`
+  const isVercelCron = req.headers.get('x-vercel-cron') === '1' ||
+    (!!process.env.CRON_SECRET && req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`)
 
   if (!isVercelCron) {
     const session = await getSession()

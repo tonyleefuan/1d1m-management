@@ -93,9 +93,8 @@ export async function POST(request: NextRequest) {
 
 async function handleGenerateDaily(request: NextRequest) {
   // #18: Cron 또는 admin 인증 (다른 cron 핸들러와 동일 패턴)
-  const cronSecret = request.headers.get('authorization')
-  const envSecret = process.env.CRON_SECRET
-  const isValidCron = !!envSecret && cronSecret === `Bearer ${envSecret}`
+  const isValidCron = request.headers.get('x-vercel-cron') === '1' ||
+    (!!process.env.CRON_SECRET && request.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`)
 
   if (!isValidCron) {
     const session = await getSession()
