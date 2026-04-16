@@ -10,6 +10,14 @@
     },
     {
       "path": "/api/sending/import-results",
+      "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/sending/import-results",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/sending/import-results",
       "schedule": "0 2 * * *"
     },
     {
